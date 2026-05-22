@@ -18,6 +18,8 @@ Populate `RuleContext.policies` and `mesh_version` from live cluster state so re
 
 ### Next (follow-up branches)
 
+Track all phases: [PROGRESS.md](../PROGRESS.md). Lab runbook: [runbook-lab.md](../runbook-lab.md).
+
 - [ ] Namespace-scoped list (discoverySelectors / member roll) for OSSM
 - [ ] DestinationRule + sidecar workload spec scan (`ambientor-scan`)
 - [ ] Evidence attachments on findings (YAML snippets in CR status)

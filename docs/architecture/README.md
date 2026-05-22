@@ -22,3 +22,9 @@ See the repository [README](../../README.md) and CRDs under [`config/crd/`](../.
 ## Multi-cluster
 
 Register remote clusters with `ClusterConnection` on the hub cluster. Credentials are stored in Kubernetes Secrets; the hub controller validates references and aggregates status.
+
+## Implementation progress
+
+Phased tasks, PR history, and **next step**: [PROGRESS.md](../PROGRESS.md).
+
+Lab validation runbook: [runbook-lab.md](../runbook-lab.md).

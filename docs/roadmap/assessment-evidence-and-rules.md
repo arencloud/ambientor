@@ -19,6 +19,8 @@ Make assessment findings actionable: scan real pod specs for sidecar dependencie
 
 ### Next (follow-up branches)
 
+Track all phases: [PROGRESS.md](../PROGRESS.md).
+
 - [ ] Portal assessment UI to display evidence
 - [ ] SARIF export including evidence
 - [ ] SPIRE / EnvoyFilter-on-waypoint blockers
