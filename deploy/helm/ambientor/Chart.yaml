@@ -1,0 +1,19 @@
+apiVersion: v2
+name: ambientor
+description: Ambient Mesh Migration Assistant for Istio and OpenShift Service Mesh
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - istio
+  - ambient
+  - service-mesh
+  - migration
+maintainers:
+  - name: Ambientor Contributors
+
+dependencies:
+  - name: postgresql
+    version: "15.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled

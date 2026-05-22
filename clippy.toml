@@ -1,0 +1,1 @@
+doc-valid-idents = ["..", "OpenShift", "OSSM", "HBONE", "ztunnel", "istiod", "HTTPRoute", "VirtualService"]

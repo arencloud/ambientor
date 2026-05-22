@@ -1,0 +1,62 @@
+global:
+  imageRegistry: ""
+
+image:
+  repository: ghcr.io/arencloud/ambientor
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+namespace: ambientor-system
+
+operator:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+api:
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 8080
+  env:
+    AMBIENTOR_API_ADDR: "0.0.0.0:8080"
+    AMBIENTOR_JWT_SECRET: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+web:
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 3000
+  env:
+    AMBIENTOR_WEB_ADDR: "0.0.0.0:3000"
+    AMBIENTOR_API_URL: "http://ambientor-api:8080"
+
+postgresql:
+  enabled: true
+  auth:
+    username: ambientor
+    password: ambientor
+    database: ambientor
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+database:
+  url: ""
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: ambientor-operator

@@ -1,0 +1,29 @@
+[package]
+name = "ambientor-cli"
+description = "CLI for Ambient Mesh migration assessment and rollout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "ambientor"
+path = "src/main.rs"
+
+[dependencies]
+ambientor-core = { workspace = true }
+ambientor-k8s = { workspace = true }
+ambientor-mesh = { workspace = true }
+ambientor-plan = { workspace = true }
+ambientor-scan = { workspace = true }
+ambientor-types = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

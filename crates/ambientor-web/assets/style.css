@@ -1,0 +1,92 @@
+:root {
+  --purple: #7030a0;
+  --cyan: #0070c0;
+  --navy: #0a1628;
+  --bg: #f4f6fb;
+  --card: #fff;
+  --danger: #c62828;
+  --warn: #f57c00;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--navy);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  background: linear-gradient(135deg, var(--purple), var(--cyan));
+  color: white;
+}
+
+.brand { display: flex; align-items: center; gap: 0.75rem; }
+.brand h1 { margin: 0; font-size: 1.5rem; }
+.logo {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: bold; font-size: 1.25rem;
+}
+
+nav a {
+  color: rgba(255,255,255,0.85);
+  margin-left: 1.25rem;
+  text-decoration: none;
+}
+nav a.active { color: white; font-weight: 600; }
+
+main { padding: 2rem; max-width: 1200px; margin: 0 auto; }
+.panel { background: var(--card); border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+.hidden { display: none; }
+
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1rem 0; }
+.card {
+  padding: 1rem;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fafbff, #fff);
+  border: 1px solid #e8ecf4;
+}
+.score { font-size: 2.5rem; font-weight: 700;
+  background: linear-gradient(135deg, var(--purple), var(--cyan));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.metric { font-size: 2rem; font-weight: 600; }
+.danger { color: var(--danger); }
+.warn { color: var(--warn); }
+
+.btn {
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn.primary {
+  background: linear-gradient(135deg, var(--purple), var(--cyan));
+  color: white;
+}
+
+.findings { list-style: none; padding: 0; margin-top: 1.5rem; }
+.findings li {
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+  border-radius: 6px;
+  background: #f8f9fc;
+  border-left: 4px solid var(--cyan);
+}
+.findings li.blocker { border-left-color: var(--danger); }
+.findings li.warning { border-left-color: var(--warn); }
+
+.timeline p {
+  padding: 0.5rem;
+  border-bottom: 1px solid #eee;
+  font-family: monospace;
+  font-size: 0.85rem;
+}

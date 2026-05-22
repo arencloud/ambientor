@@ -1,0 +1,158 @@
+use ambientor_core::inventory::AssessmentResult;
+use ambientor_types::{
+    MigrationPlanSpec, MigrationWave, PolicyTask, RolloutSpec, RolloutStage, RolloutStageType,
+};
+
+/// Build a migration plan from assessment results.
+pub fn build_plan(assessment: &AssessmentResult, namespaces: &[String]) -> MigrationPlanSpec {
+    let waves = plan_waves(namespaces, assessment);
+    MigrationPlanSpec {
+        assessment_ref: None,
+        target_mesh_mode: "ambient".into(),
+        waves,
+    }
+}
+
+pub fn plan_waves(namespaces: &[String], assessment: &AssessmentResult) -> Vec<MigrationWave> {
+    let mut ordered: Vec<_> = namespaces.to_vec();
+    ordered.sort();
+
+    let blocker_ns: std::collections::HashSet<_> = assessment
+        .findings
+        .iter()
+        .filter(|f| matches!(f.severity, ambientor_types::FindingSeverity::Blocker))
+        .filter_map(|f| f.namespace.clone())
+        .collect();
+
+    let ready: Vec<_> = ordered
+        .iter()
+        .filter(|ns| !blocker_ns.contains(*ns))
+        .cloned()
+        .collect();
+    let blocked: Vec<_> = ordered
+        .iter()
+        .filter(|ns| blocker_ns.contains(*ns))
+        .cloned()
+        .collect();
+
+    let mut waves = Vec::new();
+    if !ready.is_empty() {
+        waves.push(MigrationWave {
+            name: "wave-1-canary".into(),
+            namespaces: ready.first().map(|n| vec![n.clone()]).unwrap_or_default(),
+            prerequisites: vec![
+                "ztunnel DaemonSet healthy".into(),
+                "istio-cni ambient mode enabled".into(),
+            ],
+            policy_tasks: vec![],
+        });
+        if ready.len() > 1 {
+            waves.push(MigrationWave {
+                name: "wave-2-expand".into(),
+                namespaces: ready[1..].to_vec(),
+                prerequisites: vec!["wave-1 verification passed".into()],
+                policy_tasks: policy_tasks_from_findings(assessment),
+            });
+        }
+    }
+    if !blocked.is_empty() {
+        waves.push(MigrationWave {
+            name: "wave-blocked".into(),
+            namespaces: blocked,
+            prerequisites: vec!["Resolve blocker findings before rollout".into()],
+            policy_tasks: vec![],
+        });
+    }
+    waves
+}
+
+fn policy_tasks_from_findings(assessment: &AssessmentResult) -> Vec<PolicyTask> {
+    assessment
+        .findings
+        .iter()
+        .filter(|f| f.id.starts_with("traffic."))
+        .map(|f| PolicyTask {
+            kind: "review".into(),
+            name: f.id.clone(),
+            namespace: f.namespace.clone().unwrap_or_default(),
+            action: f
+                .remediation
+                .clone()
+                .unwrap_or_else(|| "Review policy translation".into()),
+        })
+        .collect()
+}
+
+pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
+    let mut stages = vec![RolloutStage {
+        name: "preflight-dry-run".into(),
+        r#type: RolloutStageType::DryRun,
+        namespaces: vec![],
+        requires_approval: false,
+    }];
+
+    for (i, wave) in plan.waves.iter().enumerate() {
+        if wave.name == "wave-blocked" {
+            continue;
+        }
+        stages.push(RolloutStage {
+            name: format!("{}-label", wave.name),
+            r#type: RolloutStageType::LabelNamespace,
+            namespaces: wave.namespaces.clone(),
+            requires_approval: true,
+        });
+        stages.push(RolloutStage {
+            name: format!("{}-waypoint", wave.name),
+            r#type: RolloutStageType::DeployWaypoint,
+            namespaces: wave.namespaces.clone(),
+            requires_approval: i > 0,
+        });
+        stages.push(RolloutStage {
+            name: format!("{}-restart", wave.name),
+            r#type: RolloutStageType::RollingRestart,
+            namespaces: wave.namespaces.clone(),
+            requires_approval: true,
+        });
+        stages.push(RolloutStage {
+            name: format!("{}-verify", wave.name),
+            r#type: RolloutStageType::VerifyTraffic,
+            namespaces: wave.namespaces.clone(),
+            requires_approval: false,
+        });
+    }
+
+    RolloutSpec {
+        plan_ref: None,
+        auto_rollback: true,
+        stages,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ambientor_core::inventory::AssessmentResult;
+    use ambientor_types::{Finding, FindingCategory, FindingSeverity};
+
+    #[test]
+    fn orders_canary_first() {
+        let assessment = AssessmentResult {
+            findings: vec![Finding {
+                id: "readiness.vm-workload".into(),
+                severity: FindingSeverity::Blocker,
+                category: FindingCategory::Readiness,
+                title: "vm".into(),
+                message: "vm".into(),
+                namespace: Some("blocked-ns".into()),
+                resource: None,
+                remediation: None,
+                doc_url: None,
+            }],
+            scores: Default::default(),
+            summary: Default::default(),
+        };
+        let waves = plan_waves(&["good-ns".into(), "blocked-ns".into()], &assessment);
+        assert!(waves.iter().any(|w| w.name == "wave-1-canary"));
+        assert!(waves.iter().any(|w| w.name == "wave-blocked"));
+    }
+}

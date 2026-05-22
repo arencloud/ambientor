@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ambientor.fullname" . }}-operator
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: ambientor-operator
+spec:
+  replicas: {{ .Values.operator.replicas }}
+  selector:
+    matchLabels:
+      app: ambientor-operator
+  template:
+    metadata:
+      labels:
+        app: ambientor-operator
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: operator
+          image: {{ include "ambientor.image" . }}-operator
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: DATABASE_URL
+              value: {{ .Values.database.url | default (printf "postgres://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "ambientor.fullname" .) .Values.postgresql.auth.database) | quote }}
+          resources:
+            {{- toYaml .Values.operator.resources | nindent 12 }}

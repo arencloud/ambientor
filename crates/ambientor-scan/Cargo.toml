@@ -1,0 +1,20 @@
+[package]
+name = "ambientor-scan"
+description = "Ambient readiness and sidecar dependency scanners"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ambientor-analyze = { workspace = true }
+ambientor-core = { workspace = true }
+ambientor-types = { workspace = true }
+k8s-openapi = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -1,0 +1,92 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: rollouts.ambientor.io
+spec:
+  group: ambientor.io
+  names:
+    kind: Rollout
+    listKind: RolloutList
+    plural: rollouts
+    singular: rollout
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                planRef:
+                  type: string
+                autoRollback:
+                  type: boolean
+                  default: true
+                stages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      type:
+                        type: string
+                        enum:
+                          - InstallAmbientComponents
+                          - DeployWaypoint
+                          - LabelNamespace
+                          - TranslatePolicy
+                          - RollingRestart
+                          - RemoveInjection
+                          - VerifyTraffic
+                          - DryRun
+                      namespaces:
+                        type: array
+                        items:
+                          type: string
+                      requiresApproval:
+                        type: boolean
+                        default: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                currentStage:
+                  type: integer
+                approvedStage:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      message:
+                        type: string
+                stageResults:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      phase:
+                        type: string
+                      message:
+                        type: string
+                      startedAt:
+                        type: string
+                        format: date-time
+                      finishedAt:
+                        type: string
+                        format: date-time
+      subresources:
+        status: {}
