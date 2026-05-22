@@ -31,5 +31,10 @@
   ],
   "policies": {
     "destinationRulesWithSubsets": ["bookinfo/reviews-dr"]
+  },
+  "platform": {
+    "spireDetected": false,
+    "spireHits": [],
+    "ossmMemberNamespaces": []
   }
 }

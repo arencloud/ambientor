@@ -1,8 +1,7 @@
 use ambientor_core::rules::RuleContext;
 use ambientor_types::MeshFlavor;
 use async_trait::async_trait;
-use k8s_openapi::api::core::v1::Namespace;
-use kube::{Api, Client};
+use kube::Client;
 
 use crate::backend::{MeshBackend, PreflightCheck};
 use crate::inventory;
@@ -33,14 +32,23 @@ impl MeshBackend for OssmBackend {
 }
 
 async fn ossm_preflight(client: &Client) -> anyhow::Result<Vec<PreflightCheck>> {
-    let ns_api: Api<Namespace> = Api::all(client.clone());
-    let _ = ns_api.list(&Default::default()).await?;
+    let members = crate::platform_scan::collect_ossm_member_namespaces(client).await;
+    let member_ok = !members.is_empty();
     Ok(vec![
         PreflightCheck {
             id: "ossm-member-roll".into(),
-            passed: true,
-            message: "ServiceMeshMemberRoll detection deferred to namespace scan".into(),
-            remediation: None,
+            passed: member_ok,
+            message: if member_ok {
+                format!(
+                    "Found {} ServiceMeshMemberRoll member reference(s)",
+                    members.len()
+                )
+            } else {
+                "No ServiceMeshMemberRoll resources found".into()
+            },
+            remediation: Some(
+                "Create ServiceMeshMemberRoll to enroll namespaces before ambient migration".into(),
+            ),
         },
         PreflightCheck {
             id: "openshift-scc".into(),

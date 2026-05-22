@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Step 1.5 — deeper assessment rules (`cursor/assessment-depth-rules`).
+**Current focus:** Step 1.5 — assessment depth rules (`cursor/assessment-depth-rules`, ready for PR).
 
-**Next up:** Step 1.7 portal assessment UI or Step 1.8 SARIF (your choice).
+**Next up:** Step 1.7 portal assessment UI or Step 1.8 SARIF.
 
 **Last updated:** 2026-05-23
 
@@ -45,8 +45,8 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 1.2 | Real mesh inventory (Istio/Gateway API CRDs) | ✅ | PR [#2](https://github.com/arencloud/ambientor/pull/2) | `PolicyContext`, istiod version |
 | 1.3 | Assessment evidence + sidecar/DR rules | ✅ | PR [#3](https://github.com/arencloud/ambientor/pull/3) | `Finding.evidence`, workload scan |
 | 1.4 | Operator informers (replace 30s polling) | ✅ | PR [#5](https://github.com/arencloud/ambientor/pull/5) | kube-runtime watches; stable `{name}-assessment`; `observedGeneration` |
-| 1.5 | Deeper rules (SPIRE, EF-on-waypoint, version gates) | ⬜ | `cursor/assessment-depth-rules` | |
-| 1.6 | OSSM namespace / MemberRoll inventory | ⬜ | Part of 1.5 or mesh follow-up | |
+| 1.5 | Deeper rules (SPIRE, EF-on-waypoint, version gates) | 🔄 | `cursor/assessment-depth-rules` | PR pending |
+| 1.6 | OSSM namespace / MemberRoll inventory | ✅ | Part of 1.5 | MemberRoll list + enrollment warning |
 | 1.7 | Portal assessment UI + evidence | ⬜ | `cursor/portal-assessment-dashboard` | Wire `ambientor-web` to API |
 | 1.8 | SARIF export (`ambientor assess --output sarif`) | ⬜ | `cursor/cli-sarif-export` | |
 | 1.9 | Persist scans in Postgres | ⬜ | With 1.7 | When `DATABASE_URL` set |

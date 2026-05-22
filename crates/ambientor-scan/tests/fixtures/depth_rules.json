@@ -1,5 +1,6 @@
 {
-  "meshVersion": "1.30.0",
+  "meshVersion": "1.22.0",
+  "meshFlavor": "UpstreamIstio",
   "ambientInstalled": true,
   "gatewayApiPresent": true,
   "namespaces": [
@@ -7,25 +8,17 @@
       "name": "bookinfo",
       "injectionEnabled": true,
       "ambientEnabled": false,
-      "workloadCount": 12,
-      "hasVmWorkloads": false
-    },
-    {
-      "name": "ambient-demo",
-      "injectionEnabled": false,
-      "ambientEnabled": true,
       "workloadCount": 4,
       "hasVmWorkloads": false
     }
   ],
   "workloads": [],
   "policies": {
-    "virtualServices": ["bookinfo"],
-    "httpRoutes": []
+    "envoyFiltersWaypoint": ["bookinfo/wp-filter"]
   },
   "platform": {
-    "spireDetected": false,
-    "spireHits": [],
+    "spireDetected": true,
+    "spireHits": ["pod: spire/spire-server-0"],
     "ossmMemberNamespaces": []
   }
 }

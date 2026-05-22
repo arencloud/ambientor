@@ -5,6 +5,7 @@ pub mod dynamic;
 pub mod inventory;
 pub mod istio;
 pub mod openshift;
+pub mod platform_scan;
 pub mod policy_collect;
 pub mod version;
 pub mod workload_scan;

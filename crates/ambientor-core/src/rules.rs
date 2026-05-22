@@ -20,6 +20,17 @@ pub struct RuleContext {
     pub namespaces: Vec<NamespaceContext>,
     pub workloads: Vec<WorkloadContext>,
     pub policies: PolicyContext,
+    pub platform: PlatformContext,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformContext {
+    pub spire_detected: bool,
+    #[serde(default)]
+    pub spire_hits: Vec<String>,
+    #[serde(default)]
+    pub ossm_member_namespaces: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -62,6 +73,8 @@ pub struct PolicyContext {
     pub destination_rules: Vec<String>,
     #[serde(default)]
     pub destination_rules_with_subsets: Vec<String>,
+    #[serde(default)]
+    pub envoy_filters_waypoint: Vec<String>,
 }
 
 pub struct RuleRegistry {
