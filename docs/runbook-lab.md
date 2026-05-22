@@ -143,10 +143,10 @@ kubectl apply -f config/samples/ambientor_v1alpha1_cluster.yaml --context kind-a
 kubectl apply -f docs/lab/meshinventory-bookinfo.yaml --context kind-ambientor-lab
 ```
 
-Within ~30s (operator polling interval), the operator should:
+Within a few seconds (operator watch reconcile), the operator should:
 
-1. Patch `MeshInventory` status with `assessmentRef`
-2. Create an `AmbientAssessment` CR in namespace `ambientor-system`
+1. Patch `MeshInventory` status with `assessmentRef` and `observedGeneration`
+2. Create or update a stable `AmbientAssessment` named `{inventory-name}-assessment` in namespace `ambientor-system`
 
 Check:
 
@@ -220,8 +220,7 @@ Record anything that fails or surprises you; these are **expected** follow-ups (
 
 | Gap | Workaround | Planned step |
 |-----|------------|--------------|
-| Operator polls every ~30s | Wait or re-trigger `triggerScan` | 1.4 informers |
-| New assessment CR each inventory reconcile | Use latest assessment by timestamp | 1.4 informers |
+| Re-scan requires spec change | Bump `MeshInventory` metadata generation (e.g. edit spec) while `triggerScan: true` | Documented behavior |
 | Portal shows limited findings / no evidence UI | Use CLI `assess --output json` | 1.7 portal |
 | Rollout stages mostly stub | Do not run production rollouts | Phase 3 |
 | No `MigrationPlan` controller | Use CLI `plan` locally | 2.1 |

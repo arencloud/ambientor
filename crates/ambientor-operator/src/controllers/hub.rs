@@ -1,65 +1,66 @@
-use ambientor_types::ClusterConnection;
-use k8s_openapi::api::core::v1::Secret;
-use kube::{Api, Client, api::Patch};
-use tracing::{info, warn};
+use std::sync::Arc;
 
-use super::requeue_interval;
+use ambientor_types::ClusterConnection;
+use futures::StreamExt;
+use k8s_openapi::api::core::v1::Secret;
+use kube::{
+    Api, Client,
+    api::Patch,
+    runtime::controller::{Action, Controller},
+    runtime::watcher::Config,
+};
+
+use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 
 pub async fn run(client: Client) {
-    loop {
-        if let Err(e) = reconcile_all(&client).await {
-            tracing::error!(error = %e, "clusterconnection reconcile failed");
+    Controller::new(
+        Api::<ClusterConnection>::all(client.clone()),
+        Config::default(),
+    )
+    .shutdown_on_signal()
+    .run(reconcile, error_policy, Arc::new(client))
+    .for_each(|res| async move {
+        if let Err(e) = res {
+            tracing::error!(error = %e, "clusterconnection controller error");
         }
-        tokio::time::sleep(requeue_interval() * 10).await;
-    }
+    })
+    .await;
 }
 
-async fn reconcile_all(client: &Client) -> anyhow::Result<()> {
-    let api: Api<ClusterConnection> = Api::all(client.clone());
-    let list = api.list(&Default::default()).await?;
-    for conn in list.items {
-        reconcile_one(client, &conn).await?;
-    }
-    Ok(())
-}
-
-async fn reconcile_one(client: &Client, conn: &ClusterConnection) -> anyhow::Result<()> {
-    let secret_ref = &conn.spec.credentials_secret_ref;
-    let secret_ns = secret_ref
-        .namespace
-        .clone()
-        .or_else(|| conn.metadata.namespace.clone())
-        .unwrap_or_else(|| "ambientor-system".into());
-    let secrets: Api<Secret> = Api::namespaced(client.clone(), &secret_ns);
-    match secrets.get(&secret_ref.name).await {
-        Ok(_) => info!(cluster = %conn.spec.display_name, "credentials secret present"),
-        Err(e) => warn!(error = %e, "credentials secret missing"),
-    }
-
+async fn reconcile(conn: Arc<ClusterConnection>, client: Arc<Client>) -> ReconcileResult {
     let ns = conn
         .metadata
         .namespace
         .clone()
         .unwrap_or_else(|| "default".into());
-    let api: Api<ClusterConnection> = Api::namespaced(client.clone(), &ns);
+    let secret_ns = conn
+        .spec
+        .credentials_secret_ref
+        .namespace
+        .clone()
+        .unwrap_or_else(|| ns.clone());
+    let secret_name = &conn.spec.credentials_secret_ref.name;
+
+    let secrets: Api<Secret> = Api::namespaced(client.as_ref().clone(), &secret_ns);
+    let phase = match secrets.get(secret_name).await {
+        Ok(_) => "Connected",
+        Err(kube::Error::Api(e)) if e.code == 404 => "SecretMissing",
+        Err(e) => {
+            return Err(ReconcileError::Kube(e));
+        }
+    };
+
+    let api: Api<ClusterConnection> = Api::namespaced(client.as_ref().clone(), &ns);
     if let Some(name) = &conn.metadata.name {
-        let phase = if conn.spec.hub {
-            "HubActive"
-        } else {
-            "Connected"
-        };
         let status = serde_json::json!({
             "status": {
                 "phase": phase,
-                "conditions": [{
-                    "type": "CredentialsVerified",
-                    "status": "True",
-                    "message": "Secret reference resolved in local namespace"
-                }]
+                "lastSyncTime": chrono::Utc::now().to_rfc3339(),
             }
         });
         api.patch_status(name, &Default::default(), &Patch::Merge(status))
-            .await?;
+            .await
+            .map_err(ReconcileError::Kube)?;
     }
-    Ok(())
+    Ok(Action::await_change())
 }

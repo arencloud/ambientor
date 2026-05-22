@@ -24,6 +24,8 @@ ambientor-scan = { workspace = true }
 ambientor-types = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
 k8s-openapi = { workspace = true }
 kube = { workspace = true }
 serde_json = { workspace = true }

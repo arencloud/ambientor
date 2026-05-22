@@ -5,7 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Phase 1 complete through Step 1 (lab runbook). **Next up:** Step 2 — operator informers (`cursor/operator-informers`).
+**Current focus:** Step 1.4 — operator informers (`cursor/operator-informers`, ready for PR).
+
+**Next up:** Step 1.5 — deeper assessment rules (`cursor/assessment-depth-rules`).
 
 **Last updated:** 2026-05-23
 
@@ -42,7 +44,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 1.1 | **Lab validation runbook** | ✅ | `docs/runbook-lab.md`, `docs/lab/*`, `scripts/lab-*` | Step 1 deliverable; you run on kind/lab |
 | 1.2 | Real mesh inventory (Istio/Gateway API CRDs) | ✅ | PR [#2](https://github.com/arencloud/ambientor/pull/2) | `PolicyContext`, istiod version |
 | 1.3 | Assessment evidence + sidecar/DR rules | ✅ | PR [#3](https://github.com/arencloud/ambientor/pull/3) | `Finding.evidence`, workload scan |
-| 1.4 | Operator informers (replace 30s polling) | ⬜ | `cursor/operator-informers` | Inventory → assessment without duplicate CRs |
+| 1.4 | Operator informers (replace 30s polling) | 🔄 | `cursor/operator-informers` | PR pending; kube-runtime watches; `observedGeneration` dedup |
 | 1.5 | Deeper rules (SPIRE, EF-on-waypoint, version gates) | ⬜ | `cursor/assessment-depth-rules` | |
 | 1.6 | OSSM namespace / MemberRoll inventory | ⬜ | Part of 1.5 or mesh follow-up | |
 | 1.7 | Portal assessment UI + evidence | ⬜ | `cursor/portal-assessment-dashboard` | Wire `ambientor-web` to API |

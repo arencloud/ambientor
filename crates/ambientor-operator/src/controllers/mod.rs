@@ -1,27 +1,27 @@
 pub mod assessment;
 pub mod cluster;
+pub mod context;
 pub mod hub;
 pub mod inventory;
 pub mod rollout;
+mod runtime;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use ambientor_rollout::RolloutEngine;
 use kube::Client;
 use tracing::info;
 
+pub use context::OperatorContext;
+
 pub async fn run_all(client: Client, rollout_engine: Arc<RolloutEngine>) {
-    info!("starting ambientor-operator controllers");
+    info!("starting ambientor-operator controllers (kube-runtime watches)");
+    let op_ctx = OperatorContext::new(client.clone(), rollout_engine);
     tokio::join!(
         inventory::run(client.clone()),
         assessment::run(client.clone()),
-        rollout::run(client.clone(), rollout_engine),
+        rollout::run(op_ctx),
         cluster::run(client.clone()),
         hub::run(client),
     );
-}
-
-pub(crate) fn requeue_interval() -> Duration {
-    Duration::from_secs(30)
 }

@@ -39,6 +39,8 @@ spec:
                   type: string
                 generation:
                   type: integer
+                observedGeneration:
+                  type: integer
                 lastScanTime:
                   type: string
                   format: date-time
