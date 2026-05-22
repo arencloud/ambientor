@@ -41,6 +41,12 @@ helm install ambientor deploy/helm/ambientor/ -n ambientor-system --create-names
 cargo run -p ambientor-cli -- assess --namespace bookinfo
 ```
 
+## Lab validation
+
+Step-by-step kind + Istio ambient + Bookinfo validation: [docs/runbook-lab.md](docs/runbook-lab.md).
+
+**Progress tracker** (phases, steps, what is done / next): [docs/PROGRESS.md](docs/PROGRESS.md).
+
 ## Development
 
 ```bash

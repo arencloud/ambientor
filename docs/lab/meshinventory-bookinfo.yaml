@@ -1,0 +1,12 @@
+# Triggers operator inventory → AmbientAssessment flow (see docs/runbook-lab.md).
+apiVersion: ambientor.io/v1alpha1
+kind: MeshInventory
+metadata:
+  name: bookinfo-scan
+  namespace: ambientor-system
+spec:
+  clusterRef: in-cluster
+  triggerScan: true
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: bookinfo
