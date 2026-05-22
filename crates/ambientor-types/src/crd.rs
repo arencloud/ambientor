@@ -120,6 +120,9 @@ pub struct MeshInventoryStatus {
     pub phase: String,
     #[serde(default)]
     pub generation: i64,
+    /// Last processed `metadata.generation` when a scan was triggered.
+    #[serde(default)]
+    pub observed_generation: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_scan_time: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
