@@ -18,6 +18,7 @@
       "hasVmWorkloads": false
     }
   ],
+  "workloads": [],
   "policies": {
     "virtualServices": ["bookinfo"],
     "httpRoutes": []

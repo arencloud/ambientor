@@ -62,6 +62,9 @@ impl Rule for L7WaypointRule {
                 f.resource = Some(name.clone());
                 f.doc_url = Some(MIXED_MODE_DOC.into());
                 f.remediation = Some("Deploy waypoint before migrating namespaces with L7 AuthZ".into());
+                f.evidence = Some(format!(
+                    "resource: {name}\nspec: L7 AuthorizationPolicy rules present"
+                ));
                 f
             })
             .collect()
@@ -104,10 +107,49 @@ impl Rule for MixedModeL7BypassRule {
     }
 }
 
+pub struct DestinationRuleSubsetsRule;
+
+impl Rule for DestinationRuleSubsetsRule {
+    fn id(&self) -> RuleId {
+        "traffic.destination-rule-subsets"
+    }
+
+    fn category(&self) -> FindingCategory {
+        FindingCategory::TrafficCompatibility
+    }
+
+    fn evaluate(&self, ctx: &RuleContext) -> Vec<Finding> {
+        ctx.policies
+            .destination_rules_with_subsets
+            .iter()
+            .map(|name| {
+                let mut f = finding(
+                    self.id(),
+                    FindingSeverity::Warning,
+                    self.category(),
+                    "DestinationRule uses subsets",
+                    format!(
+                        "DestinationRule '{name}' defines traffic subsets; validate subset load balancing and failover after migrating to ambient."
+                    ),
+                );
+                f.resource = Some(name.clone());
+                f.doc_url = Some(MIXED_MODE_DOC.into());
+                f.remediation = Some(
+                    "Review subset labels and traffic policies; migrate to Gateway API/ServiceEntry patterns where appropriate"
+                        .into(),
+                );
+                f.evidence = Some(format!("resource: {name}\nspec.subsets: present"));
+                f
+            })
+            .collect()
+    }
+}
+
 pub fn register_traffic_rules(registry: &mut ambientor_core::rules::RuleRegistry) {
     registry.register(Box::new(VsHttpRouteConflictRule));
     registry.register(Box::new(L7WaypointRule));
     registry.register(Box::new(MixedModeL7BypassRule));
+    registry.register(Box::new(DestinationRuleSubsetsRule));
 }
 
 pub fn traffic_registry() -> ambientor_core::rules::RuleRegistry {
@@ -140,6 +182,20 @@ mod tests {
         };
         let findings = MixedModeL7BypassRule.evaluate(&ctx);
         assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn destination_rule_subsets_warning() {
+        let ctx = RuleContext {
+            policies: PolicyContext {
+                destination_rules_with_subsets: vec!["default/reviews".into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let findings = DestinationRuleSubsetsRule.evaluate(&ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, FindingSeverity::Warning);
     }
 
     #[test]

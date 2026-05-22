@@ -7,6 +7,7 @@ pub mod istio;
 pub mod openshift;
 pub mod policy_collect;
 pub mod version;
+pub mod workload_scan;
 
 pub use backend::*;
 pub use inventory::*;

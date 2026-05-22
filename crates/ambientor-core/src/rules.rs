@@ -18,6 +18,7 @@ pub struct RuleContext {
     pub ambient_installed: bool,
     pub gateway_api_present: bool,
     pub namespaces: Vec<NamespaceContext>,
+    pub workloads: Vec<WorkloadContext>,
     pub policies: PolicyContext,
 }
 
@@ -29,6 +30,19 @@ pub struct NamespaceContext {
     pub ambient_enabled: bool,
     pub workload_count: u32,
     pub has_vm_workloads: bool,
+}
+
+/// Per-pod signals used by sidecar dependency rules.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkloadContext {
+    pub namespace: String,
+    pub name: String,
+    pub has_istio_sidecar: bool,
+    pub uses_localhost_proxy: bool,
+    #[serde(default)]
+    pub localhost_proxy_hits: Vec<String>,
+    pub hold_until_proxy: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -44,6 +58,10 @@ pub struct PolicyContext {
     pub http_routes: Vec<String>,
     #[serde(default)]
     pub l7_authorization_policies: Vec<String>,
+    #[serde(default)]
+    pub destination_rules: Vec<String>,
+    #[serde(default)]
+    pub destination_rules_with_subsets: Vec<String>,
 }
 
 pub struct RuleRegistry {
@@ -91,5 +109,6 @@ pub fn finding(
         resource: None,
         remediation: None,
         doc_url: None,
+        evidence: None,
     }
 }

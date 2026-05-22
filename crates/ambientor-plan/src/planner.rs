@@ -147,6 +147,7 @@ mod tests {
                 resource: None,
                 remediation: None,
                 doc_url: None,
+                evidence: None,
             }],
             scores: Default::default(),
             summary: Default::default(),

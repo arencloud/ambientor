@@ -63,6 +63,8 @@ spec:
                         type: string
                       docUrl:
                         type: string
+                      evidence:
+                        type: string
                 summary:
                   type: object
                   properties:
