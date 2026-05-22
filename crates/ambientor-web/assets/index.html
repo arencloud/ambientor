@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Ambientor — Ambient Mesh Migration Assistant</title>
   <link rel="stylesheet" href="/style.css" />
+  <script src="/config.js"></script>
 </head>
 <body>
   <header class="header">
@@ -17,64 +18,75 @@
       <a href="#assessments">Assessments</a>
       <a href="#plans">Migration Plans</a>
       <a href="#rollouts">Rollouts</a>
-      <a href="#clusters">Clusters</a>
-      <a href="#audit">Audit</a>
     </nav>
   </header>
+  <div id="status-banner" class="status-banner hidden" role="status"></div>
   <main>
     <section id="dashboard" class="panel">
       <h2>Cluster dashboard</h2>
+      <p class="hint">Run a live assessment against the connected cluster or browse completed assessments.</p>
       <div class="cards">
         <div class="card">
           <h3>Overall readiness</h3>
-          <p class="score" id="overall-score">—</p>
+          <p class="score" id="dash-overall-score">—</p>
         </div>
         <div class="card">
           <h3>Blockers</h3>
-          <p class="metric danger" id="blockers">—</p>
+          <p class="metric danger" id="dash-blockers">—</p>
         </div>
         <div class="card">
           <h3>Warnings</h3>
-          <p class="metric warn" id="warnings">—</p>
+          <p class="metric warn" id="dash-warnings">—</p>
+        </div>
+        <div class="card">
+          <h3>Info</h3>
+          <p class="metric" id="dash-info">—</p>
         </div>
       </div>
-      <button id="run-assess" class="btn primary">Run assessment</button>
-      <ul id="findings" class="findings"></ul>
+      <div class="score-breakdown">
+        <span>Readiness: <strong id="dash-readiness">—</strong></span>
+        <span>Sidecar: <strong id="dash-sidecar">—</strong></span>
+        <span>Traffic: <strong id="dash-traffic">—</strong></span>
+      </div>
+      <button id="run-assess" class="btn primary">Run assessment now</button>
+      <h3>Latest findings</h3>
+      <ul id="dash-findings" class="findings"></ul>
+      <h3>Live events</h3>
+      <div id="live-events" class="timeline"></div>
     </section>
+
+    <section id="assessments" class="panel hidden">
+      <h2>Assessments</h2>
+      <div class="assessments-layout">
+        <aside class="assessment-sidebar">
+          <button id="refresh-assessments" class="btn">Refresh list</button>
+          <ul id="assessment-list" class="assessment-list"></ul>
+        </aside>
+        <div class="assessment-detail">
+          <header class="detail-header">
+            <h3 id="detail-title">Select an assessment</h3>
+            <span id="detail-phase" class="phase-badge"></span>
+          </header>
+          <div class="cards compact">
+            <div class="card"><h4>Overall</h4><p class="score small" id="detail-overall-score">—</p></div>
+            <div class="card"><h4>Blockers</h4><p class="metric danger" id="detail-blockers">—</p></div>
+            <div class="card"><h4>Warnings</h4><p class="metric warn" id="detail-warnings">—</p></div>
+          </div>
+          <ul id="detail-findings" class="findings"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="plans" class="panel hidden">
+      <h2>Migration plans</h2>
+      <p class="hint">Migration plan UI ships in Phase 2. Use <code>ambientor plan</code> CLI for now.</p>
+    </section>
+
     <section id="rollouts" class="panel hidden">
-      <h2>Rollout timeline</h2>
-      <div id="rollout-events" class="timeline"></div>
+      <h2>Rollouts</h2>
+      <p class="hint">Rollout approval UI ships in Phase 3. Monitor <code>Rollout</code> CRs via kubectl.</p>
     </section>
   </main>
-  <script>
-    const API = window.AMBIENTOR_API_URL || '';
-    async function runAssessment() {
-      const res = await fetch(API + '/api/v1/assess', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      document.getElementById('overall-score').textContent = data.scores?.overall ?? '—';
-      document.getElementById('blockers').textContent = data.summary?.blockers ?? 0;
-      document.getElementById('warnings').textContent = data.summary?.warnings ?? 0;
-      const list = document.getElementById('findings');
-      list.innerHTML = '';
-      (data.findings || []).forEach(f => {
-        const li = document.createElement('li');
-        li.className = f.severity;
-        li.textContent = `[${f.severity}] ${f.title}: ${f.message}`;
-        list.appendChild(li);
-      });
-    }
-    document.getElementById('run-assess').addEventListener('click', runAssessment);
-    const evtSource = new EventSource(API + '/api/v1/events/assessment');
-    evtSource.onmessage = (e) => {
-      const el = document.getElementById('rollout-events');
-      const p = document.createElement('p');
-      p.textContent = e.data;
-      el.appendChild(p);
-    };
-  </script>
+  <script src="/app.js"></script>
 </body>
 </html>

@@ -18,6 +18,7 @@ ambientor-auth = { workspace = true }
 ambientor-core = { workspace = true }
 ambientor-db = { workspace = true }
 ambientor-k8s = { workspace = true }
+kube = { workspace = true }
 ambientor-mesh = { workspace = true }
 ambientor-plan = { workspace = true }
 ambientor-scan = { workspace = true }
