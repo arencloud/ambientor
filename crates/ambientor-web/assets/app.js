@@ -1,0 +1,203 @@
+(function () {
+  const API = () => window.AMBIENTOR_API_URL || '';
+
+  const $ = (id) => document.getElementById(id);
+
+  let assessments = [];
+  let selectedKey = null;
+
+  function showPanel(id) {
+    document.querySelectorAll('main .panel').forEach((p) => p.classList.add('hidden'));
+    const panel = document.getElementById(id);
+    if (panel) panel.classList.remove('hidden');
+    document.querySelectorAll('nav a').forEach((a) => {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+    });
+  }
+
+  function setStatus(msg, isError) {
+    const el = $('status-banner');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.className = 'status-banner' + (msg ? (isError ? ' error' : ' info') : ' hidden');
+  }
+
+  function renderScores(scores, prefix) {
+    $(prefix + 'overall-score').textContent = scores?.overall ?? '—';
+    const readiness = $('dash-readiness');
+    const sidecar = $('dash-sidecar');
+    const traffic = $('dash-traffic');
+    if (readiness) readiness.textContent = scores?.readiness ?? '—';
+    if (sidecar) {
+      sidecar.textContent = scores?.sidecarDependency ?? scores?.sidecar_dependency ?? '—';
+    }
+    if (traffic) {
+      traffic.textContent = scores?.trafficCompatibility ?? scores?.traffic_compatibility ?? '—';
+    }
+  }
+
+  function renderSummary(summary, prefix) {
+    $(prefix + 'blockers').textContent = summary?.blockers ?? 0;
+    $(prefix + 'warnings').textContent = summary?.warnings ?? 0;
+    const info = $(prefix + 'info');
+    if (info) info.textContent = summary?.info ?? 0;
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function renderFinding(f) {
+    const li = document.createElement('li');
+    li.className = 'finding ' + (f.severity || 'info');
+    const evidence = f.evidence
+      ? `<pre class="evidence">${escapeHtml(f.evidence)}</pre>`
+      : '';
+    const resource = f.resource ? `<span class="meta">${escapeHtml(f.resource)}</span>` : '';
+    const ns = f.namespace ? `<span class="meta">ns: ${escapeHtml(f.namespace)}</span>` : '';
+    const docUrl = f.docUrl || f.doc_url;
+    li.innerHTML = `
+      <div class="finding-head">
+        <span class="badge ${f.severity}">${escapeHtml(f.severity)}</span>
+        <strong>${escapeHtml(f.title)}</strong>
+        ${resource}${ns}
+      </div>
+      <p class="message">${escapeHtml(f.message)}</p>
+      ${evidence}
+      ${f.remediation ? `<p class="remediation"><strong>Remediation:</strong> ${escapeHtml(f.remediation)}</p>` : ''}
+      ${docUrl ? `<a class="doc-link" href="${escapeHtml(docUrl)}" target="_blank" rel="noopener">Documentation</a>` : ''}
+    `;
+    return li;
+  }
+
+  function renderFindings(findings, listId) {
+    const list = $(listId);
+    if (!list) return;
+    list.innerHTML = '';
+    (findings || []).forEach((f) => list.appendChild(renderFinding(f)));
+  }
+
+  function itemKey(a) {
+    return a.namespace + '/' + a.name;
+  }
+
+  function renderAssessmentList() {
+    const ul = $('assessment-list');
+    ul.innerHTML = '';
+    assessments.forEach((a) => {
+      const li = document.createElement('li');
+      const key = itemKey(a);
+      li.className = 'assessment-item' + (key === selectedKey ? ' selected' : '');
+      li.innerHTML = `
+        <button type="button" data-key="${escapeHtml(key)}">
+          <span class="name">${escapeHtml(a.namespace)}/${escapeHtml(a.name)}</span>
+          <span class="phase">${escapeHtml(a.phase)}</span>
+          <span class="score-mini">${a.scores?.overall ?? '—'}/100</span>
+        </button>
+      `;
+      li.querySelector('button').addEventListener('click', () => selectAssessment(key));
+      ul.appendChild(li);
+    });
+  }
+
+  function selectAssessment(key) {
+    selectedKey = key;
+    const a = assessments.find((x) => itemKey(x) === key);
+    if (!a) return;
+    renderAssessmentList();
+    $('detail-title').textContent = `${a.namespace}/${a.name}`;
+    $('detail-phase').textContent = a.phase;
+    $('detail-phase').className = 'phase-badge ' + (a.phase || '').toLowerCase();
+    renderScores(a.scores, 'detail-');
+    renderSummary(a.summary, 'detail-');
+    renderFindings(a.findings, 'detail-findings');
+    showPanel('assessments');
+  }
+
+  async function loadAssessments() {
+    setStatus('Loading assessments…');
+    try {
+      const res = await fetch(API() + '/api/v1/assessments');
+      if (!res.ok) throw new Error(await res.text());
+      assessments = await res.json();
+      renderAssessmentList();
+      setStatus(
+        assessments.length
+          ? `Loaded ${assessments.length} assessment(s)`
+          : 'No completed assessments in cluster'
+      );
+      if (assessments.length && !selectedKey) {
+        selectAssessment(itemKey(assessments[0]));
+      }
+    } catch (e) {
+      setStatus('Failed to load assessments: ' + e.message, true);
+    }
+  }
+
+  async function runAssessment() {
+    setStatus('Running assessment…');
+    $('run-assess').disabled = true;
+    try {
+      const res = await fetch(API() + '/api/v1/assess', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      renderScores(data.scores, 'dash-');
+      renderSummary(data.summary, 'dash-');
+      renderFindings(data.findings, 'dash-findings');
+      setStatus(`Assessment complete (${(data.findings || []).length} findings)`);
+      await loadAssessments();
+      showPanel('dashboard');
+    } catch (e) {
+      setStatus('Assessment failed: ' + e.message, true);
+    } finally {
+      $('run-assess').disabled = false;
+    }
+  }
+
+  function appendEvent(data) {
+    const el = $('live-events');
+    const p = document.createElement('p');
+    try {
+      const parsed = JSON.parse(data);
+      p.textContent = `[${parsed.channel || 'event'}] ${JSON.stringify(parsed.payload || parsed)}`;
+    } catch {
+      p.textContent = data;
+    }
+    el.prepend(p);
+    while (el.children.length > 50) el.removeChild(el.lastChild);
+  }
+
+  function initNav() {
+    document.querySelectorAll('nav a[href^="#"]').forEach((a) => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const id = a.getAttribute('href').slice(1);
+        showPanel(id);
+        if (id === 'assessments') loadAssessments();
+      });
+    });
+  }
+
+  function initSse() {
+    if (!API()) return;
+    const evtSource = new EventSource(API() + '/api/v1/events/assessment');
+    evtSource.onmessage = (e) => appendEvent(e.data);
+    evtSource.onerror = () => appendEvent('SSE connection error');
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initNav();
+    $('run-assess')?.addEventListener('click', runAssessment);
+    $('refresh-assessments')?.addEventListener('click', loadAssessments);
+    initSse();
+    showPanel('dashboard');
+  });
+})();
