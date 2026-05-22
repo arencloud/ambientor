@@ -64,6 +64,7 @@ mod tests {
             resource: None,
             remediation: None,
             doc_url: None,
+            evidence: None,
         }];
         let s = compute_scores(&findings);
         assert!(s.readiness < 100);

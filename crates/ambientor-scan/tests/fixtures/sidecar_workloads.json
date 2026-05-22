@@ -1,0 +1,35 @@
+{
+  "meshVersion": "1.24.0",
+  "ambientInstalled": true,
+  "gatewayApiPresent": true,
+  "namespaces": [
+    {
+      "name": "bookinfo",
+      "injectionEnabled": true,
+      "ambientEnabled": false,
+      "workloadCount": 2,
+      "hasVmWorkloads": false
+    }
+  ],
+  "workloads": [
+    {
+      "namespace": "bookinfo",
+      "name": "reviews-abc",
+      "hasIstioSidecar": true,
+      "usesLocalhostProxy": true,
+      "localhostProxyHits": ["app: env METRICS=http://127.0.0.1:15000/stats"],
+      "holdUntilProxy": false
+    },
+    {
+      "namespace": "bookinfo",
+      "name": "ratings-xyz",
+      "hasIstioSidecar": true,
+      "usesLocalhostProxy": false,
+      "localhostProxyHits": [],
+      "holdUntilProxy": true
+    }
+  ],
+  "policies": {
+    "destinationRulesWithSubsets": ["bookinfo/reviews-dr"]
+  }
+}

@@ -93,6 +93,9 @@ impl Rule for PeerAuthDisableRule {
                 f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
                 f.remediation =
                     Some("Remove or change PeerAuthentication to PERMISSIVE or STRICT".into());
+                f.evidence = Some(format!(
+                    "resource: {name}\nspec.mtls.mode: DISABLE"
+                ));
                 f
             })
             .collect()

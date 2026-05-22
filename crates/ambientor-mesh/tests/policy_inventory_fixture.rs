@@ -33,6 +33,7 @@ fn builds_policy_context_from_fixtures() {
         envoy_filters: vec![],
         http_routes: vec![hr],
         wasm_plugins: vec![],
+        destination_rules: vec![],
     });
 
     assert_eq!(ctx.peer_auth_disable.len(), 1);

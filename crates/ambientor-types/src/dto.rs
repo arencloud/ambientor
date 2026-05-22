@@ -19,6 +19,9 @@ pub struct Finding {
     pub remediation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc_url: Option<String>,
+    /// Short YAML or structured snippet supporting the finding (shown in portal/CR status).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

@@ -21,6 +21,13 @@ pub fn build_policy_context(objects: &IstioPolicyObjects) -> PolicyContext {
         virtual_services: objects.virtual_services.iter().map(resource_ref).collect(),
         http_routes: objects.http_routes.iter().map(resource_ref).collect(),
         envoy_filters: objects.envoy_filters.iter().map(resource_ref).collect(),
+        destination_rules: objects.destination_rules.iter().map(resource_ref).collect(),
+        destination_rules_with_subsets: objects
+            .destination_rules
+            .iter()
+            .filter(|o| destination_rule_has_subsets(o))
+            .map(resource_ref)
+            .collect(),
     }
 }
 
@@ -31,6 +38,15 @@ pub struct IstioPolicyObjects {
     pub envoy_filters: Vec<DynamicObject>,
     pub http_routes: Vec<DynamicObject>,
     pub wasm_plugins: Vec<DynamicObject>,
+    pub destination_rules: Vec<DynamicObject>,
+}
+
+fn destination_rule_has_subsets(obj: &DynamicObject) -> bool {
+    obj.data
+        .get("spec")
+        .and_then(|s| s.get("subsets"))
+        .and_then(|v| v.as_array())
+        .is_some_and(|a| !a.is_empty())
 }
 
 fn peer_auth_is_disable(obj: &DynamicObject) -> bool {
@@ -114,6 +130,31 @@ mod tests {
     fn detects_peer_auth_disable() {
         let o = obj(json!({ "mtls": { "mode": "DISABLE" } }));
         assert!(peer_auth_is_disable(&o));
+    }
+
+    #[test]
+    fn detects_destination_rule_subsets() {
+        let data = json!({
+            "apiVersion": "networking.istio.io/v1",
+            "kind": "DestinationRule",
+            "metadata": { "name": "reviews", "namespace": "bookinfo" },
+            "spec": {
+                "host": "reviews",
+                "subsets": [{ "name": "v1", "labels": { "version": "v1" } }]
+            }
+        });
+        let o: DynamicObject = serde_json::from_value(data).expect("dr");
+        assert!(destination_rule_has_subsets(&o));
+        let ctx = build_policy_context(&IstioPolicyObjects {
+            peer_authentications: vec![],
+            authorization_policies: vec![],
+            virtual_services: vec![],
+            envoy_filters: vec![],
+            http_routes: vec![],
+            wasm_plugins: vec![],
+            destination_rules: vec![o],
+        });
+        assert_eq!(ctx.destination_rules_with_subsets.len(), 1);
     }
 
     #[test]
