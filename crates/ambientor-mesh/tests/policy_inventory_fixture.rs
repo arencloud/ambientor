@@ -1,4 +1,4 @@
-use ambientor_mesh::policy_collect::{build_policy_context, IstioPolicyObjects};
+use ambientor_mesh::policy_collect::{IstioPolicyObjects, build_policy_context};
 use kube::api::DynamicObject;
 use serde_json::json;
 

@@ -18,11 +18,7 @@ pub fn build_policy_context(objects: &IstioPolicyObjects) -> PolicyContext {
             .filter(|o| authorization_policy_has_l7(o))
             .map(resource_ref)
             .collect(),
-        virtual_services: objects
-            .virtual_services
-            .iter()
-            .map(resource_ref)
-            .collect(),
+        virtual_services: objects.virtual_services.iter().map(resource_ref).collect(),
         http_routes: objects.http_routes.iter().map(resource_ref).collect(),
         envoy_filters: objects.envoy_filters.iter().map(resource_ref).collect(),
     }
@@ -51,7 +47,7 @@ fn authorization_policy_has_l7(obj: &DynamicObject) -> bool {
     let Some(spec) = spec else {
         return false;
     };
-    if spec.get("rules").is_some_and(|r| rule_list_has_http(r)) {
+    if spec.get("rules").is_some_and(rule_list_has_http) {
         return true;
     }
     if spec
@@ -80,9 +76,7 @@ fn rule_list_has_http(rules: &Value) -> bool {
 }
 
 fn to_has_http(to: &Value) -> bool {
-    to.get("operation")
-        .map(operation_has_http)
-        .unwrap_or(false)
+    to.get("operation").map(operation_has_http).unwrap_or(false)
 }
 
 fn from_has_http(from: &Value) -> bool {

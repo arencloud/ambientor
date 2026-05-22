@@ -10,4 +10,4 @@ pub mod version;
 
 pub use backend::*;
 pub use inventory::*;
-pub use policy_collect::{build_policy_context, IstioPolicyObjects};
+pub use policy_collect::{IstioPolicyObjects, build_policy_context};
