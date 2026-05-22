@@ -28,7 +28,52 @@ pub fn build_policy_context(objects: &IstioPolicyObjects) -> PolicyContext {
             .filter(|o| destination_rule_has_subsets(o))
             .map(resource_ref)
             .collect(),
+        envoy_filters_waypoint: objects
+            .envoy_filters
+            .iter()
+            .filter(|o| envoy_filter_targets_waypoint(o))
+            .map(resource_ref)
+            .collect(),
     }
+}
+
+/// True when an EnvoyFilter applies to waypoint / gateway dataplane (unsupported in ambient).
+pub fn envoy_filter_targets_waypoint(obj: &DynamicObject) -> bool {
+    let Some(spec) = obj.data.get("spec") else {
+        return false;
+    };
+    if let Some(labels) = spec
+        .get("workloadSelector")
+        .and_then(|w| w.get("labels"))
+        .and_then(|l| l.as_object())
+    {
+        for (key, value) in labels {
+            let key = key.as_str();
+            let value = value.as_str().unwrap_or("");
+            if key.contains("gateway")
+                || key.contains("waypoint")
+                || value.contains("waypoint")
+                || key == "istio.io/gateway-name"
+                || key == "istio.io/use-waypoint"
+            {
+                return true;
+            }
+        }
+    }
+    if let Some(patches) = spec.get("configPatches").and_then(|p| p.as_array()) {
+        for patch in patches {
+            let proxy_type = patch
+                .get("proxy")
+                .and_then(|p| p.get("proxyType"))
+                .and_then(|t| t.as_str());
+            if proxy_type.is_some_and(|t| {
+                t.eq_ignore_ascii_case("waypoint") || t.eq_ignore_ascii_case("gateway")
+            }) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub struct IstioPolicyObjects {
@@ -155,6 +200,33 @@ mod tests {
             destination_rules: vec![o],
         });
         assert_eq!(ctx.destination_rules_with_subsets.len(), 1);
+    }
+
+    #[test]
+    fn detects_envoy_filter_on_waypoint() {
+        let data = json!({
+            "apiVersion": "networking.istio.io/v1",
+            "kind": "EnvoyFilter",
+            "metadata": { "name": "wp-filter", "namespace": "bookinfo" },
+            "spec": {
+                "workloadSelector": {
+                    "labels": { "istio.io/gateway-name": "waypoint" }
+                },
+                "configPatches": []
+            }
+        });
+        let o: DynamicObject = serde_json::from_value(data).expect("ef");
+        assert!(envoy_filter_targets_waypoint(&o));
+        let ctx = build_policy_context(&IstioPolicyObjects {
+            peer_authentications: vec![],
+            authorization_policies: vec![],
+            virtual_services: vec![],
+            envoy_filters: vec![o],
+            http_routes: vec![],
+            wasm_plugins: vec![],
+            destination_rules: vec![],
+        });
+        assert_eq!(ctx.envoy_filters_waypoint.len(), 1);
     }
 
     #[test]

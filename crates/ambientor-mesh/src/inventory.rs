@@ -5,6 +5,7 @@ use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomRe
 use kube::{Api, Client};
 
 use crate::istio::collect_istio_policies;
+use crate::platform_scan::scan_platform;
 use crate::policy_collect::build_policy_context;
 use crate::version::detect_istio_version;
 use crate::workload_scan::scan_workloads;
@@ -73,6 +74,7 @@ pub async fn collect_inventory(client: &Client, flavor: MeshFlavor) -> anyhow::R
     let istio_objects = collect_istio_policies(client).await?;
     let policies = build_policy_context(&istio_objects);
     let mesh_version = detect_istio_version(client).await;
+    let platform = scan_platform(client, flavor).await;
 
     Ok(RuleContext {
         mesh_version,
@@ -82,6 +84,7 @@ pub async fn collect_inventory(client: &Client, flavor: MeshFlavor) -> anyhow::R
         namespaces: ns_contexts,
         workloads,
         policies,
+        platform,
     })
 }
 
