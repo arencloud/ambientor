@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ambientor — Ambient Mesh Migration Assistant</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="brand">
+      <span class="logo">A</span>
+      <h1>Ambientor</h1>
+    </div>
+    <nav>
+      <a href="#dashboard" class="active">Dashboard</a>
+      <a href="#assessments">Assessments</a>
+      <a href="#plans">Migration Plans</a>
+      <a href="#rollouts">Rollouts</a>
+      <a href="#clusters">Clusters</a>
+      <a href="#audit">Audit</a>
+    </nav>
+  </header>
+  <main>
+    <section id="dashboard" class="panel">
+      <h2>Cluster dashboard</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>Overall readiness</h3>
+          <p class="score" id="overall-score">—</p>
+        </div>
+        <div class="card">
+          <h3>Blockers</h3>
+          <p class="metric danger" id="blockers">—</p>
+        </div>
+        <div class="card">
+          <h3>Warnings</h3>
+          <p class="metric warn" id="warnings">—</p>
+        </div>
+      </div>
+      <button id="run-assess" class="btn primary">Run assessment</button>
+      <ul id="findings" class="findings"></ul>
+    </section>
+    <section id="rollouts" class="panel hidden">
+      <h2>Rollout timeline</h2>
+      <div id="rollout-events" class="timeline"></div>
+    </section>
+  </main>
+  <script>
+    const API = window.AMBIENTOR_API_URL || '';
+    async function runAssessment() {
+      const res = await fetch(API + '/api/v1/assess', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      document.getElementById('overall-score').textContent = data.scores?.overall ?? '—';
+      document.getElementById('blockers').textContent = data.summary?.blockers ?? 0;
+      document.getElementById('warnings').textContent = data.summary?.warnings ?? 0;
+      const list = document.getElementById('findings');
+      list.innerHTML = '';
+      (data.findings || []).forEach(f => {
+        const li = document.createElement('li');
+        li.className = f.severity;
+        li.textContent = `[${f.severity}] ${f.title}: ${f.message}`;
+        list.appendChild(li);
+      });
+    }
+    document.getElementById('run-assess').addEventListener('click', runAssessment);
+    const evtSource = new EventSource(API + '/api/v1/events/assessment');
+    evtSource.onmessage = (e) => {
+      const el = document.getElementById('rollout-events');
+      const p = document.createElement('p');
+      p.textContent = e.data;
+      el.appendChild(p);
+    };
+  </script>
+</body>
+</html>

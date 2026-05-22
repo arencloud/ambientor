@@ -1,0 +1,25 @@
+{
+  "meshVersion": "1.30.0",
+  "ambientInstalled": true,
+  "gatewayApiPresent": true,
+  "namespaces": [
+    {
+      "name": "bookinfo",
+      "injectionEnabled": true,
+      "ambientEnabled": false,
+      "workloadCount": 12,
+      "hasVmWorkloads": false
+    },
+    {
+      "name": "ambient-demo",
+      "injectionEnabled": false,
+      "ambientEnabled": true,
+      "workloadCount": 4,
+      "hasVmWorkloads": false
+    }
+  ],
+  "policies": {
+    "virtualServices": ["bookinfo"],
+    "httpRoutes": []
+  }
+}

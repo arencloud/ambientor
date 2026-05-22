@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ambientor-web
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: ambientor-web
+  ports:
+    - port: {{ .Values.web.service.port }}
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ambientor.fullname" . }}-web
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels:
+      app: ambientor-web
+  template:
+    metadata:
+      labels:
+        app: ambientor-web
+    spec:
+      containers:
+        - name: web
+          image: {{ include "ambientor.image" . }}-web
+          ports:
+            - containerPort: 3000
+          env:
+            - name: AMBIENTOR_WEB_ADDR
+              value: {{ .Values.web.env.AMBIENTOR_WEB_ADDR | quote }}
+            - name: AMBIENTOR_API_URL
+              value: {{ .Values.web.env.AMBIENTOR_API_URL | quote }}

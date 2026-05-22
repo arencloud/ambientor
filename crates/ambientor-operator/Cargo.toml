@@ -1,0 +1,32 @@
+[package]
+name = "ambientor-operator"
+description = "Kubernetes operator controllers for Ambientor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "ambientor-operator"
+path = "src/main.rs"
+
+[dependencies]
+ambientor-analyze = { workspace = true }
+ambientor-core = { workspace = true }
+ambientor-db = { workspace = true }
+ambientor-k8s = { workspace = true }
+ambientor-mesh = { workspace = true }
+ambientor-plan = { workspace = true }
+ambientor-rollout = { workspace = true }
+ambientor-scan = { workspace = true }
+ambientor-types = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+k8s-openapi = { workspace = true }
+kube = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

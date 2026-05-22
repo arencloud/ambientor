@@ -1,0 +1,67 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: migrationplans.ambientor.io
+spec:
+  group: ambientor.io
+  names:
+    kind: MigrationPlan
+    listKind: MigrationPlanList
+    plural: migrationplans
+    singular: migrationplan
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                assessmentRef:
+                  type: string
+                targetMeshMode:
+                  type: string
+                  enum: [ambient]
+                waves:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      namespaces:
+                        type: array
+                        items:
+                          type: string
+                      prerequisites:
+                        type: array
+                        items:
+                          type: string
+                      policyTasks:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                            action:
+                              type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                approved:
+                  type: boolean
+                waveCount:
+                  type: integer
+      subresources:
+        status: {}

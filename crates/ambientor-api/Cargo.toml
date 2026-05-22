@@ -1,0 +1,39 @@
+[package]
+name = "ambientor-api"
+description = "REST and SSE API server for Ambientor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "ambientor-api"
+path = "src/main.rs"
+
+[dependencies]
+ambientor-analyze = { workspace = true }
+ambientor-auth = { workspace = true }
+ambientor-core = { workspace = true }
+ambientor-db = { workspace = true }
+ambientor-k8s = { workspace = true }
+ambientor-mesh = { workspace = true }
+ambientor-plan = { workspace = true }
+ambientor-scan = { workspace = true }
+ambientor-types = { workspace = true }
+anyhow = { workspace = true }
+axum = { workspace = true }
+axum-extra = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }

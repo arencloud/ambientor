@@ -1,0 +1,60 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterconnections.ambientor.io
+spec:
+  group: ambientor.io
+  names:
+    kind: ClusterConnection
+    listKind: ClusterConnectionList
+    plural: clusterconnections
+    singular: clusterconnection
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [displayName, credentialsSecretRef]
+              properties:
+                displayName:
+                  type: string
+                apiServer:
+                  type: string
+                credentialsSecretRef:
+                  type: object
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                hub:
+                  type: boolean
+                  default: false
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                lastSyncTime:
+                  type: string
+                  format: date-time
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      message:
+                        type: string
+      subresources:
+        status: {}

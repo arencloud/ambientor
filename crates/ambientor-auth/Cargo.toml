@@ -1,0 +1,27 @@
+[package]
+name = "ambientor-auth"
+description = "Authentication, OIDC, and RBAC for Ambientor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ambientor-db = { workspace = true }
+ambientor-types = { workspace = true }
+argon2 = { workspace = true }
+casbin = { workspace = true }
+chrono = { workspace = true }
+jsonwebtoken = { workspace = true }
+serde = { workspace = true }
+urlencoding = "2"
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[features]
+default = ["oidc"]
+oidc = []

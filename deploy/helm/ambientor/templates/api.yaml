@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ambientor-api
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: ambientor-api
+  ports:
+    - port: {{ .Values.api.service.port }}
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ambientor.fullname" . }}-api
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      app: ambientor-api
+  template:
+    metadata:
+      labels:
+        app: ambientor-api
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: api
+          image: {{ include "ambientor.image" . }}-api
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_URL
+              value: {{ .Values.database.url | default (printf "postgres://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "ambientor.fullname" .) .Values.postgresql.auth.database) | quote }}
+            - name: AMBIENTOR_API_ADDR
+              value: {{ .Values.api.env.AMBIENTOR_API_ADDR | quote }}
+            - name: AMBIENTOR_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ambientor-secrets
+                  key: jwt-secret
+                  optional: true
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
