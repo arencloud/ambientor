@@ -1,8 +1,12 @@
-use ambientor_core::rules::{NamespaceContext, PolicyContext, RuleContext};
+use ambientor_core::rules::{NamespaceContext, RuleContext};
 use ambientor_types::MeshFlavor;
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{Api, Client};
+
+use crate::istio::collect_istio_policies;
+use crate::policy_collect::build_policy_context;
+use crate::version::detect_istio_version;
 
 pub async fn collect_inventory(client: &Client, flavor: MeshFlavor) -> anyhow::Result<RuleContext> {
     let ns_api: Api<Namespace> = Api::all(client.clone());
@@ -58,13 +62,17 @@ pub async fn collect_inventory(client: &Client, flavor: MeshFlavor) -> anyhow::R
         });
     }
 
+    let istio_objects = collect_istio_policies(client).await?;
+    let policies = build_policy_context(&istio_objects);
+    let mesh_version = detect_istio_version(client).await;
+
     Ok(RuleContext {
-        mesh_version: None,
+        mesh_version,
         mesh_flavor: Some(format!("{flavor:?}")),
         ambient_installed,
         gateway_api_present: gateway_api,
         namespaces: ns_contexts,
-        policies: PolicyContext::default(),
+        policies,
     })
 }
 
