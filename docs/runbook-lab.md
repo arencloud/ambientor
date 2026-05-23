@@ -222,7 +222,7 @@ Record anything that fails or surprises you; these are **expected** follow-ups (
 |-----|------------|--------------|
 | Re-scan requires spec change | Bump `MeshInventory` metadata generation (e.g. edit spec) while `triggerScan: true` | Documented behavior |
 | Portal shows limited findings / no evidence UI | Use CLI `assess --output json` | 1.7 portal |
-| Rollout rollback does not revert manifests yet | Test rollback carefully | Phase 3.2 |
+| Rollout rollback does not undo pod restarts | Expect restarted workloads after failed rollout | Phase 3.2 |
 | No `MigrationPlan` controller | Use CLI `plan` locally | 2.1 |
 | GHCR images may be missing | Use `lab-build-images.sh` | 5.1 publish |
 | OSSM MemberRoll not fully detected | Upstream Istio lab only in this runbook | 1.6 |

@@ -3,8 +3,10 @@
 pub mod apply;
 pub mod engine;
 pub mod events;
+pub mod labels;
 pub mod policy;
 pub mod restart;
+pub mod rollback;
 pub mod verify;
 pub mod waypoint;
 

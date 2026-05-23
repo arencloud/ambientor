@@ -1,16 +1,14 @@
 use ambientor_types::{RolloutSpec, RolloutStageType, RolloutStatus, StageResult};
 use chrono::Utc;
-use k8s_openapi::api::core::v1::Namespace;
-use kube::{
-    Api, Client,
-    api::{Patch, PatchParams},
-};
+use kube::Client;
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::warn;
 
 use crate::events::{RolloutEvent, RolloutEventType};
+use crate::labels::label_namespace_ambient;
 use crate::policy::translate_policies_in_namespace;
 use crate::restart::rolling_restart_namespace;
+use crate::rollback::revert_completed_stages;
 use crate::verify::verify_namespace_traffic;
 use crate::waypoint::deploy_waypoint;
 
@@ -125,7 +123,8 @@ impl RolloutEngine {
                     timestamp: finished,
                 });
                 if spec.auto_rollback && status.current_stage > 0 {
-                    self.rollback(status, &mut events).await?;
+                    self.rollback(spec, status, status.current_stage as usize, &mut events)
+                        .await?;
                 }
             }
         }
@@ -141,7 +140,7 @@ impl RolloutEngine {
             RolloutStageType::DryRun => Ok("Dry run passed".into()),
             RolloutStageType::LabelNamespace => {
                 for ns in &stage.namespaces {
-                    self.label_namespace_ambient(ns).await?;
+                    label_namespace_ambient(&self.client, ns).await?;
                 }
                 Ok(format!("Labeled {} namespace(s)", stage.namespaces.len()))
             }
@@ -186,24 +185,11 @@ impl RolloutEngine {
         }
     }
 
-    async fn label_namespace_ambient(&self, name: &str) -> Result<(), RolloutError> {
-        let api: Api<Namespace> = Api::all(self.client.clone());
-        let patch = serde_json::json!({
-            "metadata": {
-                "labels": {
-                    "istio.io/dataplane-mode": "ambient"
-                }
-            }
-        });
-        let pp = PatchParams::apply(FIELD_MANAGER).force();
-        api.patch(name, &pp, &Patch::Apply(patch)).await?;
-        info!(namespace = %name, "labeled namespace for ambient");
-        Ok(())
-    }
-
     async fn rollback(
         &self,
+        spec: &RolloutSpec,
         status: &mut RolloutStatus,
+        failed_at: usize,
         events: &mut Vec<RolloutEvent>,
     ) -> Result<(), RolloutError> {
         events.push(RolloutEvent {
@@ -211,19 +197,23 @@ impl RolloutEngine {
             stage_index: status.current_stage,
             stage_name: "rollback".into(),
             event_type: RolloutEventType::RollbackStarted,
-            message: "Rolling back to previous stage".into(),
+            message: format!("Reverting {failed_at} completed stage(s)"),
             timestamp: Utc::now(),
         });
-        if status.current_stage > 0 {
-            status.current_stage -= 1;
-        }
+
+        let revert_messages = revert_completed_stages(&self.client, spec, failed_at).await?;
+        let summary = revert_messages.join("; ");
+        status.current_stage = 0;
+        status.approved_stage = 0;
         status.phase = "RolledBack".into();
+        status.stage_results.clear();
+
         events.push(RolloutEvent {
             rollout_id: String::new(),
-            stage_index: status.current_stage,
+            stage_index: 0,
             stage_name: "rollback".into(),
             event_type: RolloutEventType::RollbackCompleted,
-            message: "Rollback complete".into(),
+            message: summary,
             timestamp: Utc::now(),
         });
         Ok(())
