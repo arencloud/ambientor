@@ -13,7 +13,7 @@ use tracing::info;
 
 use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 
-const FIELD_MANAGER: &str = "ambientor-operator";
+pub(crate) const FIELD_MANAGER: &str = "ambientor-operator";
 
 /// Returns true when `triggerScan` is set and the object spec generation changed since last scan.
 pub(crate) fn needs_scan(inv: &MeshInventory) -> bool {
