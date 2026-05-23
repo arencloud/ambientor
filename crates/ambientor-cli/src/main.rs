@@ -1,5 +1,7 @@
 #![deny(unsafe_code)]
 
+mod sarif;
+
 use ambientor_core::scoring::compute_scores;
 use ambientor_k8s::K8sClient;
 use ambientor_mesh::backend::backend_for_flavor;
@@ -29,6 +31,7 @@ enum Commands {
     Assess {
         #[arg(short, long)]
         namespace: Option<String>,
+        /// Output format: table, json, or sarif
         #[arg(long, default_value = "table")]
         output: String,
     },
@@ -56,7 +59,7 @@ enum RolloutAction {
 }
 
 #[derive(Serialize, Deserialize)]
-struct AssessOutput {
+pub(crate) struct AssessOutput {
     findings: Vec<ambientor_types::Finding>,
     scores: ambientor_types::AssessmentScores,
     summary: FindingSummary,
@@ -75,6 +78,10 @@ async fn main() -> anyhow::Result<()> {
             };
             match output.as_str() {
                 "json" => println!("{}", serde_json::to_string_pretty(&result)?),
+                "sarif" => {
+                    let doc = sarif::to_sarif(&result);
+                    println!("{}", serde_json::to_string_pretty(&doc)?);
+                }
                 _ => print_table(&result),
             }
         }
