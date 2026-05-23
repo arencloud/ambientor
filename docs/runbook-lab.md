@@ -112,7 +112,7 @@ Images loaded:
 ```bash
 helm dependency update deploy/helm/ambientor/
 helm upgrade --install ambientor deploy/helm/ambientor/ \
-  -n ambientor-system --create-namespace \
+  -n ambientor-system \
   -f deploy/helm/ambientor/values-lab.yaml \
   --kube-context kind-ambientor-lab \
   --wait --timeout 10m

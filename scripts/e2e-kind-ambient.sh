@@ -122,7 +122,7 @@ fi
 log "installing Ambientor Helm chart"
 helm dependency update deploy/helm/ambientor/
 helm upgrade --install ambientor deploy/helm/ambientor/ \
-  -n "${NS_SYSTEM}" --create-namespace \
+  -n "${NS_SYSTEM}" \
   -f deploy/helm/ambientor/values-lab.yaml \
   --kube-context "${CTX}" \
   --wait --timeout 10m
