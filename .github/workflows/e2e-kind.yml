@@ -1,0 +1,46 @@
+name: E2E (kind)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  ISTIO_VERSION: "1.24.2"
+
+jobs:
+  e2e-kind-ambient:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.26.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh
+          ./get_helm.sh
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Install istioctl
+        run: |
+          curl -sL "https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istio-${ISTIO_VERSION}-linux-amd64.tar.gz" | tar xz
+          echo "$PWD/istio-${ISTIO_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run kind e2e
+        run: chmod +x scripts/e2e-kind-ambient.sh && ./scripts/e2e-kind-ambient.sh
+
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -A --context kind-ambientor-e2e || true
+          kubectl logs -n ambientor-system -l app=ambientor-operator --tail=200 --context kind-ambientor-e2e || true
+          kubectl get rollout,migrationplan,ambientassessment -n ambientor-system --context kind-ambientor-e2e -o yaml || true
