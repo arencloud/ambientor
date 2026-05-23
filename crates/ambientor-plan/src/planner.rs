@@ -11,6 +11,11 @@ pub fn plan_name_for_assessment(assessment_name: &str) -> String {
     format!("{assessment_name}-plan")
 }
 
+/// Stable PolicyTranslation CR name for a VirtualService.
+pub fn translation_name_for_vs(vs_name: &str) -> String {
+    format!("{vs_name}-translation")
+}
+
 /// Namespace list for wave planning (defaults to `default` when no finding namespaces).
 pub fn namespaces_from_findings(findings: &[Finding]) -> Vec<String> {
     let mut set = BTreeSet::new();

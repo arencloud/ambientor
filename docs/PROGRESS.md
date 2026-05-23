@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Phase 2, Step 2.3 — portal plan review (`cursor/portal-plan-review`, PR pending).
+**Current focus:** Phase 2, Step 2.4 — CLI plan create + GitOps export (`cursor/cli-plan-export`).
 
-**Next up:** Step 2.4 CLI `plan create` + GitOps export.
+**Next up:** Phase 3 Rollout controller.
 
 **Last updated:** 2026-05-23
 
@@ -61,10 +61,10 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 |------|------|--------|-------------|-------|
 | 2.1 | `MigrationPlan` controller (assessment → plan CR) | ✅ | PR [#10](https://github.com/arencloud/ambientor/pull/10) | Merged |
 | 2.2 | `PolicyTranslation` (VS → HTTPRoute suggestions) | ✅ | PR [#11](https://github.com/arencloud/ambientor/pull/11) | Merged |
-| 2.3 | Portal plan review + manifest export | 🔄 | `cursor/portal-plan-review` | PR pending |
-| 2.4 | CLI `plan create` + GitOps export | ⬜ | `cursor/cli-plan-export` | |
+| 2.3 | Portal plan review + manifest export | ✅ | PR [#12](https://github.com/arencloud/ambientor/pull/12) | Merged |
+| 2.4 | CLI `plan create` + GitOps export | 🔄 | `cursor/cli-plan-export` | PR pending |
 
-**Phase 2 exit criteria:** Human-approved plan with exported YAML/JSON; no rollout required.
+**Phase 2 exit criteria:** ✅ Human-approved plan with exported YAML/JSON; no rollout required (portal + CLI export).
 
 ---
 

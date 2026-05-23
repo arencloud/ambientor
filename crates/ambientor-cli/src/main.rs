@@ -1,11 +1,11 @@
 #![deny(unsafe_code)]
 
+mod plan_cmd;
 mod sarif;
 
 use ambientor_core::scoring::compute_scores;
 use ambientor_k8s::K8sClient;
 use ambientor_mesh::backend::backend_for_flavor;
-use ambientor_plan::{build_plan, plan_to_rollout};
 use ambientor_scan::default_registry;
 use ambientor_types::FindingSummary;
 use anyhow::Context;
@@ -40,15 +40,39 @@ enum Commands {
         #[arg(short, long)]
         namespace: Option<String>,
     },
-    /// Generate migration plan JSON
+    /// Migration plan commands
     Plan {
-        #[arg(short, long)]
-        namespace: Option<String>,
+        #[command(subcommand)]
+        action: PlanAction,
     },
     /// Rollout operations
     Rollout {
         #[command(subcommand)]
         action: RolloutAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum PlanAction {
+    /// Run assessment and build a migration plan (optionally write GitOps bundle)
+    Create {
+        #[arg(short, long)]
+        namespace: Option<String>,
+        /// Write `migration-bundle.yaml` and `plan.json` to this directory
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+        /// Print plan JSON to stdout (default when --out is omitted)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export an existing cluster MigrationPlan as a YAML bundle
+    Export {
+        #[arg(short, long)]
+        namespace: String,
+        #[arg(short, long)]
+        name: String,
+        #[arg(short, long)]
+        out: Option<std::path::PathBuf>,
     },
 }
 
@@ -90,28 +114,29 @@ async fn main() -> anyhow::Result<()> {
             assess_via_api(&url, namespace).await?;
             println!("scan triggered");
         }
-        Commands::Plan { namespace: _ } => {
-            let result = assess_direct(cli.kubeconfig.as_deref()).await?;
-            let ns: Vec<String> = result
-                .findings
-                .iter()
-                .filter_map(|f| f.namespace.clone())
-                .collect();
-            let assessment = ambientor_core::inventory::AssessmentResult {
-                findings: result.findings.clone(),
-                scores: result.scores,
-                summary: result.summary.clone(),
-            };
-            let plan = build_plan(&assessment, &ns);
-            let rollout = plan_to_rollout(&plan);
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "plan": plan,
-                    "rollout": rollout,
-                }))?
-            );
-        }
+        Commands::Plan { action } => match action {
+            PlanAction::Create {
+                namespace,
+                out,
+                json,
+            } => {
+                plan_cmd::plan_create(cli.kubeconfig.as_deref(), namespace, out, json).await?;
+            }
+            PlanAction::Export {
+                namespace,
+                name,
+                out,
+            } => {
+                plan_cmd::plan_export(
+                    cli.kubeconfig.as_deref(),
+                    cli.api_url.as_deref(),
+                    namespace,
+                    name,
+                    out,
+                )
+                .await?;
+            }
+        },
         Commands::Rollout { action } => match action {
             RolloutAction::Status { name } => println!("rollout {name}: check status via API"),
             RolloutAction::Approve { name, stage } => {
@@ -122,7 +147,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn assess_direct(kubeconfig: Option<&str>) -> anyhow::Result<AssessOutput> {
+pub(crate) async fn assess_direct(kubeconfig: Option<&str>) -> anyhow::Result<AssessOutput> {
     let k8s = match kubeconfig {
         Some(p) => K8sClient::from_kubeconfig(Some(p)).await?,
         None => K8sClient::in_cluster()
