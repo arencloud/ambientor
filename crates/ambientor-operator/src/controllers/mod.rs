@@ -4,6 +4,7 @@ pub mod context;
 pub mod hub;
 pub mod inventory;
 pub mod migration_plan;
+pub mod policy_translation;
 pub mod rollout;
 mod runtime;
 
@@ -27,6 +28,7 @@ pub async fn run_all(
         inventory::run(client.clone()),
         assessment::run(client.clone(), scan_repo),
         migration_plan::run(client.clone()),
+        policy_translation::run(client.clone()),
         rollout::run(op_ctx),
         cluster::run(client.clone()),
         hub::run(client),

@@ -1,0 +1,202 @@
+//! Suggest Gateway API HTTPRoute manifests from Istio VirtualService resources.
+
+use serde_json::{Value, json};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TranslationResult {
+    pub manifest: String,
+    pub warnings: Vec<String>,
+}
+
+/// Convert a VirtualService `spec` JSON object into a suggested HTTPRoute manifest (YAML).
+pub fn virtual_service_to_httproute(
+    namespace: &str,
+    vs_name: &str,
+    vs_data: &Value,
+) -> Result<TranslationResult, String> {
+    let spec = vs_data
+        .get("spec")
+        .ok_or_else(|| "VirtualService missing spec".to_string())?;
+
+    if spec.get("tcp").is_some() || spec.get("tls").is_some() {
+        return Err("TCP/TLS VirtualService routes are not translated to HTTPRoute".into());
+    }
+
+    let mut warnings = Vec::new();
+    warnings
+        .push("parentRefs are omitted; attach this HTTPRoute to your Gateway or waypoint.".into());
+
+    let hostnames = hosts_from_spec(spec);
+    if hostnames.is_empty() {
+        warnings.push("No spec.hosts found; HTTPRoute hostnames left empty.".into());
+    }
+
+    let rules = http_rules_from_spec(spec, &mut warnings);
+    if rules.is_empty() {
+        return Err("No translatable spec.http routes found".into());
+    }
+
+    let route_name = format!("{vs_name}-ambientor");
+    let manifest_value = json!({
+        "apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "HTTPRoute",
+        "metadata": {
+            "name": route_name,
+            "namespace": namespace,
+            "labels": {
+                "ambientor.io/translated-from": "VirtualService",
+                "ambientor.io/source-name": vs_name,
+            }
+        },
+        "spec": {
+            "hostnames": hostnames,
+            "rules": rules,
+        }
+    });
+
+    let manifest = serde_yaml::to_string(&manifest_value)
+        .map_err(|e| format!("failed to serialize suggested manifest: {e}"))?;
+
+    Ok(TranslationResult { manifest, warnings })
+}
+
+fn hosts_from_spec(spec: &Value) -> Vec<Value> {
+    spec.get("hosts")
+        .and_then(|h| h.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| json!(s)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn http_rules_from_spec(spec: &Value, warnings: &mut Vec<String>) -> Vec<Value> {
+    let Some(http) = spec.get("http").and_then(|h| h.as_array()) else {
+        return vec![];
+    };
+
+    let mut rules = Vec::new();
+    for (i, route) in http.iter().enumerate() {
+        if let Some(rule) = translate_http_block(route, i, warnings) {
+            rules.push(rule);
+        }
+    }
+    rules
+}
+
+fn translate_http_block(route: &Value, index: usize, warnings: &mut Vec<String>) -> Option<Value> {
+    let matches = uri_matches(route, index, warnings);
+    let backend_refs = backend_refs_from_route(route, index, warnings);
+
+    if backend_refs.is_empty() {
+        warnings.push(format!(
+            "spec.http[{index}]: no destination host found; rule skipped"
+        ));
+        return None;
+    }
+
+    let mut rule = json!({ "backendRefs": backend_refs });
+    if !matches.is_empty() {
+        rule["matches"] = json!(matches);
+    }
+    Some(rule)
+}
+
+fn uri_matches(route: &Value, index: usize, warnings: &mut Vec<String>) -> Vec<Value> {
+    let Some(match_arr) = route.get("match").and_then(|m| m.as_array()) else {
+        return vec![];
+    };
+
+    let mut out = Vec::new();
+    for m in match_arr {
+        if let Some(uri) = m.get("uri") {
+            if let Some(prefix) = uri.get("prefix").and_then(|p| p.as_str()) {
+                out.push(json!({
+                    "path": { "type": "PathPrefix", "value": prefix }
+                }));
+            } else if let Some(exact) = uri.get("exact").and_then(|e| e.as_str()) {
+                out.push(json!({
+                    "path": { "type": "Exact", "value": exact }
+                }));
+            } else if let Some(regex) = uri.get("regex").and_then(|r| r.as_str()) {
+                warnings.push(format!(
+                    "spec.http[{index}]: URI regex {regex:?} not mapped; review manually"
+                ));
+            }
+        }
+    }
+    out
+}
+
+fn backend_refs_from_route(route: &Value, index: usize, warnings: &mut Vec<String>) -> Vec<Value> {
+    let Some(dests) = route.get("route").and_then(|r| r.as_array()) else {
+        return vec![];
+    };
+
+    let mut refs = Vec::new();
+    for dest in dests {
+        let Some(host) = dest
+            .get("destination")
+            .and_then(|d| d.get("host"))
+            .and_then(|h| h.as_str())
+        else {
+            continue;
+        };
+        let mut backend = json!({ "name": host });
+        if let Some(port) = dest
+            .get("destination")
+            .and_then(|d| d.get("port"))
+            .and_then(|p| p.get("number"))
+            .and_then(|n| n.as_u64())
+        {
+            backend["port"] = json!(port);
+        } else {
+            warnings.push(format!(
+                "spec.http[{index}]: destination {host} has no port.number; omitting port"
+            ));
+        }
+        if let Some(weight) = dest.get("weight").and_then(|w| w.as_u64())
+            && weight != 100
+        {
+            warnings.push(format!(
+                "spec.http[{index}]: weight {weight} not represented on backendRef"
+            ));
+        }
+        refs.push(backend);
+    }
+    refs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn translates_prefix_route() {
+        let vs = json!({
+            "spec": {
+                "hosts": ["reviews"],
+                "http": [{
+                    "match": [{ "uri": { "prefix": "/reviews" } }],
+                    "route": [{
+                        "destination": { "host": "reviews", "port": { "number": 9080 } }
+                    }]
+                }]
+            }
+        });
+        let result = virtual_service_to_httproute("bookinfo", "reviews", &vs).unwrap();
+        assert!(result.manifest.contains("kind: HTTPRoute"));
+        assert!(result.manifest.contains("PathPrefix"));
+        assert!(result.manifest.contains("/reviews"));
+        assert!(result.manifest.contains("reviews-ambientor"));
+        assert!(result.warnings.iter().any(|w| w.contains("parentRefs")));
+    }
+
+    #[test]
+    fn rejects_tcp_only() {
+        let vs = json!({ "spec": { "tcp": [{ "route": [] }] } });
+        assert!(virtual_service_to_httproute("ns", "svc", &vs).is_err());
+    }
+}

@@ -60,7 +60,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | Step | Task | Status | Branch / PR | Notes |
 |------|------|--------|-------------|-------|
 | 2.1 | `MigrationPlan` controller (assessment → plan CR) | ✅ | PR [#10](https://github.com/arencloud/ambientor/pull/10) | Merged |
-| 2.2 | `PolicyTranslation` (VS → HTTPRoute suggestions) | ⬜ | `cursor/policy-translation` | CRD exists |
+| 2.2 | `PolicyTranslation` (VS → HTTPRoute suggestions) | 🔄 | `cursor/policy-translation` | PR pending |
 | 2.3 | Portal plan review + manifest export | ⬜ | After 2.1 | |
 | 2.4 | CLI `plan create` + GitOps export | ⬜ | After 2.1 | |
 

@@ -29,6 +29,16 @@ pub fn api_resource(group: &str, version: &str, kind: &str, plural: &str) -> Api
     }
 }
 
+/// List custom resources in a single namespace.
+pub async fn list_cr_in_namespace(
+    client: &Client,
+    ar: &ApiResource,
+    namespace: &str,
+) -> anyhow::Result<Vec<DynamicObject>> {
+    let api = Api::<DynamicObject>::namespaced_with(client.clone(), namespace, ar);
+    Ok(api.list(&Default::default()).await?.items)
+}
+
 pub fn resource_ref(obj: &DynamicObject) -> String {
     let ns = obj
         .metadata
