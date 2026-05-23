@@ -5,7 +5,7 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Phase 3, Step 3.4 — audit log for approve/apply/rollback.
+**Current focus:** Phase 3, Step 3.4 — audit log (`cursor/rollout-audit-log`).
 
 **Next up:** kind e2e bookinfo → plan → rollout → verify (3.5).
 
@@ -75,7 +75,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 3.1 | Real `DeployWaypoint` / `TranslatePolicy` / restart / verify | ✅ | PR [#15](https://github.com/arencloud/ambientor/pull/15) | Merged |
 | 3.2 | Rollback reverts labels/manifests | ✅ | PR [#16](https://github.com/arencloud/ambientor/pull/16) | Merged |
 | 3.3 | Approval API + portal UI | ✅ | PR [#17](https://github.com/arencloud/ambientor/pull/17) | Merged |
-| 3.4 | Audit log for approve/apply/rollback | ⬜ | `cursor/rollout-audit-log` | |
+| 3.4 | Audit log for approve/apply/rollback | 🔄 | `cursor/rollout-audit-log` | PR pending |
 | 3.5 | kind e2e: bookinfo → plan → rollout → verify | ⬜ | `cursor/e2e-kind-ambient` | CI job |
 
 **Phase 3 exit criteria:** One namespace at a time; verify + auto-rollback proven in e2e.

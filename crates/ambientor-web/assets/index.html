@@ -119,6 +119,10 @@
             <button id="approve-rollout" class="btn primary" disabled>Approve current stage</button>
           </div>
           <h3>Stages</h3>
+          <h3>Audit log</h3>
+          <p id="rollout-audit-hint" class="hint">Requires Postgres (<code>DATABASE_URL</code>).</p>
+          <ul id="rollout-audit-list" class="audit-list"></ul>
+          <h3>Stages</h3>
           <table class="stage-table" id="rollout-stages">
             <thead>
               <tr>

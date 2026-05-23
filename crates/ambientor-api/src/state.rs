@@ -56,7 +56,6 @@ impl AppState {
         })
     }
 
-    #[allow(dead_code)]
     pub fn audit_repo(&self) -> Option<AuditRepository> {
         self.pool.as_ref().map(|p| AuditRepository::new(p.clone()))
     }

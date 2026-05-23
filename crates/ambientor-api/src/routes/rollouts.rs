@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use ambientor_k8s::K8sClient;
 use ambientor_plan::plan_to_rollout;
+use ambientor_rollout::audit::audit_rollout_approve;
 use ambientor_types::{Rollout, RolloutSpec, RolloutStage, RolloutStatus};
 use axum::{
     Json,
@@ -57,6 +58,8 @@ pub struct RolloutDetail {
 pub struct ApproveRolloutRequest {
     /// Stage index to approve; defaults to `currentStage` when omitted.
     pub stage: Option<i32>,
+    /// Actor recorded in the audit log (defaults to `api`).
+    pub actor: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -107,7 +110,7 @@ pub async fn get_rollout(
 }
 
 pub async fn approve_rollout(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path((namespace, name)): Path<(String, String)>,
     Json(body): Json<ApproveRolloutRequest>,
 ) -> Result<Json<ApproveRolloutResponse>, (StatusCode, String)> {
@@ -136,6 +139,14 @@ pub async fn approve_rollout(
     api.patch_status(&name, &Default::default(), &Patch::Merge(&patch))
         .await
         .map_err(internal)?;
+
+    let actor = body.actor.unwrap_or_else(|| "api".into());
+    if let Some(repo) = state.audit_repo() {
+        let event = audit_rollout_approve(&namespace, &name, &actor, stage_to_approve);
+        if let Err(e) = repo.append(&event).await {
+            tracing::warn!(error = %e, rollout = %name, "failed to append rollout approve audit");
+        }
+    }
 
     let updated = fetch_rollout(&k8s, &namespace, &name).await?;
     let new_status = updated.status.as_ref().unwrap();

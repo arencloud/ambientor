@@ -69,7 +69,7 @@ pub async fn rollout_approve(
 ) -> anyhow::Result<()> {
     if let Some(url) = api_url {
         let client = reqwest::Client::new();
-        let body = serde_json::json!({ "stage": stage });
+        let body = serde_json::json!({ "stage": stage, "actor": "cli" });
         let resp: serde_json::Value = client
             .post(format!(
                 "{}/api/v1/rollouts/{namespace}/{name}/approve",

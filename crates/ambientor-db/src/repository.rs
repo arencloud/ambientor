@@ -76,6 +76,21 @@ impl AuditRepository {
         Ok(())
     }
 
+    pub async fn list_by_resource(
+        &self,
+        resource: &str,
+        limit: i64,
+    ) -> Result<Vec<AuditEvent>, DbError> {
+        let rows = sqlx::query_as::<_, AuditRow>(
+            "SELECT id, timestamp, actor, action, resource, outcome, details FROM audit_events WHERE resource = $1 ORDER BY timestamp DESC LIMIT $2",
+        )
+        .bind(resource)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(audit_row_to_event).collect())
+    }
+
     pub async fn list_recent(&self, limit: i64) -> Result<Vec<AuditEvent>, DbError> {
         let rows = sqlx::query_as::<_, AuditRow>(
             "SELECT id, timestamp, actor, action, resource, outcome, details FROM audit_events ORDER BY timestamp DESC LIMIT $1",
@@ -83,18 +98,19 @@ impl AuditRepository {
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| AuditEvent {
-                id: r.id,
-                timestamp: r.timestamp,
-                actor: r.actor,
-                action: r.action,
-                resource: r.resource,
-                outcome: r.outcome,
-                details: r.details,
-            })
-            .collect())
+        Ok(rows.into_iter().map(audit_row_to_event).collect())
+    }
+}
+
+fn audit_row_to_event(r: AuditRow) -> AuditEvent {
+    AuditEvent {
+        id: r.id,
+        timestamp: r.timestamp,
+        actor: r.actor,
+        action: r.action,
+        resource: r.resource,
+        outcome: r.outcome,
+        details: r.details,
     }
 }
 

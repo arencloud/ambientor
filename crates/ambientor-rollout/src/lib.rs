@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 pub mod apply;
+pub mod audit;
 pub mod engine;
 pub mod events;
 pub mod labels;

@@ -329,6 +329,52 @@
     });
   }
 
+  function renderRolloutAudit(events) {
+    const ul = $('rollout-audit-list');
+    const hint = $('rollout-audit-hint');
+    if (!ul) return;
+    ul.innerHTML = '';
+    if (!events || !events.length) {
+      if (hint) {
+        hint.textContent = events
+          ? 'No audit events for this rollout yet.'
+          : 'Audit log unavailable (configure DATABASE_URL on the API).';
+      }
+      return;
+    }
+    if (hint) hint.textContent = `${events.length} recent event(s)`;
+    events.forEach((ev) => {
+      const li = document.createElement('li');
+      const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleString() : '—';
+      li.innerHTML = `
+        <span class="audit-ts">${escapeHtml(ts)}</span>
+        <span class="audit-action">${escapeHtml(ev.action)}</span>
+        <span><span class="audit-outcome">${escapeHtml(ev.outcome)}</span> · ${escapeHtml(ev.actor || '')}${ev.details?.stageName ? ' · ' + escapeHtml(ev.details.stageName) : ''}</span>
+      `;
+      ul.appendChild(li);
+    });
+  }
+
+  async function loadRolloutAudit(namespace, name) {
+    try {
+      const res = await fetch(
+        API() +
+          `/api/v1/rollouts/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/audit?limit=50`
+      );
+      if (res.status === 503) {
+        renderRolloutAudit(null);
+        return;
+      }
+      if (!res.ok) throw new Error(await res.text());
+      renderRolloutAudit(await res.json());
+    } catch (e) {
+      renderRolloutAudit([]);
+      if ($('rollout-audit-hint')) {
+        $('rollout-audit-hint').textContent = 'Could not load audit log: ' + e.message;
+      }
+    }
+  }
+
   function renderRolloutStages(detail) {
     const tbody = $('rollout-stages')?.querySelector('tbody');
     if (!tbody) return;
@@ -376,6 +422,7 @@
       renderRolloutStages(rolloutDetail);
       const awaitingDetail = rolloutDetail.rollout?.awaitingApproval ?? rolloutDetail.rollout?.awaiting_approval;
       $('approve-rollout').disabled = !awaitingDetail;
+      await loadRolloutAudit(r.namespace, r.name);
       setStatus(`Rollout ${r.namespace}/${r.name} loaded`);
     } catch (e) {
       setStatus('Failed to load rollout: ' + e.message, true);
@@ -416,7 +463,7 @@
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ actor: 'portal' }),
         }
       );
       if (!res.ok) throw new Error(await res.text());

@@ -1,5 +1,6 @@
 pub mod assess;
 pub mod assessments;
+pub mod audit;
 pub mod auth;
 pub mod health;
 pub mod plans;
@@ -42,5 +43,10 @@ pub fn api_router() -> Router<Arc<AppState>> {
             "/api/v1/rollouts/{namespace}/{name}/approve",
             post(rollouts::approve_rollout),
         )
+        .route(
+            "/api/v1/rollouts/{namespace}/{name}/audit",
+            get(audit::list_rollout_audit),
+        )
+        .route("/api/v1/audit", get(audit::list_audit))
         .route("/api/v1/events/{id}", get(sse::subscribe))
 }
