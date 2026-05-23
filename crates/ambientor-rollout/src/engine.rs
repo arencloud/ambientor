@@ -9,6 +9,10 @@ use thiserror::Error;
 use tracing::{info, warn};
 
 use crate::events::{RolloutEvent, RolloutEventType};
+use crate::policy::translate_policies_in_namespace;
+use crate::restart::rolling_restart_namespace;
+use crate::verify::verify_namespace_traffic;
+use crate::waypoint::deploy_waypoint;
 
 pub const FIELD_MANAGER: &str = "ambientor.io";
 
@@ -141,13 +145,40 @@ impl RolloutEngine {
                 }
                 Ok(format!("Labeled {} namespace(s)", stage.namespaces.len()))
             }
-            RolloutStageType::DeployWaypoint => Ok(format!(
-                "Waypoint deployment queued for {:?}",
-                stage.namespaces
-            )),
-            RolloutStageType::RollingRestart => Ok("Rolling restart annotation applied".into()),
-            RolloutStageType::VerifyTraffic => Ok("Traffic verification passed".into()),
-            RolloutStageType::TranslatePolicy => Ok("Policy translation applied".into()),
+            RolloutStageType::DeployWaypoint => {
+                for ns in &stage.namespaces {
+                    deploy_waypoint(&self.client, ns).await?;
+                }
+                Ok(format!(
+                    "Deployed waypoint Gateway for {} namespace(s)",
+                    stage.namespaces.len()
+                ))
+            }
+            RolloutStageType::TranslatePolicy => {
+                let mut total = 0usize;
+                for ns in &stage.namespaces {
+                    total += translate_policies_in_namespace(&self.client, ns).await?;
+                }
+                Ok(format!("Applied {total} HTTPRoute translation(s)"))
+            }
+            RolloutStageType::RollingRestart => {
+                let mut total = 0usize;
+                for ns in &stage.namespaces {
+                    total += rolling_restart_namespace(&self.client, ns).await?;
+                }
+                Ok(format!(
+                    "Triggered rolling restart on {total} Deployment(s)"
+                ))
+            }
+            RolloutStageType::VerifyTraffic => {
+                for ns in &stage.namespaces {
+                    verify_namespace_traffic(&self.client, ns).await?;
+                }
+                Ok(format!(
+                    "Verified ambient labels, waypoint, and policy for {} namespace(s)",
+                    stage.namespaces.len()
+                ))
+            }
             RolloutStageType::RemoveInjection => Ok("Injection labels removed".into()),
             RolloutStageType::InstallAmbientComponents => {
                 Ok("Ambient components check passed".into())
