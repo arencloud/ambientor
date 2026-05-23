@@ -49,7 +49,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 1.6 | OSSM namespace / MemberRoll inventory | ✅ | Part of 1.5 | MemberRoll list + enrollment warning |
 | 1.7 | Portal assessment UI + evidence | ✅ | PR [#7](https://github.com/arencloud/ambientor/pull/7) | Merged |
 | 1.8 | SARIF export (`ambientor assess --output sarif`) | ✅ | PR [#8](https://github.com/arencloud/ambientor/pull/8) | Merged |
-| 1.9 | Persist scans in Postgres | ⬜ | `cursor/postgres-scan-persistence` | When `DATABASE_URL` set |
+| 1.9 | Persist scans in Postgres | 🔄 | `cursor/postgres-scan-persistence` | PR pending |
 
 **Phase 1 exit criteria:** Assessment matches Istio migrate docs on real clusters; portal or SARIF shows evidence; operator uses watches.
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ambientor_auth::jwt::JwtService;
 use ambientor_auth::rbac::RbacEnforcer;
 use ambientor_auth::service::AuthService;
-use ambientor_db::{AuditRepository, UserRepository};
+use ambientor_db::{AuditRepository, ScanRepository, UserRepository};
 use sqlx::PgPool;
 use tokio::sync::RwLock;
 
@@ -12,7 +12,6 @@ use crate::routes::sse::SseHub;
 pub struct AppState {
     pub auth: Option<Arc<AuthService>>,
     pub sse: Arc<RwLock<SseHub>>,
-    #[allow(dead_code)]
     pool: Option<PgPool>,
     #[allow(dead_code)]
     jwt: JwtService,
@@ -60,5 +59,9 @@ impl AppState {
     #[allow(dead_code)]
     pub fn audit_repo(&self) -> Option<AuditRepository> {
         self.pool.as_ref().map(|p| AuditRepository::new(p.clone()))
+    }
+
+    pub fn scan_repo(&self) -> Option<ScanRepository> {
+        self.pool.as_ref().map(|p| ScanRepository::new(p.clone()))
     }
 }
