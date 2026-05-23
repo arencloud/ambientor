@@ -21,18 +21,21 @@ async fn main() -> anyhow::Result<()> {
     let k8s = K8sClient::in_cluster().await?;
     let client = k8s.client.clone();
 
-    let scan_repo = if let Ok(url) = std::env::var("DATABASE_URL") {
+    let (scan_repo, audit_repo) = if let Ok(url) = std::env::var("DATABASE_URL") {
         let pool = ambientor_db::connect(&url).await?;
         ambientor_db::migrate(&pool).await?;
         tracing::info!("database migrations applied");
-        Some(Arc::new(ambientor_db::ScanRepository::new(pool)))
+        (
+            Some(Arc::new(ambientor_db::ScanRepository::new(pool.clone()))),
+            Some(Arc::new(ambientor_db::AuditRepository::new(pool))),
+        )
     } else {
-        tracing::warn!("DATABASE_URL not set; scan runs will not be persisted");
-        None
+        tracing::warn!("DATABASE_URL not set; scans and audit log will not be persisted");
+        (None, None)
     };
 
     let rollout_engine = Arc::new(RolloutEngine::new(client.clone()));
 
-    controllers::run_all(client, rollout_engine, scan_repo).await;
+    controllers::run_all(client, rollout_engine, scan_repo, audit_repo).await;
     Ok(())
 }

@@ -53,6 +53,7 @@ dependencies = [
  "ambientor-k8s",
  "ambientor-mesh",
  "ambientor-plan",
+ "ambientor-rollout",
  "ambientor-scan",
  "ambientor-types",
  "anyhow",
@@ -228,6 +229,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

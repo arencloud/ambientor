@@ -10,7 +10,7 @@ mod runtime;
 
 use std::sync::Arc;
 
-use ambientor_db::ScanRepository;
+use ambientor_db::{AuditRepository, ScanRepository};
 use ambientor_rollout::RolloutEngine;
 use kube::Client;
 use tracing::info;
@@ -21,9 +21,10 @@ pub async fn run_all(
     client: Client,
     rollout_engine: Arc<RolloutEngine>,
     scan_repo: Option<Arc<ScanRepository>>,
+    audit_repo: Option<Arc<AuditRepository>>,
 ) {
     info!("starting ambientor-operator controllers (kube-runtime watches)");
-    let op_ctx = OperatorContext::new(client.clone(), rollout_engine);
+    let op_ctx = OperatorContext::new(client.clone(), rollout_engine, audit_repo);
     tokio::join!(
         inventory::run(client.clone()),
         assessment::run(client.clone(), scan_repo),

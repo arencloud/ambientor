@@ -180,6 +180,18 @@ main { padding: 2rem; max-width: 1200px; margin: 0 auto; }
 }
 .stage-table tr.current { background: #eef6ff; }
 .stage-table tr.awaiting { background: #fff8e1; }
+
+.audit-list { list-style: none; padding: 0; margin: 0 0 1.5rem; font-size: 0.85rem; }
+.audit-list li {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #e8ecf4;
+  display: grid;
+  grid-template-columns: 10rem 8rem 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+.audit-list .audit-action { font-weight: 600; color: var(--purple); }
+.audit-list .audit-outcome { color: #5a6a85; }
 .wave-card, .translation-card {
   padding: 1rem; margin-bottom: 0.75rem;
   border: 1px solid #e8ecf4; border-radius: 8px;

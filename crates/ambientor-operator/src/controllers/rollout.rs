@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ambientor_rollout::RolloutEngine;
+use ambientor_rollout::audit::audit_from_rollout_event;
 use ambientor_types::Rollout;
 use futures::StreamExt;
 use kube::{
-    Api, Client,
+    Api,
     api::Patch,
     runtime::controller::{Action, Controller},
     runtime::watcher::Config,
@@ -33,7 +33,7 @@ async fn reconcile(obj: Arc<Rollout>, ctx: Arc<OperatorContext>) -> ReconcileRes
         return Ok(Action::await_change());
     }
     let mut status = obj.status.clone().unwrap_or_default();
-    reconcile_inner(&ctx.client, &ctx.rollout_engine, &obj, &mut status)
+    reconcile_inner(&ctx, &obj, &mut status)
         .await
         .map_err(ReconcileError::Other)?;
     if status.phase == "AwaitingApproval" {
@@ -44,12 +44,12 @@ async fn reconcile(obj: Arc<Rollout>, ctx: Arc<OperatorContext>) -> ReconcileRes
 }
 
 async fn reconcile_inner(
-    client: &Client,
-    engine: &RolloutEngine,
+    ctx: &OperatorContext,
     obj: &Rollout,
     status: &mut ambientor_types::RolloutStatus,
 ) -> anyhow::Result<()> {
-    let _events = engine
+    let events = ctx
+        .rollout_engine
         .reconcile(&obj.spec, status)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -59,7 +59,27 @@ async fn reconcile_inner(
         .namespace
         .clone()
         .unwrap_or_else(|| "default".into());
-    let api: Api<Rollout> = Api::namespaced(client.clone(), &ns);
+    let name = obj
+        .metadata
+        .name
+        .clone()
+        .unwrap_or_else(|| "unknown".into());
+
+    if let Some(repo) = &ctx.audit_repo {
+        for event in &events {
+            let audit = audit_from_rollout_event(&ns, &name, "operator", event);
+            if let Err(e) = repo.append(&audit).await {
+                tracing::warn!(
+                    error = %e,
+                    rollout = %name,
+                    action = %audit.action,
+                    "failed to append rollout audit event"
+                );
+            }
+        }
+    }
+
+    let api: Api<Rollout> = Api::namespaced(ctx.client.clone(), &ns);
     if let Some(name) = &obj.metadata.name {
         let patch = serde_json::json!({ "status": status });
         api.patch_status(name, &Default::default(), &Patch::Merge(patch))

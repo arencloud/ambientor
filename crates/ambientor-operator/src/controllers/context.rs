@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use ambientor_db::AuditRepository;
 use ambientor_rollout::RolloutEngine;
 use kube::Client;
 
@@ -7,13 +8,19 @@ use kube::Client;
 pub struct OperatorContext {
     pub client: Client,
     pub rollout_engine: Arc<RolloutEngine>,
+    pub audit_repo: Option<Arc<AuditRepository>>,
 }
 
 impl OperatorContext {
-    pub fn new(client: Client, rollout_engine: Arc<RolloutEngine>) -> Arc<Self> {
+    pub fn new(
+        client: Client,
+        rollout_engine: Arc<RolloutEngine>,
+        audit_repo: Option<Arc<AuditRepository>>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             client,
             rollout_engine,
+            audit_repo,
         })
     }
 }
