@@ -35,7 +35,7 @@ cargo build --release
 
 # Install CRDs and Helm chart (cluster admin)
 kubectl apply -k config/crd/
-helm install ambientor deploy/helm/ambientor/ -n ambientor-system
+helm install ambientor deploy/helm/ambientor/ -n ambientor-system --create-namespace
 
 # CLI (local or in-cluster API)
 cargo run -p ambientor-cli -- assess --namespace bookinfo
