@@ -203,8 +203,10 @@ version = "0.1.0"
 dependencies = [
  "ambientor-core",
  "ambientor-types",
+ "kube",
  "serde",
  "serde_json",
+ "serde_yaml",
 ]
 
 [[package]]

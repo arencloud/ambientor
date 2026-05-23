@@ -2,6 +2,7 @@ pub mod assess;
 pub mod assessments;
 pub mod auth;
 pub mod health;
+pub mod plans;
 pub mod scans;
 pub mod sse;
 
@@ -21,5 +22,11 @@ pub fn api_router() -> Router<Arc<AppState>> {
         .route("/api/v1/assess", post(assess::assess))
         .route("/api/v1/assessments", get(assessments::list_assessments))
         .route("/api/v1/scans", get(scans::list_scans))
+        .route("/api/v1/plans", get(plans::list_plans))
+        .route("/api/v1/plans/{namespace}/{name}", get(plans::get_plan))
+        .route(
+            "/api/v1/plans/{namespace}/{name}/export",
+            get(plans::export_plan),
+        )
         .route("/api/v1/events/{id}", get(sse::subscribe))
 }
