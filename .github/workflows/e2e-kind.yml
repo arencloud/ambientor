@@ -32,8 +32,11 @@ jobs:
           curl -sL "https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istio-${ISTIO_VERSION}-linux-amd64.tar.gz" | tar xz
           echo "$PWD/istio-${ISTIO_VERSION}/bin" >> "$GITHUB_PATH"
 
+      # docker driver (not docker-container) so load: true lands on the host daemon kind uses.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
 
       - name: Build and load images
         uses: docker/build-push-action@v6
@@ -54,6 +57,9 @@ jobs:
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify images on host Docker
+        run: docker image inspect ambientor:0.1.0-operator ambientor:0.1.0-api
 
       - name: Run kind e2e
         env:

@@ -14,8 +14,18 @@ ROLLOUT="${PLAN}-rollout"
 ISTIO_VERSION="${ISTIO_VERSION:-1.24.2}"
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.2.0}"
 E2E_TIMEOUT_SEC="${E2E_TIMEOUT_SEC:-1200}"
+POD_READY_TIMEOUT_SEC="${POD_READY_TIMEOUT_SEC:-180}"
+POLL_INTERVAL_SEC="${POLL_INTERVAL_SEC:-5}"
 SKIP_CLUSTER_CREATE="${SKIP_CLUSTER_CREATE:-0}"
 SKIP_IMAGE_BUILD="${SKIP_IMAGE_BUILD:-0}"
+
+# Waiting reasons that will not self-heal; fail immediately instead of kubectl wait's long timeout.
+FATAL_POD_WAIT_REASONS=(
+  ErrImageNeverPull
+  ImagePullBackOff
+  ErrImagePull
+  InvalidImageName
+)
 
 log() { echo "[e2e] $(date -u +%H:%M:%S) $*"; }
 die() { log "ERROR: $*"; exit 1; }
@@ -27,6 +37,43 @@ wait_for() {
   shift
   log "wait: ${desc}"
   kubectl_ctx wait "$@" --timeout="${E2E_TIMEOUT_SEC}s"
+}
+
+wait_for_pod_ready() {
+  local desc="$1" ns="$2" selector="$3"
+  local timeout="${4:-${POD_READY_TIMEOUT_SEC}}"
+  local start now ready total reason
+  start="$(date +%s)"
+  log "wait: ${desc} (up to ${timeout}s, fail-fast on image errors)"
+
+  while true; do
+    now="$(date +%s)"
+    if (( now - start >= timeout )); then
+      [[ "${ns}" == "${NS_SYSTEM}" ]] && dump_ambientor_diagnostics 2>/dev/null || true
+      kubectl_ctx get pods -n "${ns}" -l "${selector}" -o wide || true
+      die "timeout waiting for ${desc} after ${timeout}s"
+    fi
+
+    while IFS= read -r reason; do
+      [[ -z "${reason}" ]] && continue
+      for fatal in "${FATAL_POD_WAIT_REASONS[@]}"; do
+        if [[ "${reason}" == "${fatal}" ]]; then
+          [[ "${ns}" == "${NS_SYSTEM}" ]] && dump_ambientor_diagnostics 2>/dev/null || true
+          kubectl_ctx describe pods -n "${ns}" -l "${selector}" || true
+          die "${desc}: unrecoverable pod state (${reason})"
+        fi
+      done
+    done < <(kubectl_ctx get pods -n "${ns}" -l "${selector}" -o jsonpath='{range .items[*]}{range .status.initContainerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{range .status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{end}' 2>/dev/null | sed '/^$/d')
+
+    ready="$(kubectl_ctx get pods -n "${ns}" -l "${selector}" -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null | grep -c '^True$' || true)"
+    total="$(kubectl_ctx get pods -n "${ns}" -l "${selector}" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+    if [[ "${total}" -gt 0 && "${ready}" -eq "${total}" ]]; then
+      log "ready: ${desc}"
+      return 0
+    fi
+
+    sleep "${POLL_INTERVAL_SEC}"
+  done
 }
 
 approve_rollout_if_needed() {
@@ -67,9 +114,14 @@ wait_rollout_terminal() {
 load_e2e_images() {
   local tag="${AMBIENTOR_IMAGE_TAG:-0.1.0}"
   local repo="${AMBIENTOR_IMAGE_REPO:-ambientor}"
+  local image
   for suffix in operator api; do
-    log "loading ${repo}:${tag}-${suffix} into kind cluster ${CLUSTER}"
-    kind load docker-image "${repo}:${tag}-${suffix}" --name "${CLUSTER}"
+    image="${repo}:${tag}-${suffix}"
+    if ! docker image inspect "${image}" >/dev/null 2>&1; then
+      die "image ${image} not in local Docker; CI must use buildx driver: docker with load: true"
+    fi
+    log "loading ${image} into kind cluster ${CLUSTER}"
+    kind load docker-image "${image}" --name "${CLUSTER}"
   done
 }
 
@@ -118,7 +170,7 @@ kubectl_ctx create namespace "${BOOKINFO_NS}" --dry-run=client -o yaml | kubectl
 kubectl_ctx label namespace "${BOOKINFO_NS}" istio-injection=enabled --overwrite
 kubectl_ctx apply -n "${BOOKINFO_NS}" -f \
   "https://raw.githubusercontent.com/istio/istio/release-1.24/samples/bookinfo/platform/kube/bookinfo.yaml"
-wait_for "bookinfo ratings ready" -n "${BOOKINFO_NS}" --for=condition=ready pod -l app=ratings
+wait_for_pod_ready "bookinfo ratings" "${BOOKINFO_NS}" "app=ratings"
 
 log "installing Ambientor CRDs"
 kubectl_ctx apply -k config/crd/
@@ -145,18 +197,8 @@ install_ambientor() {
     dump_ambientor_diagnostics
     die "helm install failed"
   fi
-  log "wait: ambientor operator"
-  if ! kubectl_ctx wait -n "${NS_SYSTEM}" --for=condition=ready pod -l app=ambientor-operator \
-    --timeout="${E2E_TIMEOUT_SEC}s"; then
-    dump_ambientor_diagnostics
-    die "operator pod not ready"
-  fi
-  log "wait: ambientor api"
-  if ! kubectl_ctx wait -n "${NS_SYSTEM}" --for=condition=ready pod -l app=ambientor-api \
-    --timeout="${E2E_TIMEOUT_SEC}s"; then
-    dump_ambientor_diagnostics
-    die "api pod not ready"
-  fi
+  wait_for_pod_ready "ambientor operator" "${NS_SYSTEM}" "app=ambientor-operator"
+  wait_for_pod_ready "ambientor api" "${NS_SYSTEM}" "app=ambientor-api"
 }
 
 install_ambientor
