@@ -1,7 +1,27 @@
 //! Multi-document YAML export for GitOps review.
 
-use ambientor_types::{MigrationPlan, PolicyTranslation, RolloutSpec};
+use ambientor_types::{
+    MigrationPlan, MigrationPlanSpec, MigrationPlanStatus, PolicyTranslation, RolloutSpec,
+};
 use serde_json::json;
+
+/// Build an in-memory `MigrationPlan` CR for export (local CLI or tests).
+pub fn migration_plan_cr(name: &str, namespace: &str, spec: MigrationPlanSpec) -> MigrationPlan {
+    let wave_count = spec.waves.len() as i32;
+    MigrationPlan {
+        metadata: kube::api::ObjectMeta {
+            name: Some(name.into()),
+            namespace: Some(namespace.into()),
+            ..Default::default()
+        },
+        spec,
+        status: Some(MigrationPlanStatus {
+            phase: "Ready".into(),
+            approved: false,
+            wave_count,
+        }),
+    }
+}
 
 /// Build a multi-document YAML bundle: MigrationPlan, policy translations, rollout preview.
 pub fn build_export_yaml(

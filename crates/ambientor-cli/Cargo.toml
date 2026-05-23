@@ -13,9 +13,11 @@ name = "ambientor"
 path = "src/main.rs"
 
 [dependencies]
+ambientor-analyze = { workspace = true }
 ambientor-core = { workspace = true }
 ambientor-k8s = { workspace = true }
 ambientor-mesh = { workspace = true }
+kube = { workspace = true }
 ambientor-plan = { workspace = true }
 ambientor-scan = { workspace = true }
 ambientor-types = { workspace = true }
