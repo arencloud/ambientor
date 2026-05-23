@@ -215,12 +215,16 @@ dependencies = [
 name = "ambientor-rollout"
 version = "0.1.0"
 dependencies = [
+ "ambientor-analyze",
+ "ambientor-mesh",
+ "ambientor-plan",
  "ambientor-types",
  "chrono",
  "k8s-openapi",
  "kube",
  "serde",
  "serde_json",
+ "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

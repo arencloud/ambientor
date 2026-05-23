@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Phase 3 — Rollout controller (Step 3.1).
+**Current focus:** Phase 3, Step 3.1 — rollout waypoint/policy/verify (`cursor/rollout-waypoint-and-verify`).
 
-**Next up:** Real `DeployWaypoint` / `TranslatePolicy` / verify (`cursor/rollout-waypoint-and-verify`).
+**Next up:** Rollback reverts labels/manifests (3.2) or approval API (3.3).
 
 **Last updated:** 2026-05-23
 
@@ -72,7 +72,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 
 | Step | Task | Status | Branch / PR | Notes |
 |------|------|--------|-------------|-------|
-| 3.1 | Real `DeployWaypoint` / `TranslatePolicy` / restart / verify | ⬜ | `cursor/rollout-waypoint-and-verify` | Only `LabelNamespace` is real today |
+| 3.1 | Real `DeployWaypoint` / `TranslatePolicy` / restart / verify | 🔄 | `cursor/rollout-waypoint-and-verify` | PR pending |
 | 3.2 | Rollback reverts labels/manifests | ⬜ | With 3.1 | Today: stage index decrement only |
 | 3.3 | Approval API + portal UI | ⬜ | `cursor/rollout-approvals-api-ui` | `approvedStage` in CRD |
 | 3.4 | Audit log for approve/apply/rollback | ⬜ | With 3.3 | |

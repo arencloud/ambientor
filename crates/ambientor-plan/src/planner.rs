@@ -149,6 +149,12 @@ pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
             requires_approval: i > 0,
         });
         stages.push(RolloutStage {
+            name: format!("{}-translate", wave.name),
+            r#type: RolloutStageType::TranslatePolicy,
+            namespaces: wave.namespaces.clone(),
+            requires_approval: true,
+        });
+        stages.push(RolloutStage {
             name: format!("{}-restart", wave.name),
             r#type: RolloutStageType::RollingRestart,
             namespaces: wave.namespaces.clone(),
@@ -178,6 +184,29 @@ mod tests {
     #[test]
     fn namespaces_default_when_empty() {
         assert_eq!(namespaces_from_findings(&[]), vec!["default"]);
+    }
+
+    #[test]
+    fn rollout_includes_translate_after_waypoint() {
+        let plan = build_plan(
+            &AssessmentResult {
+                findings: vec![],
+                scores: Default::default(),
+                summary: Default::default(),
+            },
+            &["bookinfo".into()],
+        );
+        let rollout = plan_to_rollout(&plan);
+        let types: Vec<_> = rollout.stages.iter().map(|s| s.r#type).collect();
+        let wp = types
+            .iter()
+            .position(|t| *t == RolloutStageType::DeployWaypoint)
+            .expect("waypoint stage");
+        let tr = types
+            .iter()
+            .position(|t| *t == RolloutStageType::TranslatePolicy)
+            .expect("translate stage");
+        assert!(wp < tr);
     }
 
     #[test]
