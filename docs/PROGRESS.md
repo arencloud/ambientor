@@ -59,7 +59,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 
 | Step | Task | Status | Branch / PR | Notes |
 |------|------|--------|-------------|-------|
-| 2.1 | `MigrationPlan` controller (assessment → plan CR) | ⬜ | `cursor/migration-plan-controller` | `build_plan` exists in `ambientor-plan` |
+| 2.1 | `MigrationPlan` controller (assessment → plan CR) | 🔄 | `cursor/migration-plan-controller` | PR pending |
 | 2.2 | `PolicyTranslation` (VS → HTTPRoute suggestions) | ⬜ | `cursor/policy-translation` | CRD exists |
 | 2.3 | Portal plan review + manifest export | ⬜ | After 2.1 | |
 | 2.4 | CLI `plan create` + GitOps export | ⬜ | After 2.1 | |

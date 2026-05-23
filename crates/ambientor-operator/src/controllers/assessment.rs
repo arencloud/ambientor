@@ -14,6 +14,7 @@ use kube::{
     runtime::watcher::Config,
 };
 
+use super::migration_plan::ensure_plan_for_assessment;
 use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 
 pub async fn run(client: Client, scan_repo: Option<Arc<ScanRepository>>) {
@@ -94,6 +95,10 @@ async fn reconcile_inner(
                 .await
         {
             tracing::warn!(error = %e, assessment = %name, "failed to persist scan run");
+        }
+
+        if let Err(e) = ensure_plan_for_assessment(client, &ns, name).await {
+            tracing::warn!(error = %e, assessment = %name, "failed to ensure MigrationPlan");
         }
     }
     Ok(())

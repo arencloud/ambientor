@@ -1,7 +1,43 @@
+use std::collections::BTreeSet;
+
 use ambientor_core::inventory::AssessmentResult;
 use ambientor_types::{
-    MigrationPlanSpec, MigrationWave, PolicyTask, RolloutSpec, RolloutStage, RolloutStageType,
+    AmbientAssessmentStatus, AssessmentScores, Finding, MigrationPlanSpec, MigrationWave,
+    PolicyTask, RolloutSpec, RolloutStage, RolloutStageType,
 };
+
+/// Stable MigrationPlan name for an AmbientAssessment.
+pub fn plan_name_for_assessment(assessment_name: &str) -> String {
+    format!("{assessment_name}-plan")
+}
+
+/// Namespace list for wave planning (defaults to `default` when no finding namespaces).
+pub fn namespaces_from_findings(findings: &[Finding]) -> Vec<String> {
+    let mut set = BTreeSet::new();
+    for f in findings {
+        if let Some(ns) = &f.namespace {
+            set.insert(ns.clone());
+        }
+    }
+    if set.is_empty() {
+        return vec!["default".into()];
+    }
+    set.into_iter().collect()
+}
+
+/// Build an assessment result from a completed AmbientAssessment status.
+pub fn assessment_result_from_status(status: &AmbientAssessmentStatus) -> AssessmentResult {
+    AssessmentResult {
+        findings: status.findings.clone(),
+        scores: AssessmentScores {
+            readiness: status.readiness_score,
+            sidecar_dependency: status.sidecar_dependency_score,
+            traffic_compatibility: status.traffic_compatibility_score,
+            overall: status.overall_score,
+        },
+        summary: status.summary.clone().unwrap_or_default(),
+    }
+}
 
 /// Build a migration plan from assessment results.
 pub fn build_plan(assessment: &AssessmentResult, namespaces: &[String]) -> MigrationPlanSpec {
@@ -133,6 +169,11 @@ mod tests {
     use super::*;
     use ambientor_core::inventory::AssessmentResult;
     use ambientor_types::{Finding, FindingCategory, FindingSeverity};
+
+    #[test]
+    fn namespaces_default_when_empty() {
+        assert_eq!(namespaces_from_findings(&[]), vec!["default"]);
+    }
 
     #[test]
     fn orders_canary_first() {

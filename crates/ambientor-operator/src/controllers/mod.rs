@@ -3,6 +3,7 @@ pub mod cluster;
 pub mod context;
 pub mod hub;
 pub mod inventory;
+pub mod migration_plan;
 pub mod rollout;
 mod runtime;
 
@@ -25,6 +26,7 @@ pub async fn run_all(
     tokio::join!(
         inventory::run(client.clone()),
         assessment::run(client.clone(), scan_repo),
+        migration_plan::run(client.clone()),
         rollout::run(op_ctx),
         cluster::run(client.clone()),
         hub::run(client),
