@@ -5,6 +5,8 @@
 
   let assessments = [];
   let selectedKey = null;
+  let plans = [];
+  let selectedPlanKey = null;
 
   function showPanel(id) {
     document.querySelectorAll('main .panel').forEach((p) => p.classList.add('hidden'));
@@ -175,6 +177,151 @@
     while (el.children.length > 50) el.removeChild(el.lastChild);
   }
 
+  function planKey(p) {
+    return p.namespace + '/' + p.name;
+  }
+
+  function renderPlanList() {
+    const ul = $('plan-list');
+    if (!ul) return;
+    ul.innerHTML = '';
+    plans.forEach((p) => {
+      const li = document.createElement('li');
+      const key = planKey(p);
+      li.className = 'assessment-item' + (key === selectedPlanKey ? ' selected' : '');
+      li.innerHTML = `
+        <button type="button" data-key="${escapeHtml(key)}">
+          <span class="name">${escapeHtml(p.namespace)}/${escapeHtml(p.name)}</span>
+          <span class="phase">${escapeHtml(p.phase)}</span>
+          <span class="score-mini">${p.waveCount ?? p.wave_count ?? 0} wave(s)</span>
+        </button>
+      `;
+      li.querySelector('button').addEventListener('click', () => selectPlan(key));
+      ul.appendChild(li);
+    });
+  }
+
+  function renderWaves(waves) {
+    const ul = $('plan-waves');
+    if (!ul) return;
+    ul.innerHTML = '';
+    (waves || []).forEach((w) => {
+      const li = document.createElement('li');
+      li.className = 'wave-card';
+      const prereq = (w.prerequisites || [])
+        .map((x) => `<li>${escapeHtml(x)}</li>`)
+        .join('');
+      const tasks = (w.policyTasks || w.policy_tasks || [])
+        .map(
+          (t) =>
+            `<li><strong>${escapeHtml(t.name)}</strong> (${escapeHtml(t.namespace)}): ${escapeHtml(t.action)}</li>`
+        )
+        .join('');
+      li.innerHTML = `
+        <h4>${escapeHtml(w.name)}</h4>
+        <p class="ns-list">Namespaces: ${escapeHtml((w.namespaces || []).join(', ') || '—')}</p>
+        ${prereq ? `<p><strong>Prerequisites</strong></p><ul>${prereq}</ul>` : ''}
+        ${tasks ? `<p><strong>Policy tasks</strong></p><ul>${tasks}</ul>` : ''}
+      `;
+      ul.appendChild(li);
+    });
+  }
+
+  function renderTranslations(translations) {
+    const ul = $('plan-translations');
+    if (!ul) return;
+    ul.innerHTML = '';
+    if (!translations || !translations.length) {
+      ul.innerHTML = '<li class="hint">No PolicyTranslation resources in this namespace yet.</li>';
+      return;
+    }
+    translations.forEach((t) => {
+      const li = document.createElement('li');
+      li.className = 'translation-card';
+      const manifest = t.suggestedManifest || t.suggested_manifest;
+      li.innerHTML = `
+        <h4>${escapeHtml(t.sourceName || t.source_name)} → HTTPRoute</h4>
+        <span class="phase-badge ${escapeHtml((t.phase || '').toLowerCase())}">${escapeHtml(t.phase)}</span>
+        ${manifest ? `<pre>${escapeHtml(manifest)}</pre>` : '<p class="hint">No manifest yet</p>'}
+      `;
+      ul.appendChild(li);
+    });
+  }
+
+  async function selectPlan(key) {
+    selectedPlanKey = key;
+    const p = plans.find((x) => planKey(x) === key);
+    if (!p) return;
+    renderPlanList();
+    $('plan-detail-title').textContent = `${p.namespace}/${p.name}`;
+    $('plan-detail-phase').textContent = p.phase;
+    $('plan-detail-phase').className =
+      'phase-badge ' + (p.phase || '').toLowerCase().replace(/[^a-z]/g, '');
+    const ref = p.assessmentRef || p.assessment_ref;
+    $('plan-assessment-ref').textContent = ref
+      ? `Assessment: ${ref}`
+      : 'No assessment reference';
+    $('export-plan').disabled = false;
+    renderWaves(p.waves);
+    setStatus('Loading plan detail…');
+    try {
+      const res = await fetch(
+        API() + `/api/v1/plans/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}`
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const detail = await res.json();
+      renderTranslations(detail.translations);
+      setStatus(`Plan ${p.namespace}/${p.name} loaded`);
+    } catch (e) {
+      setStatus('Failed to load plan detail: ' + e.message, true);
+      renderTranslations([]);
+    }
+    showPanel('plans');
+  }
+
+  async function loadPlans() {
+    setStatus('Loading migration plans…');
+    try {
+      const res = await fetch(API() + '/api/v1/plans');
+      if (!res.ok) throw new Error(await res.text());
+      plans = await res.json();
+      renderPlanList();
+      setStatus(
+        plans.length
+          ? `Loaded ${plans.length} migration plan(s)`
+          : 'No migration plans in cluster'
+      );
+      if (plans.length && !selectedPlanKey) {
+        selectPlan(planKey(plans[0]));
+      }
+    } catch (e) {
+      setStatus('Failed to load plans: ' + e.message, true);
+    }
+  }
+
+  async function downloadPlanExport() {
+    const p = plans.find((x) => planKey(x) === selectedPlanKey);
+    if (!p) return;
+    setStatus('Generating export…');
+    try {
+      const url =
+        API() +
+        `/api/v1/plans/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}/export`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(await res.text());
+      const yaml = await res.text();
+      const blob = new Blob([yaml], { type: 'application/x-yaml' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${p.name}-export.yaml`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setStatus(`Exported ${p.name}-export.yaml`);
+    } catch (e) {
+      setStatus('Export failed: ' + e.message, true);
+    }
+  }
+
   function initNav() {
     document.querySelectorAll('nav a[href^="#"]').forEach((a) => {
       a.addEventListener('click', (e) => {
@@ -182,6 +329,7 @@
         const id = a.getAttribute('href').slice(1);
         showPanel(id);
         if (id === 'assessments') loadAssessments();
+        if (id === 'plans') loadPlans();
       });
     });
   }
@@ -197,6 +345,8 @@
     initNav();
     $('run-assess')?.addEventListener('click', runAssessment);
     $('refresh-assessments')?.addEventListener('click', loadAssessments);
+    $('refresh-plans')?.addEventListener('click', loadPlans);
+    $('export-plan')?.addEventListener('click', downloadPlanExport);
     initSse();
     showPanel('dashboard');
   });

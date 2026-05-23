@@ -79,7 +79,26 @@
 
     <section id="plans" class="panel hidden">
       <h2>Migration plans</h2>
-      <p class="hint">Migration plan UI ships in Phase 2. Use <code>ambientor plan</code> CLI for now.</p>
+      <div class="assessments-layout">
+        <aside class="assessment-sidebar">
+          <button id="refresh-plans" class="btn">Refresh list</button>
+          <ul id="plan-list" class="assessment-list"></ul>
+        </aside>
+        <div class="assessment-detail">
+          <header class="detail-header">
+            <h3 id="plan-detail-title">Select a plan</h3>
+            <span id="plan-detail-phase" class="phase-badge"></span>
+          </header>
+          <p id="plan-assessment-ref" class="hint"></p>
+          <div class="plan-actions">
+            <button id="export-plan" class="btn primary" disabled>Download YAML bundle</button>
+          </div>
+          <h3>Migration waves</h3>
+          <ul id="plan-waves" class="wave-list"></ul>
+          <h3>Policy translations</h3>
+          <ul id="plan-translations" class="translation-list"></ul>
+        </div>
+      </div>
     </section>
 
     <section id="rollouts" class="panel hidden">

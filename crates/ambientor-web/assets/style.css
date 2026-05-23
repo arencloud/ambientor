@@ -159,6 +159,25 @@ main { padding: 2rem; max-width: 1200px; margin: 0 auto; }
 }
 .phase-badge.completed { background: #e8f5e9; color: #2e7d32; }
 .phase-badge.pending { background: #fff3e0; color: var(--warn); }
+.phase-badge.ready { background: #e8f5e9; color: #2e7d32; }
+.phase-badge.waitingforassessment { background: #fff3e0; color: var(--warn); }
+
+.plan-actions { margin: 1rem 0; }
+
+.wave-list, .translation-list { list-style: none; padding: 0; margin: 0; }
+.wave-card, .translation-card {
+  padding: 1rem; margin-bottom: 0.75rem;
+  border: 1px solid #e8ecf4; border-radius: 8px;
+  background: #fafbff;
+}
+.wave-card h4, .translation-card h4 { margin: 0 0 0.5rem; }
+.wave-card .ns-list { font-size: 0.85rem; color: #5a6a85; }
+.wave-card ul { margin: 0.5rem 0 0; padding-left: 1.25rem; font-size: 0.9rem; }
+.translation-card pre {
+  margin: 0.5rem 0 0; padding: 0.75rem;
+  background: #1e1e2e; color: #e8e8f0; border-radius: 6px;
+  font-size: 0.75rem; overflow-x: auto; white-space: pre-wrap;
+}
 
 .timeline {
   max-height: 200px; overflow-y: auto;
