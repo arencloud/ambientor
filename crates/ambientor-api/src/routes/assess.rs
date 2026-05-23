@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ambientor_core::scoring::compute_scores;
+use ambientor_db::{StoredAssessment, cluster_ref_from_env};
 use ambientor_k8s::K8sClient;
 use ambientor_mesh::backend::backend_for_flavor;
 use ambientor_scan::default_registry;
@@ -27,7 +28,7 @@ pub async fn assess(
     State(state): State<Arc<AppState>>,
     Json(body): Json<AssessRequest>,
 ) -> Result<Json<AssessResponse>, (axum::http::StatusCode, String)> {
-    let _namespace_filter = body.namespace;
+    let namespace_filter = body.namespace.as_deref();
     let k8s = K8sClient::in_cluster()
         .await
         .or(K8sClient::from_kubeconfig(None).await)
@@ -56,6 +57,22 @@ pub async fn assess(
         "assessment",
         &serde_json::json!({ "phase": "completed", "findingCount": findings.len() }),
     );
+
+    if let Some(repo) = state.scan_repo() {
+        let payload = StoredAssessment {
+            findings: findings.clone(),
+            scores: scores.clone(),
+            summary: summary.clone(),
+            source: Some("api".into()),
+            assessment_name: None,
+        };
+        if let Err(e) = repo
+            .record_completed(&cluster_ref_from_env(), namespace_filter, &payload)
+            .await
+        {
+            tracing::warn!(error = %e, "failed to persist scan run");
+        }
+    }
 
     Ok(Json(AssessResponse {
         findings,

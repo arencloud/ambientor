@@ -8,6 +8,8 @@ pub enum DbError {
     Sqlx(#[from] sqlx::Error),
     #[error("migration error: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+    #[error("serialization error: {0}")]
+    Serialize(String),
 }
 
 pub async fn connect(database_url: &str) -> Result<PgPool, DbError> {

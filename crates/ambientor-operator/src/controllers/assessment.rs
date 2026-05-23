@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ambientor_core::scoring::compute_scores;
+use ambientor_db::{ScanRepository, StoredAssessment, cluster_ref_from_env};
 use ambientor_k8s::detect_platform;
 use ambientor_mesh::backend::backend_for_flavor;
 use ambientor_scan::default_registry;
@@ -15,13 +16,14 @@ use kube::{
 
 use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 
-pub async fn run(client: Client) {
+pub async fn run(client: Client, scan_repo: Option<Arc<ScanRepository>>) {
+    let ctx = Arc::new(AssessmentContext { client, scan_repo });
     Controller::new(
-        Api::<AmbientAssessment>::all(client.clone()),
+        Api::<AmbientAssessment>::all(ctx.client.clone()),
         Config::default(),
     )
     .shutdown_on_signal()
-    .run(reconcile, error_policy, Arc::new(client))
+    .run(reconcile, error_policy, ctx)
     .for_each(|res| async move {
         if let Err(e) = res {
             tracing::error!(error = %e, "ambientassessment controller error");
@@ -30,22 +32,31 @@ pub async fn run(client: Client) {
     .await;
 }
 
-async fn reconcile(obj: Arc<AmbientAssessment>, client: Arc<Client>) -> ReconcileResult {
+struct AssessmentContext {
+    client: Client,
+    scan_repo: Option<Arc<ScanRepository>>,
+}
+
+async fn reconcile(obj: Arc<AmbientAssessment>, ctx: Arc<AssessmentContext>) -> ReconcileResult {
     let phase = obj.status.as_ref().map(|s| s.phase.as_str()).unwrap_or("");
     if phase == "Completed" {
         return Ok(Action::await_change());
     }
-    reconcile_inner(&client, &obj)
+    reconcile_inner(&ctx, &obj)
         .await
         .map_err(ReconcileError::Other)?;
     Ok(Action::await_change())
 }
 
-async fn reconcile_inner(client: &Client, obj: &AmbientAssessment) -> anyhow::Result<()> {
+async fn reconcile_inner(
+    assess_ctx: &AssessmentContext,
+    obj: &AmbientAssessment,
+) -> anyhow::Result<()> {
+    let client = &assess_ctx.client;
     let platform = detect_platform(client).await.unwrap_or_default();
     let backend = backend_for_flavor(platform.mesh_flavor);
-    let ctx = backend.build_rule_context(client).await.unwrap_or_default();
-    let findings = default_registry().evaluate_all(&ctx);
+    let rule_ctx = backend.build_rule_context(client).await.unwrap_or_default();
+    let findings = default_registry().evaluate_all(&rule_ctx);
     let scores = compute_scores(&findings);
     let summary = FindingSummary::from_findings(&findings);
 
@@ -56,6 +67,13 @@ async fn reconcile_inner(client: &Client, obj: &AmbientAssessment) -> anyhow::Re
         .unwrap_or_else(|| "default".into());
     let api: Api<AmbientAssessment> = Api::namespaced(client.clone(), &ns);
     if let Some(name) = &obj.metadata.name {
+        let payload = StoredAssessment {
+            findings: findings.clone(),
+            scores: scores.clone(),
+            summary: summary.clone(),
+            source: Some("operator".into()),
+            assessment_name: Some(name.clone()),
+        };
         let status = serde_json::json!({
             "status": {
                 "phase": "Completed",
@@ -69,6 +87,14 @@ async fn reconcile_inner(client: &Client, obj: &AmbientAssessment) -> anyhow::Re
         });
         api.patch_status(name, &Default::default(), &Patch::Merge(status))
             .await?;
+
+        if let Some(repo) = &assess_ctx.scan_repo
+            && let Err(e) = repo
+                .record_completed(&cluster_ref_from_env(), Some(ns.as_str()), &payload)
+                .await
+        {
+            tracing::warn!(error = %e, assessment = %name, "failed to persist scan run");
+        }
     }
     Ok(())
 }
