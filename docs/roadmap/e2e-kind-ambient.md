@@ -7,8 +7,8 @@ Prove the migration path end-to-end on kind with Istio ambient and bookinfo.
 ## Delivered
 
 - [x] `scripts/e2e-kind-ambient.sh` — cluster, Istio ambient, bookinfo, Ambientor, inventory → assessment → plan → rollout (with stage approvals) → ambient namespace label
-- [x] `deploy/helm/ambientor/values-lab.yaml` — local images, no persistence
-- [x] GitHub Actions workflow `.github/workflows/e2e-kind.yml`
+- [x] `deploy/helm/ambientor/values-e2e.yaml` — no Postgres, `web.replicas: 0` (faster CI)
+- [x] Helm install without `--wait`; explicit `kubectl wait` on operator + API
 - [x] Rollback behavior covered by `ambientor-rollout` unit tests; full rollback injection e2e deferred
 
 ## Branch

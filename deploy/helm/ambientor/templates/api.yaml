@@ -32,8 +32,10 @@ spec:
           ports:
             - containerPort: 8080
           env:
+            {{- with include "ambientor.databaseUrl" . | trim }}
             - name: DATABASE_URL
-              value: {{ .Values.database.url | default (printf "postgres://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "ambientor.fullname" .) .Values.postgresql.auth.database) | quote }}
+              value: {{ . | quote }}
+            {{- end }}
             - name: AMBIENTOR_API_ADDR
               value: {{ .Values.api.env.AMBIENTOR_API_ADDR | quote }}
             - name: AMBIENTOR_JWT_SECRET

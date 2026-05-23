@@ -1,0 +1,30 @@
+# CI e2e on kind: no Postgres (faster, avoids Bitnami pull/startup timeouts).
+image:
+  repository: ambientor
+  tag: "0.1.0"
+  pullPolicy: Never
+
+postgresql:
+  enabled: false
+
+operator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+api:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+web:
+  replicas: 0
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
