@@ -14,7 +14,9 @@ ROLLOUT="${PLAN}-rollout"
 ISTIO_VERSION="${ISTIO_VERSION:-1.24.2}"
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.2.0}"
 E2E_TIMEOUT_SEC="${E2E_TIMEOUT_SEC:-1200}"
-POD_READY_TIMEOUT_SEC="${POD_READY_TIMEOUT_SEC:-180}"
+POD_READY_TIMEOUT_SEC="${POD_READY_TIMEOUT_SEC:-300}"
+AMBIENTOR_OPERATOR_DEPLOY="${AMBIENTOR_OPERATOR_DEPLOY:-ambientor-ambientor-operator}"
+AMBIENTOR_API_DEPLOY="${AMBIENTOR_API_DEPLOY:-ambientor-ambientor-api}"
 POLL_INTERVAL_SEC="${POLL_INTERVAL_SEC:-5}"
 SKIP_CLUSTER_CREATE="${SKIP_CLUSTER_CREATE:-0}"
 SKIP_IMAGE_BUILD="${SKIP_IMAGE_BUILD:-0}"
@@ -76,6 +78,62 @@ wait_for_pod_ready() {
   done
 }
 
+check_fatal_pod_states() {
+  local ns="$1" selector="$2" desc="$3"
+  local reason
+  while IFS= read -r reason; do
+    [[ -z "${reason}" ]] && continue
+    for fatal in "${FATAL_POD_WAIT_REASONS[@]}"; do
+      if [[ "${reason}" == "${fatal}" ]]; then
+        [[ "${ns}" == "${NS_SYSTEM}" ]] && dump_ambientor_diagnostics 2>/dev/null || true
+        kubectl_ctx describe pods -n "${ns}" -l "${selector}" || true
+        die "${desc}: unrecoverable pod state (${reason})"
+      fi
+    done
+  done < <(kubectl_ctx get pods -n "${ns}" -l "${selector}" -o jsonpath='{range .items[*]}{range .status.initContainerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{range .status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{end}' 2>/dev/null | sed '/^$/d')
+}
+
+describe_pending_scheduler() {
+  local ns="$1" selector="$2"
+  local pod
+  while IFS= read -r pod; do
+    [[ -z "${pod}" ]] && continue
+    log "scheduler events for ${pod}:"
+    kubectl_ctx describe -n "${ns}" "${pod}" 2>/dev/null | sed -n '/Events:/,$p' | head -20 || true
+  done < <(kubectl_ctx get pods -n "${ns}" -l "${selector}" --field-selector=status.phase=Pending \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+}
+
+wait_for_deployment() {
+  local desc="$1" ns="$2" deploy="$3"
+  local timeout="${4:-${POD_READY_TIMEOUT_SEC}}"
+  local start now selector app
+  start="$(date +%s)"
+  app="$(kubectl_ctx get deployment -n "${ns}" "${deploy}" -o jsonpath='{.spec.selector.matchLabels.app}' 2>/dev/null || true)"
+  selector="app=${app}"
+  [[ -n "${app}" ]] || die "deployment ${deploy} not found in ${ns}"
+  log "wait: ${desc} (deployment/${deploy}, up to ${timeout}s)"
+
+  while true; do
+    now="$(date +%s)"
+    if (( now - start >= timeout )); then
+      [[ "${ns}" == "${NS_SYSTEM}" ]] && dump_ambientor_diagnostics 2>/dev/null || true
+      kubectl_ctx get pods -n "${ns}" -l "${selector}" -o wide || true
+      describe_pending_scheduler "${ns}" "${selector}"
+      die "timeout waiting for ${desc} after ${timeout}s"
+    fi
+
+    check_fatal_pod_states "${ns}" "${selector}" "${desc}"
+
+    if kubectl_ctx rollout status "deployment/${deploy}" -n "${ns}" --timeout=10s >/dev/null 2>&1; then
+      log "ready: ${desc}"
+      return 0
+    fi
+
+    sleep "${POLL_INTERVAL_SEC}"
+  done
+}
+
 approve_rollout_if_needed() {
   local phase current
   phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
@@ -118,7 +176,7 @@ load_e2e_images() {
   for suffix in operator api; do
     image="${repo}:${tag}-${suffix}"
     if ! docker image inspect "${image}" >/dev/null 2>&1; then
-      die "image ${image} not in local Docker; CI must use buildx driver: docker with load: true"
+      die "image ${image} not in local Docker; CI build must use load: true before kind load"
     fi
     log "loading ${image} into kind cluster ${CLUSTER}"
     kind load docker-image "${image}" --name "${CLUSTER}"
@@ -149,7 +207,7 @@ if [[ "${SKIP_CLUSTER_CREATE}" != "1" ]]; then
     log "reusing existing kind cluster ${CLUSTER}"
   else
     log "creating kind cluster ${CLUSTER}"
-    kind create cluster --name "${CLUSTER}" --config docs/lab/kind-config.yaml
+    kind create cluster --name "${CLUSTER}" --config docs/lab/kind-config-e2e.yaml
   fi
 fi
 
@@ -165,11 +223,10 @@ istioctl install --set profile=ambient -y --context "${CTX}"
 log "installing Gateway API CRDs ${GATEWAY_API_VERSION}"
 kubectl_ctx apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
 
-log "deploying bookinfo (sidecar mode)"
+log "deploying minimal bookinfo (ratings only; sidecar mode)"
 kubectl_ctx create namespace "${BOOKINFO_NS}" --dry-run=client -o yaml | kubectl_ctx apply -f -
 kubectl_ctx label namespace "${BOOKINFO_NS}" istio-injection=enabled --overwrite
-kubectl_ctx apply -n "${BOOKINFO_NS}" -f \
-  "https://raw.githubusercontent.com/istio/istio/release-1.24/samples/bookinfo/platform/kube/bookinfo.yaml"
+kubectl_ctx apply -n "${BOOKINFO_NS}" -f docs/lab/bookinfo-e2e.yaml
 wait_for_pod_ready "bookinfo ratings" "${BOOKINFO_NS}" "app=ratings"
 
 log "installing Ambientor CRDs"
@@ -197,8 +254,8 @@ install_ambientor() {
     dump_ambientor_diagnostics
     die "helm install failed"
   fi
-  wait_for_pod_ready "ambientor operator" "${NS_SYSTEM}" "app=ambientor-operator"
-  wait_for_pod_ready "ambientor api" "${NS_SYSTEM}" "app=ambientor-api"
+  wait_for_deployment "ambientor operator" "${NS_SYSTEM}" "${AMBIENTOR_OPERATOR_DEPLOY}"
+  wait_for_deployment "ambientor api" "${NS_SYSTEM}" "${AMBIENTOR_API_DEPLOY}"
 }
 
 install_ambientor

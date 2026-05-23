@@ -29,6 +29,7 @@ spec:
       containers:
         - name: api
           image: {{ include "ambientor.image" . }}-api
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8080
           env:

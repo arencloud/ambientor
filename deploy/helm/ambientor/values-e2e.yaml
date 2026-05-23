@@ -10,8 +10,8 @@ postgresql:
 operator:
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
+      cpu: 10m
+      memory: 32Mi
     limits:
       cpu: 500m
       memory: 512Mi
@@ -19,8 +19,11 @@ operator:
 api:
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 
 web:
   replicas: 0
