@@ -14,6 +14,7 @@ use kube::{
 use tracing::info;
 
 use super::inventory::FIELD_MANAGER;
+use super::policy_translation::ensure_translations_in_namespace;
 use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 
 pub async fn run(client: Client) {
@@ -93,6 +94,19 @@ async fn reconcile_inner(client: &Client, plan: &MigrationPlan) -> anyhow::Resul
 
     let wave_count = plan_api.get(&plan_name).await?.spec.waves.len() as i32;
     patch_plan_status(client, &ns, &plan_name, "Ready", wave_count).await?;
+
+    let plan = plan_api.get(&plan_name).await?;
+    for wave in &plan.spec.waves {
+        for wave_ns in &wave.namespaces {
+            if let Err(e) = ensure_translations_in_namespace(client, wave_ns).await {
+                tracing::warn!(
+                    error = %e,
+                    namespace = %wave_ns,
+                    "failed to ensure policy translations"
+                );
+            }
+        }
+    }
 
     info!(
         plan = %plan_name,
