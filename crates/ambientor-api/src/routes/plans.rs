@@ -91,14 +91,14 @@ pub async fn export_plan(
     Ok(([(header::CONTENT_TYPE, "application/x-yaml")], yaml).into_response())
 }
 
-async fn k8s_client() -> Result<K8sClient, (StatusCode, String)> {
+pub(super) async fn k8s_client() -> Result<K8sClient, (StatusCode, String)> {
     K8sClient::in_cluster()
         .await
         .or(K8sClient::from_kubeconfig(None).await)
         .map_err(internal)
 }
 
-async fn fetch_plan(
+pub(super) async fn fetch_plan(
     k8s: &K8sClient,
     namespace: &str,
     name: &str,
@@ -156,6 +156,6 @@ fn translation_to_summary(pt: PolicyTranslation) -> Option<TranslationSummary> {
     })
 }
 
-fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
+pub(super) fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
 }
