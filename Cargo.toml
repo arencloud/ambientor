@@ -22,7 +22,6 @@ default-members = ["crates/ambientor-cli"]
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-license-file = "LICENSE"
 repository = "https://github.com/arencloud/ambientor"
 rust-version = "1.95.0"
 
