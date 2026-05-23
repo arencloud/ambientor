@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Step 1.7 — portal assessment UI (`cursor/portal-assessment-dashboard`, ready for PR).
+**Current focus:** Step 1.8 — SARIF export (`cursor/cli-sarif-export`).
 
-**Next up:** Step 1.8 SARIF export (`cursor/cli-sarif-export`).
+**Next up:** Step 1.9 Postgres persistence or Phase 2 MigrationPlan controller.
 
 **Last updated:** 2026-05-23
 
@@ -47,7 +47,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 1.4 | Operator informers (replace 30s polling) | ✅ | PR [#5](https://github.com/arencloud/ambientor/pull/5) | kube-runtime watches; stable `{name}-assessment`; `observedGeneration` |
 | 1.5 | Deeper rules (SPIRE, EF-on-waypoint, version gates) | ✅ | PR [#6](https://github.com/arencloud/ambientor/pull/6) | `PlatformContext`, Istio 1.24+ gate |
 | 1.6 | OSSM namespace / MemberRoll inventory | ✅ | Part of 1.5 | MemberRoll list + enrollment warning |
-| 1.7 | Portal assessment UI + evidence | 🔄 | `cursor/portal-assessment-dashboard` | PR pending |
+| 1.7 | Portal assessment UI + evidence | ✅ | PR [#7](https://github.com/arencloud/ambientor/pull/7) | Merged |
 | 1.8 | SARIF export (`ambientor assess --output sarif`) | ⬜ | `cursor/cli-sarif-export` | |
 | 1.9 | Persist scans in Postgres | ⬜ | With 1.7 | When `DATABASE_URL` set |
 
