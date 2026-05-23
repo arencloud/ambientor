@@ -9,8 +9,7 @@ use ambientor_plan::{
     translation_name_for_vs,
 };
 use ambientor_types::{
-    MigrationPlan, PolicyTranslation, PolicyTranslationSpec,
-    PolicyTranslationStatus,
+    MigrationPlan, PolicyTranslation, PolicyTranslationSpec, PolicyTranslationStatus,
 };
 use anyhow::Context;
 use kube::Api;
