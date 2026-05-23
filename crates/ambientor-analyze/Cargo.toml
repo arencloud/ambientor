@@ -4,7 +4,6 @@ description = "Traffic and policy compatibility analyzer for ambient migration"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-license-file.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
