@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Phase 2, Step 2.2 — policy translation (`cursor/policy-translation`).
+**Current focus:** Phase 2, Step 2.3 — portal plan review + manifest export.
 
-**Next up:** Step 2.3 portal plan review or Step 2.4 CLI plan export.
+**Next up:** Step 2.4 CLI `plan create` + GitOps export.
 
 **Last updated:** 2026-05-23
 
@@ -60,9 +60,9 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | Step | Task | Status | Branch / PR | Notes |
 |------|------|--------|-------------|-------|
 | 2.1 | `MigrationPlan` controller (assessment → plan CR) | ✅ | PR [#10](https://github.com/arencloud/ambientor/pull/10) | Merged |
-| 2.2 | `PolicyTranslation` (VS → HTTPRoute suggestions) | 🔄 | `cursor/policy-translation` | PR pending |
-| 2.3 | Portal plan review + manifest export | ⬜ | After 2.1 | |
-| 2.4 | CLI `plan create` + GitOps export | ⬜ | After 2.1 | |
+| 2.2 | `PolicyTranslation` (VS → HTTPRoute suggestions) | ✅ | PR [#11](https://github.com/arencloud/ambientor/pull/11) | Merged |
+| 2.3 | Portal plan review + manifest export | ⬜ | `cursor/portal-plan-review` | |
+| 2.4 | CLI `plan create` + GitOps export | ⬜ | `cursor/cli-plan-export` | |
 
 **Phase 2 exit criteria:** Human-approved plan with exported YAML/JSON; no rollout required.
 
