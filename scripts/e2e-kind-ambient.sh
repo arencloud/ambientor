@@ -64,6 +64,15 @@ wait_rollout_terminal() {
   done
 }
 
+load_e2e_images() {
+  local tag="${AMBIENTOR_IMAGE_TAG:-0.1.0}"
+  local repo="${AMBIENTOR_IMAGE_REPO:-ambientor}"
+  for suffix in operator api; do
+    log "loading ${repo}:${tag}-${suffix} into kind cluster ${CLUSTER}"
+    kind load docker-image "${repo}:${tag}-${suffix}" --name "${CLUSTER}"
+  done
+}
+
 api_curl() {
   local method="$1"
   local path="$2"
@@ -116,8 +125,8 @@ kubectl_ctx apply -k config/crd/
 
 if [[ "${SKIP_IMAGE_BUILD}" != "1" ]]; then
   ./scripts/lab-build-images.sh
-  ./scripts/lab-load-kind.sh "${CLUSTER}"
 fi
+load_e2e_images
 
 dump_ambientor_diagnostics() {
   log "diagnostics: pods and events in ${NS_SYSTEM}"
@@ -136,8 +145,18 @@ install_ambientor() {
     dump_ambientor_diagnostics
     die "helm install failed"
   fi
-  wait_for "ambientor operator" -n "${NS_SYSTEM}" --for=condition=ready pod -l app=ambientor-operator
-  wait_for "ambientor api" -n "${NS_SYSTEM}" --for=condition=ready pod -l app=ambientor-api
+  log "wait: ambientor operator"
+  if ! kubectl_ctx wait -n "${NS_SYSTEM}" --for=condition=ready pod -l app=ambientor-operator \
+    --timeout="${E2E_TIMEOUT_SEC}s"; then
+    dump_ambientor_diagnostics
+    die "operator pod not ready"
+  fi
+  log "wait: ambientor api"
+  if ! kubectl_ctx wait -n "${NS_SYSTEM}" --for=condition=ready pod -l app=ambientor-api \
+    --timeout="${E2E_TIMEOUT_SEC}s"; then
+    dump_ambientor_diagnostics
+    die "api pod not ready"
+  fi
 }
 
 install_ambientor
