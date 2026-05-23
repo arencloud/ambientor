@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 mod plan_cmd;
+mod rollout_cmd;
 mod sarif;
 
 use ambientor_core::scoring::compute_scores;
@@ -78,8 +79,23 @@ enum PlanAction {
 
 #[derive(Subcommand)]
 enum RolloutAction {
-    Status { name: String },
-    Approve { name: String, stage: i32 },
+    /// Show rollout status (API or kube)
+    Status {
+        #[arg(short, long, default_value = "default")]
+        namespace: String,
+        #[arg(short, long)]
+        name: String,
+    },
+    /// Approve the current stage (`approvedStage` patch)
+    Approve {
+        #[arg(short, long, default_value = "default")]
+        namespace: String,
+        #[arg(short, long)]
+        name: String,
+        /// Stage index (defaults to current stage)
+        #[arg(short, long)]
+        stage: Option<i32>,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -138,9 +154,28 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Commands::Rollout { action } => match action {
-            RolloutAction::Status { name } => println!("rollout {name}: check status via API"),
-            RolloutAction::Approve { name, stage } => {
-                println!("approved stage {stage} for rollout {name}")
+            RolloutAction::Status { namespace, name } => {
+                rollout_cmd::rollout_status(
+                    cli.api_url.as_deref(),
+                    cli.kubeconfig.as_deref(),
+                    &namespace,
+                    &name,
+                )
+                .await?;
+            }
+            RolloutAction::Approve {
+                namespace,
+                name,
+                stage,
+            } => {
+                rollout_cmd::rollout_approve(
+                    cli.api_url.as_deref(),
+                    cli.kubeconfig.as_deref(),
+                    &namespace,
+                    &name,
+                    stage,
+                )
+                .await?;
             }
         },
     }

@@ -92,6 +92,7 @@
           <p id="plan-assessment-ref" class="hint"></p>
           <div class="plan-actions">
             <button id="export-plan" class="btn primary" disabled>Download YAML bundle</button>
+            <button id="start-rollout" class="btn" disabled>Start rollout from plan</button>
           </div>
           <h3>Migration waves</h3>
           <ul id="plan-waves" class="wave-list"></ul>
@@ -103,7 +104,35 @@
 
     <section id="rollouts" class="panel hidden">
       <h2>Rollouts</h2>
-      <p class="hint">Rollout approval UI ships in Phase 3. Monitor <code>Rollout</code> CRs via kubectl.</p>
+      <div class="assessments-layout">
+        <aside class="assessment-sidebar">
+          <button id="refresh-rollouts" class="btn">Refresh list</button>
+          <ul id="rollout-list" class="assessment-list"></ul>
+        </aside>
+        <div class="assessment-detail">
+          <header class="detail-header">
+            <h3 id="rollout-detail-title">Select a rollout</h3>
+            <span id="rollout-detail-phase" class="phase-badge"></span>
+          </header>
+          <p id="rollout-stage-progress" class="hint"></p>
+          <div class="plan-actions">
+            <button id="approve-rollout" class="btn primary" disabled>Approve current stage</button>
+          </div>
+          <h3>Stages</h3>
+          <table class="stage-table" id="rollout-stages">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Approval</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
   </main>
   <script src="/app.js"></script>

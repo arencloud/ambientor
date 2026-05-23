@@ -7,6 +7,9 @@
   let selectedKey = null;
   let plans = [];
   let selectedPlanKey = null;
+  let rollouts = [];
+  let selectedRolloutKey = null;
+  let rolloutDetail = null;
 
   function showPanel(id) {
     document.querySelectorAll('main .panel').forEach((p) => p.classList.add('hidden'));
@@ -262,6 +265,7 @@
       ? `Assessment: ${ref}`
       : 'No assessment reference';
     $('export-plan').disabled = false;
+    $('start-rollout').disabled = false;
     renderWaves(p.waves);
     setStatus('Loading plan detail…');
     try {
@@ -299,6 +303,157 @@
     }
   }
 
+  function rolloutKey(r) {
+    return r.namespace + '/' + r.name;
+  }
+
+  function renderRolloutList() {
+    const ul = $('rollout-list');
+    if (!ul) return;
+    ul.innerHTML = '';
+    rollouts.forEach((r) => {
+      const li = document.createElement('li');
+      const key = rolloutKey(r);
+      li.className = 'assessment-item' + (key === selectedRolloutKey ? ' selected' : '');
+      const awaiting = r.awaitingApproval || r.awaiting_approval;
+      li.innerHTML = `
+        <button type="button" data-key="${escapeHtml(key)}">
+          <span class="name">${escapeHtml(r.namespace)}/${escapeHtml(r.name)}</span>
+          <span class="phase">${escapeHtml(r.phase)}</span>
+          <span class="score-mini">stage ${r.currentStage ?? r.current_stage ?? 0}</span>
+          ${awaiting ? '<span class="badge warn">approve</span>' : ''}
+        </button>
+      `;
+      li.querySelector('button').addEventListener('click', () => selectRollout(key));
+      ul.appendChild(li);
+    });
+  }
+
+  function renderRolloutStages(detail) {
+    const tbody = $('rollout-stages')?.querySelector('tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    const current = detail.rollout?.currentStage ?? detail.rollout?.current_stage ?? detail.currentStage ?? detail.current_stage ?? 0;
+    const awaiting = detail.rollout?.awaitingApproval ?? detail.rollout?.awaiting_approval ?? detail.awaitingApproval ?? detail.awaiting_approval;
+    (detail.stages || []).forEach((s) => {
+      const tr = document.createElement('tr');
+      if (s.index === current) tr.classList.add('current');
+      if (s.index === current && awaiting) tr.classList.add('awaiting');
+      const approval = s.requiresApproval || s.requires_approval ? 'required' : 'auto';
+      const result = s.resultPhase || s.result_phase || '—';
+      tr.innerHTML = `
+        <td>${s.index}</td>
+        <td>${escapeHtml(s.name)}</td>
+        <td>${escapeHtml(s.stageType || s.stage_type || '')}</td>
+        <td>${approval}</td>
+        <td>${escapeHtml(result)}${s.resultMessage || s.result_message ? ': ' + escapeHtml(s.resultMessage || s.result_message) : ''}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function selectRollout(key) {
+    selectedRolloutKey = key;
+    const r = rollouts.find((x) => rolloutKey(x) === key);
+    if (!r) return;
+    renderRolloutList();
+    $('rollout-detail-title').textContent = `${r.namespace}/${r.name}`;
+    $('rollout-detail-phase').textContent = r.phase;
+    $('rollout-detail-phase').className =
+      'phase-badge ' + (r.phase || '').toLowerCase().replace(/[^a-z]/g, '');
+    const current = r.currentStage ?? r.current_stage ?? 0;
+    const total = r.stageCount ?? r.stage_count ?? '?';
+    $('rollout-stage-progress').textContent = `Stage ${current} of ${total} · approved through ${r.approvedStage ?? r.approved_stage ?? 0}`;
+    const awaiting = r.awaitingApproval || r.awaiting_approval;
+    $('approve-rollout').disabled = !awaiting;
+    setStatus('Loading rollout detail…');
+    try {
+      const res = await fetch(
+        API() + `/api/v1/rollouts/${encodeURIComponent(r.namespace)}/${encodeURIComponent(r.name)}`
+      );
+      if (!res.ok) throw new Error(await res.text());
+      rolloutDetail = await res.json();
+      renderRolloutStages(rolloutDetail);
+      const awaitingDetail = rolloutDetail.rollout?.awaitingApproval ?? rolloutDetail.rollout?.awaiting_approval;
+      $('approve-rollout').disabled = !awaitingDetail;
+      setStatus(`Rollout ${r.namespace}/${r.name} loaded`);
+    } catch (e) {
+      setStatus('Failed to load rollout: ' + e.message, true);
+      renderRolloutStages({ stages: [] });
+    }
+    showPanel('rollouts');
+  }
+
+  async function loadRollouts() {
+    setStatus('Loading rollouts…');
+    try {
+      const res = await fetch(API() + '/api/v1/rollouts');
+      if (!res.ok) throw new Error(await res.text());
+      rollouts = await res.json();
+      renderRolloutList();
+      setStatus(
+        rollouts.length
+          ? `Loaded ${rollouts.length} rollout(s)`
+          : 'No rollouts in cluster (start one from a migration plan)'
+      );
+      if (rollouts.length && !selectedRolloutKey) {
+        selectRollout(rolloutKey(rollouts[0]));
+      }
+    } catch (e) {
+      setStatus('Failed to load rollouts: ' + e.message, true);
+    }
+  }
+
+  async function approveCurrentRolloutStage() {
+    const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
+    if (!r) return;
+    $('approve-rollout').disabled = true;
+    setStatus('Approving stage…');
+    try {
+      const res = await fetch(
+        API() +
+          `/api/v1/rollouts/${encodeURIComponent(r.namespace)}/${encodeURIComponent(r.name)}/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }
+      );
+      if (!res.ok) throw new Error(await res.text());
+      setStatus(`Approved stage for ${r.namespace}/${r.name}`);
+      await loadRollouts();
+      await selectRollout(rolloutKey(r));
+    } catch (e) {
+      setStatus('Approve failed: ' + e.message, true);
+      $('approve-rollout').disabled = false;
+    }
+  }
+
+  async function startRolloutFromPlan() {
+    const p = plans.find((x) => planKey(x) === selectedPlanKey);
+    if (!p) return;
+    $('start-rollout').disabled = true;
+    setStatus('Creating rollout…');
+    try {
+      const res = await fetch(
+        API() +
+          `/api/v1/plans/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}/rollout`,
+        { method: 'POST' }
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setStatus(`Created rollout ${data.namespace}/${data.name}`);
+      selectedRolloutKey = data.namespace + '/' + data.name;
+      showPanel('rollouts');
+      await loadRollouts();
+      await selectRollout(selectedRolloutKey);
+    } catch (e) {
+      setStatus('Start rollout failed: ' + e.message, true);
+    } finally {
+      $('start-rollout').disabled = false;
+    }
+  }
+
   async function downloadPlanExport() {
     const p = plans.find((x) => planKey(x) === selectedPlanKey);
     if (!p) return;
@@ -330,6 +485,7 @@
         showPanel(id);
         if (id === 'assessments') loadAssessments();
         if (id === 'plans') loadPlans();
+        if (id === 'rollouts') loadRollouts();
       });
     });
   }
@@ -347,6 +503,9 @@
     $('refresh-assessments')?.addEventListener('click', loadAssessments);
     $('refresh-plans')?.addEventListener('click', loadPlans);
     $('export-plan')?.addEventListener('click', downloadPlanExport);
+    $('start-rollout')?.addEventListener('click', startRolloutFromPlan);
+    $('refresh-rollouts')?.addEventListener('click', loadRollouts);
+    $('approve-rollout')?.addEventListener('click', approveCurrentRolloutStage);
     initSse();
     showPanel('dashboard');
   });
