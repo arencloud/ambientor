@@ -5,11 +5,11 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Phase 3, Step 3.5 — kind e2e (`cursor/e2e-kind-ambient`).
+**Current focus:** Phase 4 — enterprise (OIDC, RBAC, hub mode).
 
-**Next up:** Phase 4 enterprise (OIDC, RBAC, hub mode).
+**Next up:** Phase 4.1 — full OIDC (discovery + callback).
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-24
 
 ---
 
@@ -76,9 +76,9 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 3.2 | Rollback reverts labels/manifests | ✅ | PR [#16](https://github.com/arencloud/ambientor/pull/16) | Merged |
 | 3.3 | Approval API + portal UI | ✅ | PR [#17](https://github.com/arencloud/ambientor/pull/17) | Merged |
 | 3.4 | Audit log for approve/apply/rollback | ✅ | PR [#18](https://github.com/arencloud/ambientor/pull/18) | Merged |
-| 3.5 | kind e2e: bookinfo → plan → rollout → verify | 🔄 | `cursor/e2e-kind-ambient` | PR pending |
+| 3.5 | kind e2e: bookinfo → plan → rollout → verify | ✅ | PR [#19](https://github.com/arencloud/ambientor/pull/19) | `scripts/e2e-kind-ambient.sh`, `.github/workflows/e2e-kind.yml` |
 
-**Phase 3 exit criteria:** One namespace at a time; verify + auto-rollback proven in e2e (happy-path kind job + rollback unit tests).
+**Phase 3 exit criteria:** ✅ One namespace at a time; verify + auto-rollback proven in e2e (happy-path kind job + rollback unit tests).
 
 ---
 
@@ -111,9 +111,9 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 |---|-----------|--------|
 | P1 | Blockers match Istio migrate docs on 3+ clusters | ⬜ |
 | P2 | Plans human-approved with exported manifests | ⬜ |
-| P3 | Rollout: one NS, verify + auto-rollback in e2e | ⬜ |
+| P3 | Rollout: one NS, verify + auto-rollback in e2e | ✅ |
 | P4 | Portal/OIDC gates approve + execute | ⬜ |
-| P5 | Audit log for approve / apply / rollback | ⬜ |
+| P5 | Audit log for approve / apply / rollback | ✅ |
 
 ---
 
