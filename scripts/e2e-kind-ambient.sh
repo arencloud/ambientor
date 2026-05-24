@@ -135,13 +135,24 @@ wait_for_deployment() {
 }
 
 approve_rollout_if_needed() {
-  local phase current
+  local phase current approved stage_name
   phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
   [[ "${phase}" == "AwaitingApproval" ]] || return 0
   current="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.currentStage}')"
-  log "approving rollout stage ${current}"
+  approved="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.approvedStage}' 2>/dev/null || echo 0)"
+  stage_name="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath="{.spec.stages[${current}].name}" 2>/dev/null || echo "?")"
+  if [[ "${approved}" -ge "${current}" ]]; then
+    log "rollout stage ${current} (${stage_name}) already approved (approvedStage=${approved}); waiting for operator"
+    return 0
+  fi
+  log "approving rollout stage ${current} (${stage_name})"
+  if api_curl POST "/api/v1/rollouts/${NS_SYSTEM}/${ROLLOUT}/approve" \
+    "{\"stage\":${current},\"actor\":\"e2e\"}" >/dev/null 2>&1; then
+    return 0
+  fi
+  log "API approve unavailable; patching rollout status"
   kubectl_ctx patch rollout "${ROLLOUT}" -n "${NS_SYSTEM}" --subresource=status --type=merge -p \
-    "{\"status\":{\"approvedStage\":${current},\"phase\":\"Pending\"}}"
+    "{\"status\":{\"approvedStage\":${current}}}"
 }
 
 wait_rollout_terminal() {
@@ -163,9 +174,9 @@ wait_rollout_terminal() {
     approve_rollout_if_needed
     if (( "$(date +%s)" - start > E2E_TIMEOUT_SEC )); then
       kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o yaml || true
-      die "rollout timed out after ${E2E_TIMEOUT_SEC}s (phase=${phase})"
+      die "rollout timed out after ${E2E_TIMEOUT_SEC}s (phase=${phase}, currentStage=$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.currentStage}' 2>/dev/null || echo ?), approvedStage=$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.approvedStage}' 2>/dev/null || echo ?))"
     fi
-    sleep 10
+    sleep 5
   done
 }
 
