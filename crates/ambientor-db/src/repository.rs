@@ -31,6 +31,18 @@ impl UserRepository {
         Ok(row)
     }
 
+    pub async fn find_or_create_oidc(
+        &self,
+        username: &str,
+        password_hash: &str,
+        roles: &[String],
+    ) -> Result<Uuid, DbError> {
+        if let Some(user) = self.find_by_username(username).await? {
+            return Ok(user.id);
+        }
+        self.create(username, password_hash, roles).await
+    }
+
     pub async fn create(
         &self,
         username: &str,

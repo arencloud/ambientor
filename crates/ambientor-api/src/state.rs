@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use ambientor_auth::jwt::JwtService;
+use ambientor_auth::oidc::{OidcConfig, oidc_config_from_env, oidc_default_roles_from_env};
+use ambientor_auth::oidc_flow::OidcFlowService;
 use ambientor_auth::rbac::RbacEnforcer;
 use ambientor_auth::service::AuthService;
 use ambientor_db::{AuditRepository, ScanRepository, UserRepository};
@@ -9,8 +11,18 @@ use tokio::sync::RwLock;
 
 use crate::routes::sse::SseHub;
 
+/// OIDC authorization-code flow (discovery at API startup).
+pub struct OidcState {
+    pub flow: Arc<OidcFlowService>,
+    pub config: OidcConfig,
+    pub default_roles: Vec<String>,
+    /// Browser redirect after successful login (`?token=` appended).
+    pub success_redirect: Option<String>,
+}
+
 pub struct AppState {
     pub auth: Option<Arc<AuthService>>,
+    pub oidc: Option<OidcState>,
     pub sse: Arc<RwLock<SseHub>>,
     pool: Option<PgPool>,
     #[allow(dead_code)]
@@ -48,9 +60,37 @@ impl AppState {
             None
         };
 
+        let oidc = if auth.is_some() {
+            if let Some(config) = oidc_config_from_env() {
+                match OidcFlowService::discover(&config).await {
+                    Ok(flow) => {
+                        tracing::info!(
+                            issuer = %config.issuer_url,
+                            "OIDC provider discovered"
+                        );
+                        Some(OidcState {
+                            flow: Arc::new(flow),
+                            default_roles: oidc_default_roles_from_env(),
+                            success_redirect: std::env::var("AMBIENTOR_OIDC_SUCCESS_URL").ok(),
+                            config,
+                        })
+                    }
+                    Err(e) => {
+                        tracing::warn!("OIDC discovery failed: {e}");
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             pool,
             auth,
+            oidc,
             jwt,
             sse,
         })

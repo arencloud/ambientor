@@ -56,7 +56,43 @@ impl OidcConfig {
     }
 }
 
-/// Authorization URL builder placeholder until live OIDC discovery is wired.
+/// Load OIDC settings when `AMBIENTOR_OIDC_ISSUER_URL`, `AMBIENTOR_OIDC_CLIENT_ID`, and
+/// `AMBIENTOR_OIDC_REDIRECT_URI` are set. Client secret is read from the env var named by
+/// `AMBIENTOR_OIDC_CLIENT_SECRET_ENV` (default `AMBIENTOR_OIDC_CLIENT_SECRET`).
+pub fn oidc_config_from_env() -> Option<OidcConfig> {
+    let issuer_url = std::env::var("AMBIENTOR_OIDC_ISSUER_URL").ok()?;
+    let client_id = std::env::var("AMBIENTOR_OIDC_CLIENT_ID").ok()?;
+    let redirect_uri = std::env::var("AMBIENTOR_OIDC_REDIRECT_URI").ok()?;
+    let client_secret_env = std::env::var("AMBIENTOR_OIDC_CLIENT_SECRET_ENV")
+        .unwrap_or_else(|_| "AMBIENTOR_OIDC_CLIENT_SECRET".into());
+    let scopes = match std::env::var("AMBIENTOR_OIDC_SCOPES") {
+        Ok(s) => s.split_whitespace().map(String::from).collect(),
+        Err(_) => vec!["openid".into(), "profile".into(), "email".into()],
+    };
+    Some(OidcConfig {
+        issuer_url,
+        client_id,
+        client_secret_env,
+        redirect_uri,
+        scopes,
+        preset: None,
+    })
+}
+
+/// Comma-separated roles for first-time OIDC users (`AMBIENTOR_OIDC_DEFAULT_ROLES`).
+pub fn oidc_default_roles_from_env() -> Vec<String> {
+    std::env::var("AMBIENTOR_OIDC_DEFAULT_ROLES")
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|r| !r.is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Legacy manual authorize URL (no discovery/PKCE). Prefer [`crate::OidcFlowService`].
 pub fn authorize_url(config: &OidcConfig, state: &str) -> String {
     format!(
         "{}/authorize?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}",

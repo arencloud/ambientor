@@ -7,9 +7,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Current focus:** Phase 4 — enterprise (OIDC, RBAC, hub mode).
 
-**Next up:** Phase 4.1 — full OIDC (discovery + callback).
+**Next up:** Phase 4.2 — namespace-scoped Casbin in Postgres.
 
-**Last updated:** 2026-05-24
+**Last updated:** 2026-05-22
 
 ---
 
@@ -86,7 +86,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 
 | Step | Task | Status | Branch / PR | Notes |
 |------|------|--------|-------------|-------|
-| 4.1 | Full OIDC (discovery + callback) | ⬜ | `cursor/oidc-auth` | URL builder only today |
+| 4.1 | Full OIDC (discovery + callback) | 🔄 | `cursor/oidc-auth` | Discovery + PKCE + API routes; see `docs/roadmap/oidc-auth.md` |
 | 4.2 | Namespace-scoped Casbin in Postgres | ⬜ | `cursor/rbac-postgres` | |
 | 4.3 | Hub `ClusterConnection` remote clients | ⬜ | `cursor/hub-aggregation` | Secret existence check only |
 | 4.4 | OpenShift OLM / SCC / MemberRoll wizard | ⬜ | `cursor/openshift-olm` | |
@@ -112,7 +112,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | P1 | Blockers match Istio migrate docs on 3+ clusters | ⬜ |
 | P2 | Plans human-approved with exported manifests | ⬜ |
 | P3 | Rollout: one NS, verify + auto-rollback in e2e | ✅ |
-| P4 | Portal/OIDC gates approve + execute | ⬜ |
+| P4 | Portal/OIDC gates approve + execute | 🔄 |
 | P5 | Audit log for approve / apply / rollback | ✅ |
 
 ---

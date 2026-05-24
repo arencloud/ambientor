@@ -27,6 +27,29 @@ impl AuthService {
             .map_err(|e| PasswordError::Hash(e.to_string()))
     }
 
+    pub async fn login_oidc(
+        &self,
+        identity: &crate::oidc_flow::OidcIdentity,
+        default_roles: &[String],
+    ) -> Result<String, AuthError> {
+        let db_username = format!("oidc:{}", identity.subject);
+        let placeholder_hash = hash_password(&uuid::Uuid::new_v4().to_string())
+            .map_err(|e| AuthError::Db(e.to_string()))?;
+        let roles = if default_roles.is_empty() {
+            vec!["viewer".to_string()]
+        } else {
+            default_roles.to_vec()
+        };
+        let id = self
+            .users
+            .find_or_create_oidc(&db_username, &placeholder_hash, &roles)
+            .await
+            .map_err(|e| AuthError::Db(e.to_string()))?;
+        self.jwt
+            .issue(id, &identity.username, roles)
+            .map_err(|e| AuthError::Token(e.to_string()))
+    }
+
     pub async fn login(&self, username: &str, password: &str) -> Result<String, AuthError> {
         let user = self
             .users
