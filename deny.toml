@@ -1,6 +1,10 @@
 [advisories]
 version = 2
-ignore = []
+ignore = [
+    # Transitive via openidconnect: RS256/RS* ID token signature verification with IdP public JWKS only.
+    # Ambientor does not use RSA private keys; no patched rsa release (RUSTSEC-2023-0071).
+    { id = "RUSTSEC-2023-0071", reason = "openidconnect JWKS verify only; no rsa private key material" },
+]
 
 [licenses]
 version = 2
