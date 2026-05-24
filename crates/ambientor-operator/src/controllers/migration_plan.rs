@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use ambientor_plan::{
-    assessment_result_from_status, build_plan, namespaces_from_findings, plan_name_for_assessment,
+    assessment_result_from_status, build_plan, namespaces_for_planning,
+    namespaces_matching_selector, plan_name_for_assessment,
 };
-use ambientor_types::{AmbientAssessment, MigrationPlan, MigrationPlanSpec};
+use ambientor_types::{AmbientAssessment, MeshInventory, MigrationPlan, MigrationPlanSpec};
 use futures::StreamExt;
 use kube::{
     Api, Client,
@@ -77,7 +78,9 @@ async fn reconcile_inner(client: &Client, plan: &MigrationPlan) -> anyhow::Resul
     }
 
     let assessment_result = assessment_result_from_status(status);
-    let namespaces = namespaces_from_findings(&assessment_result.findings);
+    let inventory_namespaces =
+        inventory_target_namespaces(client, &assessment, &ns).await.unwrap_or_default();
+    let namespaces = namespaces_for_planning(&assessment_result.findings, &inventory_namespaces);
     let built = build_plan(&assessment_result, &namespaces);
     let spec = MigrationPlanSpec {
         assessment_ref: Some(assessment_ref.clone()),
@@ -115,6 +118,21 @@ async fn reconcile_inner(client: &Client, plan: &MigrationPlan) -> anyhow::Resul
         "migration plan reconciled"
     );
     Ok(())
+}
+
+async fn inventory_target_namespaces(
+    client: &Client,
+    assessment: &AmbientAssessment,
+    assessment_namespace: &str,
+) -> anyhow::Result<Vec<String>> {
+    let Some(inv_name) = assessment.spec.inventory_ref.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let inv_api: Api<MeshInventory> = Api::namespaced(client.clone(), assessment_namespace);
+    let inv = inv_api.get(inv_name).await?;
+    namespaces_matching_selector(client, &inv.spec.namespace_selector)
+        .await
+        .map_err(Into::into)
 }
 
 async fn patch_plan_status(

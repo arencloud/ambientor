@@ -168,7 +168,15 @@ wait_rollout_terminal() {
         ;;
       Failed|RolledBack)
         kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o yaml || true
-        die "rollout ended in phase ${phase}"
+        local failed_msg failed_name
+        failed_msg="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" \
+          -o jsonpath='{range .status.stageResults[?(@.phase=="Failed")]}{.name}: {.message}{"\n"}{end}' 2>/dev/null || true)"
+        failed_name="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" \
+          -o jsonpath='{range .status.stageResults[?(@.phase=="Failed")]}{.name}{"\n"}{end}' 2>/dev/null | head -1)"
+        if [[ -n "${failed_msg}" ]]; then
+          die "rollout ended in phase ${phase} (failed stage: ${failed_msg})"
+        fi
+        die "rollout ended in phase ${phase} (last stage ${failed_name:-unknown})"
         ;;
     esac
     approve_rollout_if_needed
@@ -279,6 +287,11 @@ wait_for "assessment ${ASSESSMENT}" -n "${NS_SYSTEM}" \
 
 wait_for "migration plan ${PLAN}" -n "${NS_SYSTEM}" \
   --for=jsonpath="{.status.phase}=Ready" "migrationplan/${PLAN}"
+
+plan_ns="$(kubectl_ctx get migrationplan -n "${NS_SYSTEM}" "${PLAN}" \
+  -o jsonpath='{.spec.waves[0].namespaces[0]}' 2>/dev/null || true)"
+log "migration plan wave-1 namespace: ${plan_ns:-unknown}"
+[[ "${plan_ns}" == "${BOOKINFO_NS}" ]] || die "expected plan to target ${BOOKINFO_NS}, got '${plan_ns}'"
 
 log "creating rollout from plan via API"
 api_curl POST "/api/v1/plans/${NS_SYSTEM}/${PLAN}/rollout" '{}' >/dev/null

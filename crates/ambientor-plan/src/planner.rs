@@ -1,6 +1,6 @@
-use std::collections::BTreeSet;
-
 use ambientor_core::inventory::AssessmentResult;
+
+use crate::namespaces::namespaces_for_planning;
 use ambientor_types::{
     AmbientAssessmentStatus, AssessmentScores, Finding, MigrationPlanSpec, MigrationWave,
     PolicyTask, RolloutSpec, RolloutStage, RolloutStageType,
@@ -18,16 +18,7 @@ pub fn translation_name_for_vs(vs_name: &str) -> String {
 
 /// Namespace list for wave planning (defaults to `default` when no finding namespaces).
 pub fn namespaces_from_findings(findings: &[Finding]) -> Vec<String> {
-    let mut set = BTreeSet::new();
-    for f in findings {
-        if let Some(ns) = &f.namespace {
-            set.insert(ns.clone());
-        }
-    }
-    if set.is_empty() {
-        return vec!["default".into()];
-    }
-    set.into_iter().collect()
+    namespaces_for_planning(findings, &[])
 }
 
 /// Build an assessment result from a completed AmbientAssessment status.

@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 ambientor-core = { workspace = true }
 ambientor-types = { workspace = true }
+k8s-openapi = { workspace = true }
 kube = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
