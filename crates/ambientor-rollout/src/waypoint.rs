@@ -83,7 +83,6 @@ async fn label_namespace_use_waypoint(
     client: &Client,
     namespace: &str,
 ) -> Result<(), RolloutError> {
-    use crate::engine::FIELD_MANAGER;
     let api: Api<Namespace> = Api::all(client.clone());
     let patch = json!({
         "metadata": {
@@ -92,8 +91,8 @@ async fn label_namespace_use_waypoint(
             }
         }
     });
-    let pp = PatchParams::apply(FIELD_MANAGER).force();
-    api.patch(namespace, &pp, &Patch::Apply(patch)).await?;
+    api.patch(namespace, &PatchParams::default(), &Patch::Merge(&patch))
+        .await?;
     Ok(())
 }
 
