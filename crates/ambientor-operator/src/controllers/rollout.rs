@@ -29,7 +29,7 @@ pub async fn run(ctx: Arc<OperatorContext>) {
 
 async fn reconcile(obj: Arc<Rollout>, ctx: Arc<OperatorContext>) -> ReconcileResult {
     let phase = obj.status.as_ref().map(|s| s.phase.as_str()).unwrap_or("");
-    if phase == "Completed" || phase == "Failed" {
+    if phase == "Completed" || phase == "Failed" || phase == "RolledBack" {
         return Ok(Action::await_change());
     }
     let mut status = obj.status.clone().unwrap_or_default();

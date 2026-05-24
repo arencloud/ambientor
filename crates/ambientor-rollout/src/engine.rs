@@ -206,7 +206,6 @@ impl RolloutEngine {
         status.current_stage = 0;
         status.approved_stage = 0;
         status.phase = "RolledBack".into();
-        status.stage_results.clear();
 
         events.push(RolloutEvent {
             rollout_id: String::new(),

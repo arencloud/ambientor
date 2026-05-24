@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use ambientor_mesh::dynamic::api_resource;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::api::DynamicObject;
@@ -6,11 +8,16 @@ use kube::{
     api::{DeleteParams, Patch, PatchParams},
 };
 use serde_json::json;
+use tokio::time::sleep;
 use tracing::info;
 
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
 use crate::labels::unlabel_namespace_use_waypoint;
+use crate::verify::gateway_ready;
+
+const GATEWAY_READY_TIMEOUT_SECS: u64 = 120;
+const GATEWAY_POLL_INTERVAL_SECS: u64 = 2;
 
 pub const WAYPOINT_GATEWAY_NAME: &str = "waypoint";
 const MANAGED_BY_LABEL: &str = "app.kubernetes.io/managed-by";
@@ -40,8 +47,28 @@ pub async fn deploy_waypoint(client: &Client, namespace: &str) -> Result<(), Rol
     });
     apply_namespaced_manifest(client, namespace, &manifest).await?;
     label_namespace_use_waypoint(client, namespace).await?;
+    wait_gateway_programmed(client, namespace).await?;
     info!(namespace = %namespace, waypoint = %WAYPOINT_GATEWAY_NAME, "deployed ambient waypoint");
     Ok(())
+}
+
+async fn wait_gateway_programmed(client: &Client, namespace: &str) -> Result<(), RolloutError> {
+    let ar = api_resource("gateway.networking.k8s.io", "v1", "Gateway", "gateways");
+    let api = Api::<DynamicObject>::namespaced_with(client.clone(), namespace, &ar);
+    let deadline = Duration::from_secs(GATEWAY_READY_TIMEOUT_SECS);
+    let started = std::time::Instant::now();
+    while started.elapsed() < deadline {
+        match api.get(WAYPOINT_GATEWAY_NAME).await {
+            Ok(gw) if gateway_ready(&gw.data) => return Ok(()),
+            Ok(_) => {}
+            Err(kube::Error::Api(e)) if e.code == 404 => {}
+            Err(e) => return Err(RolloutError::Kube(e)),
+        }
+        sleep(Duration::from_secs(GATEWAY_POLL_INTERVAL_SECS)).await;
+    }
+    Err(RolloutError::ExecutionFailed(format!(
+        "waypoint Gateway {WAYPOINT_GATEWAY_NAME} in {namespace} not programmed within {GATEWAY_READY_TIMEOUT_SECS}s"
+    )))
 }
 
 /// Remove waypoint Gateway (if managed by Ambientor) and `istio.io/use-waypoint` label.

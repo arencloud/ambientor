@@ -13,7 +13,8 @@ pub async fn label_namespace_ambient(client: &Client, name: &str) -> Result<(), 
         client,
         name,
         json!({
-            "istio.io/dataplane-mode": "ambient"
+            "istio.io/dataplane-mode": "ambient",
+            "istio-injection": null
         }),
     )
     .await?;

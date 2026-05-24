@@ -167,6 +167,7 @@ wait_rollout_terminal() {
         return 0
         ;;
       Failed|RolledBack)
+        kubectl_ctx logs -n "${NS_SYSTEM}" -l app=ambientor-operator --tail=100 || true
         kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o yaml || true
         local failed_msg failed_name
         failed_msg="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" \
@@ -180,6 +181,7 @@ wait_rollout_terminal() {
         ;;
     esac
     approve_rollout_if_needed
+    phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)"
     if (( "$(date +%s)" - start > E2E_TIMEOUT_SEC )); then
       kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o yaml || true
       die "rollout timed out after ${E2E_TIMEOUT_SEC}s (phase=${phase}, currentStage=$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.currentStage}' 2>/dev/null || echo ?), approvedStage=$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.approvedStage}' 2>/dev/null || echo ?))"
