@@ -29,7 +29,7 @@ pub async fn run(ctx: Arc<OperatorContext>) {
 
 async fn reconcile(obj: Arc<Rollout>, ctx: Arc<OperatorContext>) -> ReconcileResult {
     let phase = obj.status.as_ref().map(|s| s.phase.as_str()).unwrap_or("");
-    if phase == "Completed" || phase == "Failed" {
+    if phase == "Completed" || phase == "Failed" || phase == "RolledBack" {
         return Ok(Action::await_change());
     }
     let mut status = obj.status.clone().unwrap_or_default();
@@ -81,6 +81,12 @@ async fn reconcile_inner(
 
     let api: Api<Rollout> = Api::namespaced(ctx.client.clone(), &ns);
     if let Some(name) = &obj.metadata.name {
+        // Approval may be patched via API/CLI while reconcile runs; do not clobber it.
+        if let Ok(latest) = api.get(name).await
+            && let Some(latest_status) = latest.status.as_ref()
+        {
+            status.approved_stage = status.approved_stage.max(latest_status.approved_stage);
+        }
         let patch = serde_json::json!({ "status": status });
         api.patch_status(name, &Default::default(), &Patch::Merge(patch))
             .await?;

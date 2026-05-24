@@ -21,7 +21,9 @@ spec:
           image: {{ include "ambientor.image" . }}-operator
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
+            {{- with include "ambientor.databaseUrl" . | trim }}
             - name: DATABASE_URL
-              value: {{ .Values.database.url | default (printf "postgres://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "ambientor.fullname" .) .Values.postgresql.auth.database) | quote }}
+              value: {{ . | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.operator.resources | nindent 12 }}

@@ -6,14 +6,15 @@ use kube::{
 use serde_json::json;
 use tracing::info;
 
-use crate::engine::{FIELD_MANAGER, RolloutError};
+use crate::engine::RolloutError;
 
 pub async fn label_namespace_ambient(client: &Client, name: &str) -> Result<(), RolloutError> {
     patch_namespace_labels(
         client,
         name,
         json!({
-            "istio.io/dataplane-mode": "ambient"
+            "istio.io/dataplane-mode": "ambient",
+            "istio-injection": null
         }),
     )
     .await?;
@@ -59,7 +60,8 @@ async fn patch_namespace_labels(
     let patch = json!({
         "metadata": { "labels": labels }
     });
-    let pp = PatchParams::apply(FIELD_MANAGER).force();
-    api.patch(name, &pp, &Patch::Apply(patch)).await?;
+    // Merge patch: SSA Apply requires apiVersion/kind on the patch body.
+    api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await?;
     Ok(())
 }

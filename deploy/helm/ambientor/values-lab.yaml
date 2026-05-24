@@ -1,18 +1,8 @@
-# Lab / kind overrides — local images, no GHCR pull (see docs/runbook-lab.md).
+# Local kind lab / CI e2e: images loaded via `kind load docker-image`.
 image:
   repository: ambientor
   tag: "0.1.0"
   pullPolicy: Never
-
-postgresql:
-  enabled: true
-  auth:
-    username: ambientor
-    password: ambientor-lab
-    database: ambientor
-  primary:
-    persistence:
-      enabled: false
 
 operator:
   resources:
@@ -21,12 +11,30 @@ operator:
       memory: 64Mi
     limits:
       cpu: 500m
-      memory: 256Mi
+      memory: 512Mi
 
 api:
-  env:
-    AMBIENTOR_JWT_SECRET: "lab-only-change-me"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
 
 web:
-  env:
-    AMBIENTOR_API_URL: "http://ambientor-api:8080"
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+
+postgresql:
+  enabled: true
+  auth:
+    username: ambientor
+    password: ambientor
+    database: ambientor
+  primary:
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi

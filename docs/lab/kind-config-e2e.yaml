@@ -1,0 +1,19 @@
+# kind cluster for CI e2e (single control-plane; minimal port mappings).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ambientor-e2e
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8088
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 8443
+        protocol: TCP
