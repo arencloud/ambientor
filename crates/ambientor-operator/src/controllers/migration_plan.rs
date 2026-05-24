@@ -78,8 +78,9 @@ async fn reconcile_inner(client: &Client, plan: &MigrationPlan) -> anyhow::Resul
     }
 
     let assessment_result = assessment_result_from_status(status);
-    let inventory_namespaces =
-        inventory_target_namespaces(client, &assessment, &ns).await.unwrap_or_default();
+    let inventory_namespaces = inventory_target_namespaces(client, &assessment, &ns)
+        .await
+        .unwrap_or_default();
     let namespaces = namespaces_for_planning(&assessment_result.findings, &inventory_namespaces);
     let built = build_plan(&assessment_result, &namespaces);
     let spec = MigrationPlanSpec {

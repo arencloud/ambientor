@@ -5,7 +5,10 @@ use k8s_openapi::api::core::v1::Namespace;
 use kube::{Api, Client, api::ListParams};
 
 /// Namespace list for wave planning (defaults to `default` when no sources).
-pub fn namespaces_for_planning(findings: &[Finding], inventory_namespaces: &[String]) -> Vec<String> {
+pub fn namespaces_for_planning(
+    findings: &[Finding],
+    inventory_namespaces: &[String],
+) -> Vec<String> {
     let mut set = BTreeSet::new();
     for f in findings {
         if let Some(ns) = &f.namespace {
