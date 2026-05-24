@@ -7,7 +7,7 @@ use kube::{
 use serde_json::json;
 use tracing::info;
 
-use crate::engine::{FIELD_MANAGER, RolloutError};
+use crate::engine::RolloutError;
 
 /// Trigger a rolling restart of all Deployments in a namespace (pod template annotation).
 pub async fn rolling_restart_namespace(
@@ -33,8 +33,9 @@ pub async fn rolling_restart_namespace(
                 }
             }
         });
-        let pp = PatchParams::apply(FIELD_MANAGER).force();
-        api.patch(&name, &pp, &Patch::Apply(patch)).await?;
+        // Merge patch: SSA Apply requires apiVersion/kind on the patch body.
+        api.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await?;
         count += 1;
         info!(namespace = %namespace, deployment = %name, "rolling restart triggered");
     }
