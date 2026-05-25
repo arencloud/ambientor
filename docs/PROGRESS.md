@@ -5,11 +5,11 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Production pilot (multi-cluster validation, plan approval, OIDC gates).
+**Current focus:** Production pilot P1–P2 (run on customer clusters).
 
-**Next up:** Production pilot P1–P2 (multi-cluster validation, plan approval).
+**Next up:** Merge portal OIDC (P4); execute [runbook-pilot.md](runbook-pilot.md) on 3+ clusters.
 
-**Last updated:** 2026-05-26
+**Last updated:** 2026-05-22
 
 ---
 
@@ -112,7 +112,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | P1 | Blockers match Istio migrate docs on 3+ clusters | ⬜ |
 | P2 | Plans human-approved with exported manifests | ⬜ |
 | P3 | Rollout: one NS, verify + auto-rollback in e2e | ✅ |
-| P4 | Portal/OIDC gates approve + execute | 🔄 |
+| P4 | Portal/OIDC gates approve + execute | 🔄 `feature/portal-oidc-pilot` |
 | P5 | Audit log for approve / apply / rollback | ✅ |
 
 ---

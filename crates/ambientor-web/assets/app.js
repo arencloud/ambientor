@@ -1,7 +1,15 @@
 (function () {
   const API = () => window.AMBIENTOR_API_URL || '';
+  const TOKEN_KEY = 'ambientor_token';
 
   const $ = (id) => document.getElementById(id);
+
+  let authConfig = {
+    enabled: false,
+    localLogin: false,
+    oidcLoginUrl: null,
+    requireAuthForApprove: false,
+  };
 
   let assessments = [];
   let selectedKey = null;
@@ -25,6 +33,141 @@
     if (!el) return;
     el.textContent = msg || '';
     el.className = 'status-banner' + (msg ? (isError ? ' error' : ' info') : ' hidden');
+  }
+
+  function getToken() {
+    return localStorage.getItem(TOKEN_KEY);
+  }
+
+  function setToken(token) {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  }
+
+  function parseJwtUsername(token) {
+    try {
+      const payload = token.split('.')[1];
+      const padded = payload.replace(/-/g, '+').replace(/_/g, '/');
+      const json = JSON.parse(atob(padded));
+      return json.sub || json.username || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function authHeaders(extra) {
+    const h = Object.assign({}, extra || {});
+    const t = getToken();
+    if (t) h.Authorization = 'Bearer ' + t;
+    return h;
+  }
+
+  function consumeOidcTokenFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (!token) return;
+    setToken(token);
+    params.delete('token');
+    const qs = params.toString();
+    const path = window.location.pathname + window.location.hash;
+    window.history.replaceState({}, '', path + (qs ? '?' + qs : ''));
+  }
+
+  function canApproveRollout(awaiting) {
+    if (!awaiting) return false;
+    if (authConfig.requireAuthForApprove && !getToken()) return false;
+    return true;
+  }
+
+  function updateApproveAuthHint() {
+    const hint = $('approve-auth-hint');
+    if (!hint) return;
+    const needsLogin = authConfig.requireAuthForApprove && !getToken();
+    hint.classList.toggle('hidden', !needsLogin);
+    if (needsLogin) {
+      hint.textContent =
+        'Sign in (local or SSO) to approve rollout stages when the API has auth enabled.';
+    }
+  }
+
+  function updateAuthUi() {
+    const loggedIn = !!getToken();
+    const authOn = authConfig.enabled;
+
+    $('auth-disabled-hint')?.classList.toggle('hidden', authOn);
+    $('auth-login-panel')?.classList.toggle('hidden', !authOn || loggedIn);
+    $('auth-user-panel')?.classList.toggle('hidden', !loggedIn);
+
+    if (loggedIn && $('auth-username')) {
+      $('auth-username').textContent = parseJwtUsername(getToken()) || 'user';
+    }
+
+    const oidcBtn = $('auth-oidc-login');
+    if (oidcBtn) {
+      const showOidc = authOn && !!authConfig.oidcLoginUrl && !loggedIn;
+      oidcBtn.classList.toggle('hidden', !showOidc);
+    }
+
+    $('auth-local-form')?.classList.toggle('hidden', !authConfig.localLogin || loggedIn);
+    updateApproveAuthHint();
+
+    const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
+    if (r) {
+      const awaiting = r.awaitingApproval || r.awaiting_approval;
+      $('approve-rollout').disabled = !canApproveRollout(awaiting);
+    }
+  }
+
+  async function loadAuthConfig() {
+    try {
+      const res = await fetch(API() + '/api/v1/auth/config');
+      if (!res.ok) throw new Error(await res.text());
+      authConfig = await res.json();
+    } catch {
+      authConfig = {
+        enabled: false,
+        localLogin: false,
+        oidcLoginUrl: null,
+        requireAuthForApprove: false,
+      };
+    }
+    updateAuthUi();
+  }
+
+  async function loginLocal() {
+    const user = $('auth-username-input')?.value?.trim();
+    const pass = $('auth-password-input')?.value;
+    if (!user || !pass) {
+      setStatus('Enter username and password', true);
+      return;
+    }
+    setStatus('Signing in…');
+    try {
+      const res = await fetch(API() + '/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setToken(data.token);
+      if ($('auth-password-input')) $('auth-password-input').value = '';
+      updateAuthUi();
+      setStatus('Signed in as ' + (parseJwtUsername(data.token) || user));
+    } catch (e) {
+      setStatus('Login failed: ' + e.message, true);
+    }
+  }
+
+  function logout() {
+    setToken(null);
+    updateAuthUi();
+    setStatus('Signed out');
+  }
+
+  function startOidcLogin() {
+    const path = authConfig.oidcLoginUrl || '/api/v1/auth/oidc/login';
+    window.location.href = API() + path;
   }
 
   function renderScores(scores, prefix) {
@@ -411,7 +554,8 @@
     const total = r.stageCount ?? r.stage_count ?? '?';
     $('rollout-stage-progress').textContent = `Stage ${current} of ${total} · approved through ${r.approvedStage ?? r.approved_stage ?? 0}`;
     const awaiting = r.awaitingApproval || r.awaiting_approval;
-    $('approve-rollout').disabled = !awaiting;
+    $('approve-rollout').disabled = !canApproveRollout(awaiting);
+    updateApproveAuthHint();
     setStatus('Loading rollout detail…');
     try {
       const res = await fetch(
@@ -421,7 +565,8 @@
       rolloutDetail = await res.json();
       renderRolloutStages(rolloutDetail);
       const awaitingDetail = rolloutDetail.rollout?.awaitingApproval ?? rolloutDetail.rollout?.awaiting_approval;
-      $('approve-rollout').disabled = !awaitingDetail;
+      $('approve-rollout').disabled = !canApproveRollout(awaitingDetail);
+      updateApproveAuthHint();
       await loadRolloutAudit(r.namespace, r.name);
       setStatus(`Rollout ${r.namespace}/${r.name} loaded`);
     } catch (e) {
@@ -454,6 +599,16 @@
   async function approveCurrentRolloutStage() {
     const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
     if (!r) return;
+    const awaiting = r.awaitingApproval || r.awaiting_approval;
+    if (!canApproveRollout(awaiting)) {
+      setStatus(
+        authConfig.requireAuthForApprove && !getToken()
+          ? 'Sign in to approve rollout stages'
+          : 'No stage awaiting approval',
+        true
+      );
+      return;
+    }
     $('approve-rollout').disabled = true;
     setStatus('Approving stage…');
     try {
@@ -462,8 +617,8 @@
           `/api/v1/rollouts/${encodeURIComponent(r.namespace)}/${encodeURIComponent(r.name)}/approve`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ actor: 'portal' }),
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: getToken() ? '{}' : JSON.stringify({ actor: 'portal' }),
         }
       );
       if (!res.ok) throw new Error(await res.text());
@@ -545,7 +700,14 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    consumeOidcTokenFromUrl();
     initNav();
+    loadAuthConfig().then(() => {
+      if (getToken()) setStatus('Signed in as ' + (parseJwtUsername(getToken()) || 'user'));
+    });
+    $('auth-login-btn')?.addEventListener('click', loginLocal);
+    $('auth-logout-btn')?.addEventListener('click', logout);
+    $('auth-oidc-login')?.addEventListener('click', startOidcLogin);
     $('run-assess')?.addEventListener('click', runAssessment);
     $('refresh-assessments')?.addEventListener('click', loadAssessments);
     $('refresh-plans')?.addEventListener('click', loadPlans);
