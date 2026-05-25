@@ -6,7 +6,7 @@ Publish operator, API, web, and CLI container images to Quay for `linux/amd64` a
 
 ## Delivered
 
-- [x] `.github/workflows/images.yml` — buildx push on `main`, `v*` tags, and `workflow_dispatch`
+- [x] `.github/workflows/images.yml` — buildx push on `v*` tags and `workflow_dispatch` (not on every `main` push)
 - [x] `.dockerignore` — smaller build context
 - [x] One Quay repository per component
 
@@ -37,6 +37,13 @@ Create these public (or pull-secret) repos under **arencloud**:
 | `ambientor-cli` | `quay.io/arencloud/ambientor-cli:<version>` (optional; not used by Helm) |
 
 Example: `quay.io/arencloud/ambientor-operator:0.1.0`
+
+## Release
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 ## Helm
 
