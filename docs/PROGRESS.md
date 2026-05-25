@@ -5,7 +5,7 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Phase 5 — ecosystem (images, CI, performance).
+**Current focus:** Production pilot (multi-cluster validation, plan approval, OIDC gates).
 
 **Next up:** Production pilot P1–P2 (multi-cluster validation, plan approval).
 
@@ -101,7 +101,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 5.2 | kind/OpenShift in CI | ✅ | PR [#25](https://github.com/arencloud/ambientor/pull/25) | `e2e-kind.yml` + `openshift-smoke.yml`; see `docs/roadmap/platform-ci.md` |
 | 5.3 | Performance (10k pods / informer cache) | ✅ | PR [#26](https://github.com/arencloud/ambientor/pull/26) | `ClusterResourceCache`; see `docs/roadmap/performance-informer-cache.md` |
 | 5.4 | Pluggable DB trait | ✅ | PR [#27](https://github.com/arencloud/ambientor/pull/27) | `ScanStore` / `AuditStore` / `UserStore`; see `docs/roadmap/pluggable-db.md` |
-| 5.5 | Logo variants for UI | 🔄 | `feature/logo-variants` | Portal icon + favicon; see `docs/roadmap/logo-variants.md` |
+| 5.5 | Logo variants for UI | ✅ | PR [#28](https://github.com/arencloud/ambientor/pull/28) | Portal icon + favicon; see `docs/roadmap/logo-variants.md` |
 
 ---
 

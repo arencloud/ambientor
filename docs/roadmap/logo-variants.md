@@ -13,7 +13,7 @@ Provide reusable logo sizes for the portal, favicon, and documentation, and wire
 
 ## Branch
 
-`feature/logo-variants`
+Merged via PR [#28](https://github.com/arencloud/ambientor/pull/28).
 
 ## Files
 
