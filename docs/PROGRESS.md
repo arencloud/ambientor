@@ -7,7 +7,7 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Current focus:** Phase 4 — enterprise (OIDC, RBAC, hub mode).
 
-**Next up:** Phase 4.4 — OpenShift OLM / SCC / MemberRoll wizard.
+**Next up:** Phase 5.1 — publish GHCR images (multi-arch).
 
 **Last updated:** 2026-05-24
 
@@ -89,7 +89,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 4.1 | Full OIDC (discovery + callback) | ✅ | PR [#20](https://github.com/arencloud/ambientor/pull/20) | Discovery + PKCE + API routes; see `docs/roadmap/oidc-auth.md` |
 | 4.2 | Namespace-scoped Casbin in Postgres | ✅ | PR [#21](https://github.com/arencloud/ambientor/pull/21) | Postgres `casbin_rule` + domain model; approve gated; see `docs/roadmap/rbac-postgres.md` |
 | 4.3 | Hub `ClusterConnection` remote clients | ✅ | PR [#22](https://github.com/arencloud/ambientor/pull/22) | Remote kube clients + assess API; see `docs/roadmap/hub-aggregation.md` |
-| 4.4 | OpenShift OLM / SCC / MemberRoll wizard | ⬜ | `cursor/openshift-olm` | |
+| 4.4 | OpenShift OLM / SCC / MemberRoll wizard | 🔄 | `cursor/openshift-olm` | OLM + SCC + MemberRoll wizard; see `docs/roadmap/openshift-olm.md` |
 
 ---
 

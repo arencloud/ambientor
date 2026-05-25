@@ -32,31 +32,25 @@ impl MeshBackend for OssmBackend {
 }
 
 async fn ossm_preflight(client: &Client) -> anyhow::Result<Vec<PreflightCheck>> {
-    let members = crate::platform_scan::collect_ossm_member_namespaces(client).await;
-    let member_ok = !members.is_empty();
-    Ok(vec![
-        PreflightCheck {
-            id: "ossm-member-roll".into(),
-            passed: member_ok,
-            message: if member_ok {
-                format!(
-                    "Found {} ServiceMeshMemberRoll member reference(s)",
-                    members.len()
-                )
-            } else {
-                "No ServiceMeshMemberRoll resources found".into()
-            },
-            remediation: Some(
-                "Create ServiceMeshMemberRoll to enroll namespaces before ambient migration".into(),
-            ),
-        },
-        PreflightCheck {
-            id: "openshift-scc".into(),
-            passed: true,
-            message: "Verify ambientor ServiceAccount has required SCC (anyuid or custom)".into(),
-            remediation: Some(
-                "Grant restricted-v2 or custom SCC to ambientor-operator ServiceAccount".into(),
-            ),
-        },
-    ])
+    let platform = ambientor_k8s::detect_platform(client).await?;
+    let opts = crate::openshift_wizard::OpenShiftWizardOptions {
+        ambientor_namespace: std::env::var("POD_NAMESPACE")
+            .unwrap_or_else(|_| "ambientor-system".into()),
+        operator_service_account: std::env::var("AMBIENTOR_OPERATOR_SA")
+            .unwrap_or_else(|_| "ambientor-operator".into()),
+        enroll_namespaces: crate::openshift_wizard::namespaces_needing_enrollment(client)
+            .await
+            .unwrap_or_default(),
+    };
+    let report = crate::openshift_wizard::run_wizard(client, &platform, &opts).await?;
+    Ok(report
+        .steps
+        .into_iter()
+        .map(|s| PreflightCheck {
+            id: s.id,
+            passed: s.passed,
+            message: s.message,
+            remediation: s.remediation,
+        })
+        .collect())
 }

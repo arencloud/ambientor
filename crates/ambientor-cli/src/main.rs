@@ -7,6 +7,9 @@ mod sarif;
 use ambientor_core::scoring::compute_scores;
 use ambientor_k8s::K8sClient;
 use ambientor_mesh::backend::backend_for_flavor;
+use ambientor_mesh::{
+    OpenShiftWizardOptions, namespaces_needing_enrollment, run_wizard,
+};
 use ambientor_scan::default_registry;
 use ambientor_types::FindingSummary;
 use anyhow::Context;
@@ -50,6 +53,25 @@ enum Commands {
     Rollout {
         #[command(subcommand)]
         action: RolloutAction,
+    },
+    /// OpenShift / OSSM preflight wizard (OLM, SCC, MemberRoll)
+    Openshift {
+        #[command(subcommand)]
+        action: OpenshiftAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum OpenshiftAction {
+    /// Run OLM + SCC + MemberRoll wizard
+    Wizard {
+        /// Comma-separated namespaces to enroll in MemberRoll suggestion
+        #[arg(long)]
+        enroll: Option<String>,
+        #[arg(long, default_value = "ambientor-system")]
+        ambientor_namespace: String,
+        #[arg(long, default_value = "ambientor-operator")]
+        operator_service_account: String,
     },
 }
 
@@ -153,6 +175,32 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             }
         },
+        Commands::Openshift { action } => match action {
+            OpenshiftAction::Wizard {
+                enroll,
+                ambientor_namespace,
+                operator_service_account,
+            } => {
+                let report = if let Some(url) = cli.api_url.as_deref() {
+                    openshift_wizard_via_api(
+                        url,
+                        enroll.as_deref(),
+                        &ambientor_namespace,
+                        &operator_service_account,
+                    )
+                    .await?
+                } else {
+                    openshift_wizard_direct(
+                        cli.kubeconfig.as_deref(),
+                        enroll.as_deref(),
+                        &ambientor_namespace,
+                        &operator_service_account,
+                    )
+                    .await?
+                };
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            }
+        },
         Commands::Rollout { action } => match action {
             RolloutAction::Status { namespace, name } => {
                 rollout_cmd::rollout_status(
@@ -207,6 +255,63 @@ async fn assess_via_api(base: &str, namespace: Option<String>) -> anyhow::Result
     let resp = client
         .post(format!("{base}/api/v1/assess"))
         .json(&serde_json::json!({ "namespace": namespace }))
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(resp.json().await?)
+}
+
+async fn openshift_wizard_direct(
+    kubeconfig: Option<&str>,
+    enroll: Option<&str>,
+    ambientor_namespace: &str,
+    operator_service_account: &str,
+) -> anyhow::Result<ambientor_mesh::OpenShiftWizardReport> {
+    let k8s = match kubeconfig {
+        Some(p) => K8sClient::from_kubeconfig(Some(p)).await?,
+        None => K8sClient::in_cluster()
+            .await
+            .or(K8sClient::from_kubeconfig(None).await)?,
+    };
+    let platform = ambientor_k8s::detect_platform(&k8s.client).await?;
+    let mut enroll_ns: Vec<String> = enroll
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    if enroll_ns.is_empty() {
+        enroll_ns = namespaces_needing_enrollment(&k8s.client).await?;
+    }
+    let opts = OpenShiftWizardOptions {
+        ambientor_namespace: ambientor_namespace.into(),
+        operator_service_account: operator_service_account.into(),
+        enroll_namespaces: enroll_ns,
+    };
+    run_wizard(&k8s.client, &platform, &opts).await
+}
+
+async fn openshift_wizard_via_api(
+    base: &str,
+    enroll: Option<&str>,
+    ambientor_namespace: &str,
+    operator_service_account: &str,
+) -> anyhow::Result<ambientor_mesh::OpenShiftWizardReport> {
+    let client = reqwest::Client::new();
+    let url = format!("{base}/api/v1/openshift/wizard");
+    let mut params = vec![
+        ("ambientorNamespace", ambientor_namespace),
+        ("operatorServiceAccount", operator_service_account),
+    ];
+    if let Some(e) = enroll {
+        params.push(("enroll", e));
+    }
+    let resp = client
+        .get(&url)
+        .query(&params)
         .send()
         .await?
         .error_for_status()?;
