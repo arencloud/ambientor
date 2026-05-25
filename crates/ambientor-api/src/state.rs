@@ -5,8 +5,7 @@ use ambientor_auth::oidc::{OidcConfig, oidc_config_from_env, oidc_default_roles_
 use ambientor_auth::oidc_flow::OidcFlowService;
 use ambientor_auth::rbac::RbacEnforcer;
 use ambientor_auth::service::AuthService;
-use ambientor_db::{AuditRepository, ScanRepository, UserRepository};
-use sqlx::PgPool;
+use ambientor_db::{AuditStore, DbBackend, ScanStore, open_postgres};
 use tokio::sync::RwLock;
 
 use crate::routes::sse::SseHub;
@@ -24,7 +23,7 @@ pub struct AppState {
     pub auth: Option<Arc<AuthService>>,
     pub oidc: Option<OidcState>,
     pub sse: Arc<RwLock<SseHub>>,
-    pool: Option<PgPool>,
+    db: Option<DbBackend>,
     #[allow(dead_code)]
     jwt: JwtService,
 }
@@ -36,23 +35,18 @@ impl AppState {
         let jwt = JwtService::new(secret.as_bytes());
         let sse = Arc::new(RwLock::new(SseHub::new()));
 
-        let pool = match std::env::var("DATABASE_URL") {
-            Ok(url) => {
-                let pool = ambientor_db::connect(&url).await?;
-                ambientor_db::migrate(&pool).await?;
-                Some(pool)
-            }
+        let db = match std::env::var("DATABASE_URL") {
+            Ok(url) => Some(open_postgres(&url).await?),
             Err(_) => {
                 tracing::warn!("DATABASE_URL not set; running without persistence");
                 None
             }
         };
 
-        let auth = if let Some(ref pool) = pool {
-            let users = UserRepository::new(pool.clone());
-            let rbac = RbacEnforcer::with_postgres(pool.clone()).await?;
+        let auth = if let Some(ref backend) = db {
+            let rbac = RbacEnforcer::with_postgres(backend.pool.clone()).await?;
             Some(Arc::new(AuthService {
-                users,
+                users: backend.users.clone(),
                 jwt: JwtService::new(secret.as_bytes()),
                 rbac,
             }))
@@ -88,7 +82,7 @@ impl AppState {
         };
 
         Ok(Self {
-            pool,
+            db,
             auth,
             oidc,
             jwt,
@@ -96,12 +90,12 @@ impl AppState {
         })
     }
 
-    pub fn audit_repo(&self) -> Option<AuditRepository> {
-        self.pool.as_ref().map(|p| AuditRepository::new(p.clone()))
+    pub fn audit_store(&self) -> Option<Arc<dyn AuditStore>> {
+        self.db.as_ref().map(|d| d.audit.clone())
     }
 
-    pub fn scan_repo(&self) -> Option<ScanRepository> {
-        self.pool.as_ref().map(|p| ScanRepository::new(p.clone()))
+    pub fn scan_store(&self) -> Option<Arc<dyn ScanStore>> {
+        self.db.as_ref().map(|d| d.scan.clone())
     }
 
     pub fn verify_jwt(&self, token: &str) -> Result<Claims, ambientor_auth::jwt::JwtError> {

@@ -1,8 +1,10 @@
 use ambientor_types::dto::AuditEvent;
+use async_trait::async_trait;
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 use crate::pool::DbError;
+use crate::traits::{AuditStore, UserStore};
 
 #[derive(Clone, FromRow)]
 pub struct UserRecord {
@@ -111,6 +113,50 @@ impl AuditRepository {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(audit_row_to_event).collect())
+    }
+}
+
+#[async_trait]
+impl UserStore for UserRepository {
+    async fn find_by_username(&self, username: &str) -> Result<Option<UserRecord>, DbError> {
+        UserRepository::find_by_username(self, username).await
+    }
+
+    async fn find_or_create_oidc(
+        &self,
+        username: &str,
+        password_hash: &str,
+        roles: &[String],
+    ) -> Result<Uuid, DbError> {
+        UserRepository::find_or_create_oidc(self, username, password_hash, roles).await
+    }
+
+    async fn create(
+        &self,
+        username: &str,
+        password_hash: &str,
+        roles: &[String],
+    ) -> Result<Uuid, DbError> {
+        UserRepository::create(self, username, password_hash, roles).await
+    }
+}
+
+#[async_trait]
+impl AuditStore for AuditRepository {
+    async fn append(&self, event: &AuditEvent) -> Result<(), DbError> {
+        AuditRepository::append(self, event).await
+    }
+
+    async fn list_by_resource(
+        &self,
+        resource: &str,
+        limit: i64,
+    ) -> Result<Vec<AuditEvent>, DbError> {
+        AuditRepository::list_by_resource(self, resource, limit).await
+    }
+
+    async fn list_recent(&self, limit: i64) -> Result<Vec<AuditEvent>, DbError> {
+        AuditRepository::list_recent(self, limit).await
     }
 }
 

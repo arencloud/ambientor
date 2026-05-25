@@ -26,7 +26,7 @@ pub async fn list_audit(
     State(state): State<Arc<AppState>>,
     Query(query): Query<AuditListQuery>,
 ) -> Result<Json<Vec<AuditEvent>>, (StatusCode, String)> {
-    let repo = state.audit_repo().ok_or((
+    let repo = state.audit_store().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
         "DATABASE_URL not configured; audit log unavailable".into(),
     ))?;
@@ -47,7 +47,7 @@ pub async fn list_rollout_audit(
     Query(query): Query<AuditListQuery>,
 ) -> Result<Json<Vec<AuditEvent>>, (StatusCode, String)> {
     let resource = rollout_resource(&namespace, &name);
-    let repo = state.audit_repo().ok_or((
+    let repo = state.audit_store().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
         "DATABASE_URL not configured; audit log unavailable".into(),
     ))?;

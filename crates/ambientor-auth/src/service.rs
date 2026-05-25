@@ -1,4 +1,6 @@
-use ambientor_db::UserRepository;
+use std::sync::Arc;
+
+use ambientor_db::UserStore;
 use ambientor_types::dto::AuditEvent;
 use chrono::Utc;
 use uuid::Uuid;
@@ -8,7 +10,7 @@ use crate::password::{PasswordError, hash_password, verify_password};
 use crate::rbac::RbacEnforcer;
 
 pub struct AuthService {
-    pub users: UserRepository,
+    pub users: Arc<dyn UserStore>,
     pub jwt: JwtService,
     pub rbac: RbacEnforcer,
 }

@@ -35,7 +35,7 @@ pub async fn list_scans(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListScansQuery>,
 ) -> Result<Json<Vec<ScanListItem>>, (axum::http::StatusCode, String)> {
-    let repo = state.scan_repo().ok_or((
+    let repo = state.scan_store().ok_or((
         axum::http::StatusCode::SERVICE_UNAVAILABLE,
         "DATABASE_URL not configured".into(),
     ))?;

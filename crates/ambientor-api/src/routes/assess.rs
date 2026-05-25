@@ -58,7 +58,7 @@ pub async fn assess(
         &serde_json::json!({ "phase": "completed", "findingCount": findings.len() }),
     );
 
-    if let Some(repo) = state.scan_repo() {
+    if let Some(repo) = state.scan_store() {
         let payload = StoredAssessment {
             findings: findings.clone(),
             scores: scores.clone(),

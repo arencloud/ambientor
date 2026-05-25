@@ -10,7 +10,7 @@ mod runtime;
 
 use std::sync::Arc;
 
-use ambientor_db::{AuditRepository, ScanRepository};
+use ambientor_db::{AuditStore, ScanStore};
 use ambientor_k8s::ClusterResourceCache;
 use ambientor_rollout::RolloutEngine;
 use kube::Client;
@@ -21,8 +21,8 @@ pub use context::OperatorContext;
 pub async fn run_all(
     client: Client,
     rollout_engine: Arc<RolloutEngine>,
-    scan_repo: Option<Arc<ScanRepository>>,
-    audit_repo: Option<Arc<AuditRepository>>,
+    scan_repo: Option<Arc<dyn ScanStore>>,
+    audit_repo: Option<Arc<dyn AuditStore>>,
     resource_cache: Arc<ClusterResourceCache>,
 ) {
     info!("starting ambientor-operator controllers (kube-runtime watches)");

@@ -100,7 +100,7 @@ pub async fn assess_connection(
         }),
     );
 
-    if let Some(repo) = state.scan_repo() {
+    if let Some(repo) = state.scan_store() {
         let payload = StoredAssessment {
             findings: findings.clone(),
             scores: scores.clone(),

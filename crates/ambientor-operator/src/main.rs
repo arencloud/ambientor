@@ -22,13 +22,9 @@ async fn main() -> anyhow::Result<()> {
     let client = k8s.client.clone();
 
     let (scan_repo, audit_repo) = if let Ok(url) = std::env::var("DATABASE_URL") {
-        let pool = ambientor_db::connect(&url).await?;
-        ambientor_db::migrate(&pool).await?;
+        let db = ambientor_db::open_postgres(&url).await?;
         tracing::info!("database migrations applied");
-        (
-            Some(Arc::new(ambientor_db::ScanRepository::new(pool.clone()))),
-            Some(Arc::new(ambientor_db::AuditRepository::new(pool))),
-        )
+        (Some(db.scan), Some(db.audit))
     } else {
         tracing::warn!("DATABASE_URL not set; scans and audit log will not be persisted");
         (None, None)
