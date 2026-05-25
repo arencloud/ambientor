@@ -8,11 +8,11 @@ Publish operator, API, web, and CLI container images to Quay for `linux/amd64` a
 
 - [x] `.github/workflows/images.yml` — buildx push on `main`, `v*` tags, and `workflow_dispatch`
 - [x] `.dockerignore` — smaller build context
-- [x] Tags: `quay.io/arencloud/ambientor:<version>-{operator|api|web|cli}`
+- [x] One Quay repository per component
 
 ## Branch
 
-Merged via PR [#24](https://github.com/arencloud/ambientor/pull/24); registry migrated from GHCR to Quay.
+Merged via PR [#24](https://github.com/arencloud/ambientor/pull/24); registry on Quay under `arencloud`.
 
 ## CI secrets
 
@@ -23,27 +23,44 @@ Add repository secrets for push access to `quay.io/arencloud`:
 | `QUAY_USERNAME` | Quay user or robot account name |
 | `QUAY_PASSWORD` | Quay password or robot token |
 
-Create a robot account under the `arencloud` organization with **Write** on the `ambientor` repository.
+Create a robot account under the `arencloud` organization with **Write** on each image repository (or org-wide).
 
-## Image tags
+## Quay repositories
 
-Helm (`deploy/helm/ambientor/values.yaml`) uses:
+Create these public (or pull-secret) repos under **arencloud**:
 
-```text
-quay.io/arencloud/ambientor:0.1.0-operator
-quay.io/arencloud/ambientor:0.1.0-api
-quay.io/arencloud/ambientor:0.1.0-web
+| Repository | Image |
+|------------|--------|
+| `ambientor-operator` | `quay.io/arencloud/ambientor-operator:<version>` |
+| `ambientor-api` | `quay.io/arencloud/ambientor-api:<version>` |
+| `ambientor-web` | `quay.io/arencloud/ambientor-web:<version>` |
+| `ambientor-cli` | `quay.io/arencloud/ambientor-cli:<version>` (optional; not used by Helm) |
+
+Example: `quay.io/arencloud/ambientor-operator:0.1.0`
+
+## Helm
+
+`deploy/helm/ambientor/values.yaml`:
+
+```yaml
+image:
+  registry: quay.io/arencloud
+  tag: "0.1.0"
 ```
 
-CLI image (`0.1.0-cli`) is published for jobs and debugging; not used by the chart by default.
+Resolves to `quay.io/arencloud/ambientor-operator:0.1.0`, etc. Local kind/e2e use `registry: ""` → `ambientor-operator:0.1.0`.
 
 ## Pull
 
-Make the repository public (or configure `imagePullSecrets`) and install:
+```bash
+helm install ambientor deploy/helm/ambientor/ -n ambientor-system --create-namespace
+```
+
+Override registry/tag if needed:
 
 ```bash
 helm install ambientor deploy/helm/ambientor/ -n ambientor-system --create-namespace \
-  --set image.repository=quay.io/arencloud/ambientor \
+  --set image.registry=quay.io/arencloud \
   --set image.tag=0.1.0
 ```
 
@@ -51,5 +68,6 @@ helm install ambientor deploy/helm/ambientor/ -n ambientor-system --create-names
 
 ```bash
 ./scripts/lab-build-images.sh
-# AMBIENTOR_IMAGE_REPO=quay.io/arencloud/ambientor ./scripts/lab-build-images.sh
+# Quay-style names locally:
+# AMBIENTOR_IMAGE_REGISTRY=quay.io/arencloud ./scripts/lab-build-images.sh
 ```

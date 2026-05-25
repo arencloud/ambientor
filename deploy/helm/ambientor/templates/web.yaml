@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: {{ include "ambientor.image" . }}-web
+          image: {{ include "ambientor.imageRef" (dict "root" . "component" "web") }}
           ports:
             - containerPort: 3000
           env:

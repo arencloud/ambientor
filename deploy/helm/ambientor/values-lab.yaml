@@ -1,6 +1,6 @@
 # Local kind lab / CI e2e: images loaded via `kind load docker-image`.
 image:
-  repository: ambientor
+  registry: ""
   tag: "0.1.0"
   pullPolicy: Never
 

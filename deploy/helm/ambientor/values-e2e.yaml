@@ -1,6 +1,6 @@
 # CI e2e on kind: no Postgres (faster, avoids Bitnami pull/startup timeouts).
 image:
-  repository: ambientor
+  registry: ""
   tag: "0.1.0"
   pullPolicy: Never
 

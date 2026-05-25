@@ -2,7 +2,7 @@ global:
   imageRegistry: ""
 
 image:
-  repository: quay.io/arencloud/ambientor
+  registry: quay.io/arencloud
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 

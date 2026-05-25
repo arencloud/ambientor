@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Strip IDE/agent co-author and attribution trailers before the commit is created.
+# Remove agent/IDE co-author and attribution lines before the commit is finalized.
 set -euo pipefail
 msg_file="${1:?}"
 sed -i \
-  -e '/^Co-authored-by:.*cursoragent@cursor\.com/d' \
-  -e '/^Co-authored-by:.*Cursor/d' \
-  -e '/^Made-with:.*Cursor/d' \
-  -e '/^Made with \[Cursor\]/d' \
+  -e '/^Co-authored-by:/Id' \
+  -e '/^Made-with:/Id' \
+  -e '/^Made with \[/Id' \
+  -e '/cursoragent@cursor\.com/Id' \
   "${msg_file}"

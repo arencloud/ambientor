@@ -28,7 +28,7 @@ spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
         - name: api
-          image: {{ include "ambientor.image" . }}-api
+          image: {{ include "ambientor.imageRef" (dict "root" . "component" "api") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8080

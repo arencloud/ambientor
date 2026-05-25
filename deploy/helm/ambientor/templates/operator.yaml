@@ -18,7 +18,7 @@ spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
         - name: operator
-          image: {{ include "ambientor.image" . }}-operator
+          image: {{ include "ambientor.imageRef" (dict "root" . "component" "operator") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             {{- with include "ambientor.databaseUrl" . | trim }}

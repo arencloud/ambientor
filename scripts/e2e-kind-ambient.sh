@@ -192,10 +192,14 @@ wait_rollout_terminal() {
 
 load_e2e_images() {
   local tag="${AMBIENTOR_IMAGE_TAG:-0.1.0}"
-  local repo="${AMBIENTOR_IMAGE_REPO:-ambientor}"
-  local image
-  for suffix in operator api; do
-    image="${repo}:${tag}-${suffix}"
+  local registry="${AMBIENTOR_IMAGE_REGISTRY:-}"
+  local image component
+  for component in operator api; do
+    if [[ -n "${registry}" ]]; then
+      image="${registry}/ambientor-${component}:${tag}"
+    else
+      image="ambientor-${component}:${tag}"
+    fi
     if ! docker image inspect "${image}" >/dev/null 2>&1; then
       die "image ${image} not in local Docker; CI build must use load: true before kind load"
     fi

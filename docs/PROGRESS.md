@@ -97,7 +97,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 
 | Step | Task | Status | Notes |
 |------|------|--------|-------|
-| 5.1 | Publish Quay images (multi-arch) | ✅ | PR [#24](https://github.com/arencloud/ambientor/pull/24) | `quay.io/arencloud/ambientor`; see `docs/roadmap/quay-images.md` |
+| 5.1 | Publish Quay images (multi-arch) | ✅ | PR [#24](https://github.com/arencloud/ambientor/pull/24) | `quay.io/arencloud/ambientor-{operator,api,web}`; see `docs/roadmap/quay-images.md` |
 | 5.2 | kind/OpenShift in CI | ⬜ | |
 | 5.3 | Performance (10k pods / informer cache) | ⬜ | |
 | 5.4 | Pluggable DB trait | ⬜ | Optional |
@@ -120,17 +120,18 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 ## Git and pull requests
 
 - Commits and PRs use only the repository’s configured local git user — no `Co-authored-by` or agent attribution trailers.
+- Never run `git commit --trailer` (or any `--trailer "Co-authored-by: …"`). Use `git commit -m "subject" -m "body"` only.
 - PR titles and bodies: technical summary and test plan only; no product branding footers.
 - Branch names: `feature/<topic>` or `<topic>` (no IDE/vendor prefixes).
 
-If co-author or “made with” lines still appear, the IDE is injecting them when it runs git — disable **Commit Attribution** and **PR Attribution** in the editor’s Agents settings, then restart. Optional repo hook:
+If co-author lines still appear, the IDE is injecting them when it runs git — disable **Commit Attribution** and **PR Attribution** in the editor’s Agents settings, then restart. Repo hooks (required for agents working in this repo):
 
 ```bash
 git config core.hooksPath scripts/git-hooks
-chmod +x scripts/git-hooks/prepare-commit-msg
+chmod +x scripts/git-hooks/prepare-commit-msg scripts/git-hooks/commit-msg
 ```
 
-`prepare-commit-msg` strips agent co-author and attribution lines before each commit.
+`prepare-commit-msg` strips all `Co-authored-by` / attribution lines; `commit-msg` fails the commit if any remain.
 
 ## How to update this file
 

@@ -101,9 +101,9 @@ Published images may not exist on Quay yet; build locally:
 
 Images loaded:
 
-- `ambientor:0.1.0-operator`
-- `ambientor:0.1.0-api`
-- `ambientor:0.1.0-web`
+- `ambientor-operator:0.1.0`
+- `ambientor-api:0.1.0`
+- `ambientor-web:0.1.0`
 
 ---
 

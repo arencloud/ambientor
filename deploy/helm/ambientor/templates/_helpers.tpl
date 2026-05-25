@@ -15,8 +15,16 @@
 {{- .Values.namespace }}
 {{- end }}
 
-{{- define "ambientor.image" -}}
-{{- printf "%s:%s" .Values.image.repository .Values.image.tag }}
+{{- define "ambientor.imageRef" -}}
+{{- $root := required "root" .root -}}
+{{- $component := required "component" .component -}}
+{{- $registry := $root.Values.image.registry -}}
+{{- $tag := $root.Values.image.tag -}}
+{{- if $registry -}}
+{{- printf "%s/ambientor-%s:%s" $registry $component $tag -}}
+{{- else -}}
+{{- printf "ambientor-%s:%s" $component $tag -}}
+{{- end -}}
 {{- end }}
 
 {{- define "ambientor.databaseUrl" -}}

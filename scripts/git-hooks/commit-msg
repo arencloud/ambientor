@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Reject commits that still contain co-author or product attribution trailers.
+set -euo pipefail
+msg_file="${1:?}"
+if grep -qiE '^(Co-authored-by:|Made-with:)|cursoragent@cursor\.com' "${msg_file}"; then
+  echo "commit-msg hook: remove Co-authored-by / attribution trailers before committing." >&2
+  exit 1
+fi

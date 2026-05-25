@@ -40,7 +40,7 @@ jobs:
         with:
           context: .
           target: operator
-          tags: ambientor:0.1.0-operator
+          tags: ambientor-operator:0.1.0
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -50,14 +50,14 @@ jobs:
         with:
           context: .
           target: api
-          tags: ambientor:0.1.0-api
+          tags: ambientor-api:0.1.0
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       # load:true exports to host Docker; e2e script kind-loads into the cluster.
       - name: Verify images on host Docker
-        run: docker image inspect ambientor:0.1.0-operator ambientor:0.1.0-api
+        run: docker image inspect ambientor-operator:0.1.0 ambientor-api:0.1.0
 
       - name: Run kind e2e
         env:

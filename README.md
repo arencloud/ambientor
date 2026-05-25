@@ -31,12 +31,12 @@ ambientor-operator → ambientor-scan / ambientor-analyze / ambientor-plan / amb
 
 Multi-arch images are published to Quay on each push to `main` and on version tags (`v*`):
 
-- `quay.io/arencloud/ambientor:<version>-operator`
-- `quay.io/arencloud/ambientor:<version>-api`
-- `quay.io/arencloud/ambientor:<version>-web`
-- `quay.io/arencloud/ambientor:<version>-cli`
+- `quay.io/arencloud/ambientor-operator:<version>`
+- `quay.io/arencloud/ambientor-api:<version>`
+- `quay.io/arencloud/ambientor-web:<version>`
+- `quay.io/arencloud/ambientor-cli:<version>`
 
-See [docs/roadmap/quay-images.md](docs/roadmap/quay-images.md). The Helm chart defaults to `quay.io/arencloud/ambientor` tag `0.1.0`.
+See [docs/roadmap/quay-images.md](docs/roadmap/quay-images.md). Helm uses `image.registry: quay.io/arencloud` and `image.tag: 0.1.0`.
 
 ## Quick start
 
