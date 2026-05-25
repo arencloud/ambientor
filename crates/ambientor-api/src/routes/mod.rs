@@ -4,6 +4,7 @@ pub mod audit;
 pub mod auth;
 pub mod connections;
 pub mod health;
+pub mod openshift;
 pub mod plans;
 pub mod rollouts;
 pub mod scans;
@@ -56,5 +57,6 @@ pub fn api_router() -> Router<Arc<AppState>> {
             get(audit::list_rollout_audit),
         )
         .route("/api/v1/audit", get(audit::list_audit))
+        .route("/api/v1/openshift/wizard", get(openshift::openshift_wizard))
         .route("/api/v1/events/{id}", get(sse::subscribe))
 }
