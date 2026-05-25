@@ -13,7 +13,7 @@ Decouple API and operator persistence from concrete Postgres repository types so
 
 ## Branch
 
-`feature/pluggable-db`
+Merged via PR [#27](https://github.com/arencloud/ambientor/pull/27).
 
 ## Usage
 

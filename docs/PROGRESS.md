@@ -100,7 +100,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 5.1 | Publish Quay images (multi-arch) | ✅ | PR [#24](https://github.com/arencloud/ambientor/pull/24) | Tag `v*` → Quay; see `docs/roadmap/quay-images.md` |
 | 5.2 | kind/OpenShift in CI | ✅ | PR [#25](https://github.com/arencloud/ambientor/pull/25) | `e2e-kind.yml` + `openshift-smoke.yml`; see `docs/roadmap/platform-ci.md` |
 | 5.3 | Performance (10k pods / informer cache) | ✅ | PR [#26](https://github.com/arencloud/ambientor/pull/26) | `ClusterResourceCache`; see `docs/roadmap/performance-informer-cache.md` |
-| 5.4 | Pluggable DB trait | 🔄 | `feature/pluggable-db` | `ScanStore` / `AuditStore` / `UserStore`; see `docs/roadmap/pluggable-db.md` |
+| 5.4 | Pluggable DB trait | ✅ | PR [#27](https://github.com/arencloud/ambientor/pull/27) | `ScanStore` / `AuditStore` / `UserStore`; see `docs/roadmap/pluggable-db.md` |
 | 5.5 | Logo variants for UI | ⬜ | `docs/images/logo/` |
 
 ---
