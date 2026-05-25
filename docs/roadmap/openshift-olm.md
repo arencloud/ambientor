@@ -15,7 +15,7 @@ Provide an OpenShift/OSSM preflight wizard that validates OLM operator install, 
 
 ## Branch
 
-`cursor/openshift-olm`
+Merged via PR [#23](https://github.com/arencloud/ambientor/pull/23).
 
 ## Notes
 

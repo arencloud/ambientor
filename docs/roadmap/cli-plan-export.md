@@ -1,6 +1,6 @@
 # CLI plan create + GitOps export (Phase 2, Step 2.4)
 
-Branch: `cursor/cli-plan-export`
+Branch: `feature/cli-plan-export`
 
 ## Goal
 

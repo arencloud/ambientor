@@ -15,4 +15,4 @@ Persist approve / apply / rollback actions to Postgres `audit_events` and expose
 
 ## Branch
 
-`cursor/rollout-audit-log`
+`feature/rollout-audit-log`

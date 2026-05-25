@@ -1,6 +1,6 @@
 # Operator informers (Phase 1, Step 1.4)
 
-Branch: `cursor/operator-informers`
+Branch: `feature/operator-informers`
 
 ## Goal
 

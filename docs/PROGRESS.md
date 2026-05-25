@@ -5,11 +5,11 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Phase 4 — enterprise (OIDC, RBAC, hub mode).
+**Current focus:** Phase 5 — ecosystem (images, CI, performance).
 
 **Next up:** Phase 5.1 — publish GHCR images (multi-arch).
 
-**Last updated:** 2026-05-24
+**Last updated:** 2026-05-25
 
 ---
 
@@ -33,7 +33,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 0.1 | Rust 1.95 workspace, 14 crates, CRDs | ✅ | PR [#1](https://github.com/arencloud/ambientor/pull/1) | Merged |
 | 0.2 | Helm chart, RBAC, operator + API + web | ✅ | PR #1 | Postgres optional via `DATABASE_URL` |
 | 0.3 | CI: fmt, clippy, test, cargo-deny | ✅ | PR #1 | |
-| 0.4 | Git rules (no Cursor co-author / PR footer) | ✅ | `.cursor/rules/git-commits.mdc` | |
+| 0.4 | Git rules (local author only; no co-author trailers) | ✅ | `docs/git-conventions.md` | |
 
 ---
 
@@ -89,7 +89,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 4.1 | Full OIDC (discovery + callback) | ✅ | PR [#20](https://github.com/arencloud/ambientor/pull/20) | Discovery + PKCE + API routes; see `docs/roadmap/oidc-auth.md` |
 | 4.2 | Namespace-scoped Casbin in Postgres | ✅ | PR [#21](https://github.com/arencloud/ambientor/pull/21) | Postgres `casbin_rule` + domain model; approve gated; see `docs/roadmap/rbac-postgres.md` |
 | 4.3 | Hub `ClusterConnection` remote clients | ✅ | PR [#22](https://github.com/arencloud/ambientor/pull/22) | Remote kube clients + assess API; see `docs/roadmap/hub-aggregation.md` |
-| 4.4 | OpenShift OLM / SCC / MemberRoll wizard | 🔄 | `cursor/openshift-olm` | OLM + SCC + MemberRoll wizard; see `docs/roadmap/openshift-olm.md` |
+| 4.4 | OpenShift OLM / SCC / MemberRoll wizard | ✅ | PR [#23](https://github.com/arencloud/ambientor/pull/23) | OLM + SCC + MemberRoll wizard; see `docs/roadmap/openshift-olm.md` |
 
 ---
 

@@ -1,6 +1,9 @@
 # Ambientor
 .env
 
+# Local IDE / agent config (not part of the product)
+.cursor/
+
 # Helm vendored chart packages (run: helm dependency update)
 deploy/helm/**/charts/*.tgz
 *.local.yaml

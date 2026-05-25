@@ -19,4 +19,4 @@ Execute real Kubernetes changes for migration rollout stages instead of stub mes
 
 ## Branch
 
-`cursor/rollout-waypoint-and-verify`
+`feature/rollout-waypoint-and-verify`

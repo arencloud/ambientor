@@ -1,6 +1,6 @@
 # Postgres scan persistence (Phase 1, Step 1.9)
 
-Branch: `cursor/postgres-scan-persistence`
+Branch: `feature/postgres-scan-persistence`
 
 ## Goal
 

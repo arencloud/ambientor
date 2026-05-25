@@ -1,6 +1,6 @@
 # Assessment evidence and sidecar rules
 
-Branch: `cursor/assessment-evidence-and-rules`
+Branch: `feature/assessment-evidence-and-rules`
 
 ## Goal
 

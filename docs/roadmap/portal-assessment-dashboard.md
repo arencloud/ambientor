@@ -1,6 +1,6 @@
 # Portal assessment dashboard (Phase 1, Step 1.7)
 
-Branch: `cursor/portal-assessment-dashboard`
+Branch: `feature/portal-assessment-dashboard`
 
 ## Goal
 

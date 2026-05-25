@@ -1,6 +1,6 @@
 # Policy translation (Phase 2, Step 2.2)
 
-Branch: `cursor/policy-translation`
+Branch: `feature/policy-translation`
 
 ## Goal
 

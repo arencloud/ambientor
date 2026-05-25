@@ -1,6 +1,6 @@
 # Assessment depth rules (Phase 1, Step 1.5)
 
-Branch: `cursor/assessment-depth-rules`
+Branch: `feature/assessment-depth-rules`
 
 ## Goal
 

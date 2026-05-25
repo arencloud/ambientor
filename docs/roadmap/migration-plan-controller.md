@@ -1,6 +1,6 @@
 # MigrationPlan controller (Phase 2, Step 2.1)
 
-Branch: `cursor/migration-plan-controller`
+Branch: `feature/migration-plan-controller`
 
 ## Goal
 

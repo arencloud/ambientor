@@ -15,4 +15,4 @@ On stage failure with `autoRollback: true`, undo Kubernetes changes from complet
 
 ## Branch
 
-`cursor/rollout-rollback-revert`
+`feature/rollout-rollback-revert`

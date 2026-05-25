@@ -1,6 +1,6 @@
 # Mesh inventory + Istio CR parsing
 
-Branch: `cursor/mesh-inventory-istio-crds`
+Branch: `feature/mesh-inventory-istio-crds`
 
 ## Goal
 

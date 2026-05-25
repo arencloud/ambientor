@@ -13,7 +13,7 @@ Prove the migration path end-to-end on kind with Istio ambient and bookinfo.
 
 ## Branch
 
-`cursor/e2e-kind-ambient`
+`feature/e2e-kind-ambient`
 
 ## Local run
 

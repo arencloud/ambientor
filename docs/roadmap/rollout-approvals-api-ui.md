@@ -16,4 +16,4 @@ Let operators approve gated rollout stages via API, CLI, and portal (`approvedSt
 
 ## Branch
 
-`cursor/rollout-approvals-api-ui`
+`feature/rollout-approvals-api-ui`

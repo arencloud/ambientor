@@ -1,6 +1,6 @@
 # Portal plan review + export (Phase 2, Step 2.3)
 
-Branch: `cursor/portal-plan-review`
+Branch: `feature/portal-plan-review`
 
 ## Goal
 

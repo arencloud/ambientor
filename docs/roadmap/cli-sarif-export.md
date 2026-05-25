@@ -1,6 +1,6 @@
 # CLI SARIF export (Phase 1, Step 1.8)
 
-Branch: `cursor/cli-sarif-export`
+Branch: `feature/cli-sarif-export`
 
 ## Goal
 
