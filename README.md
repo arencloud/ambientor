@@ -29,7 +29,7 @@ ambientor-operator → ambientor-scan / ambientor-analyze / ambientor-plan / amb
 
 ## Container images
 
-Multi-arch images are published to Quay on each push to `main` and on version tags (`v*`):
+Multi-arch images are published to Quay when you push a version tag (`v*`, e.g. `v0.1.0`):
 
 - `quay.io/arencloud/ambientor-operator:<version>`
 - `quay.io/arencloud/ambientor-api:<version>`
@@ -65,6 +65,8 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+CI runs Rust checks, kind e2e (Istio ambient), and OpenShift smoke (wizard tests + Helm lint). Release images: `git tag v0.1.0 && git push origin v0.1.0`. See [docs/roadmap/platform-ci.md](docs/roadmap/platform-ci.md).
 
 ## License
 

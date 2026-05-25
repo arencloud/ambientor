@@ -7,7 +7,7 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Current focus:** Phase 5 — ecosystem (images, CI, performance).
 
-**Next up:** Phase 5.2 — kind/OpenShift in CI.
+**Next up:** Phase 5.3 — performance (10k pods / informer cache).
 
 **Last updated:** 2026-05-26
 
@@ -97,8 +97,8 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 
 | Step | Task | Status | Notes |
 |------|------|--------|-------|
-| 5.1 | Publish Quay images (multi-arch) | ✅ | PR [#24](https://github.com/arencloud/ambientor/pull/24) | `quay.io/arencloud/ambientor-{operator,api,web}`; see `docs/roadmap/quay-images.md` |
-| 5.2 | kind/OpenShift in CI | ⬜ | |
+| 5.1 | Publish Quay images (multi-arch) | ✅ | PR [#24](https://github.com/arencloud/ambientor/pull/24) | Tag `v*` → Quay; see `docs/roadmap/quay-images.md` |
+| 5.2 | kind/OpenShift in CI | 🔄 | `feature/platform-ci` | `e2e-kind.yml` + `openshift-smoke.yml`; see `docs/roadmap/platform-ci.md` |
 | 5.3 | Performance (10k pods / informer cache) | ⬜ | |
 | 5.4 | Pluggable DB trait | ⬜ | Optional |
 | 5.5 | Logo variants for UI | ⬜ | `docs/images/logo/` |
