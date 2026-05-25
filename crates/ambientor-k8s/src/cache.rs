@@ -7,7 +7,7 @@ use k8s_openapi::api::core::v1::{Namespace, Pod};
 use kube::{
     Api, Client,
     runtime::{
-        reflector::{self, store, Store},
+        reflector::{self, Store, store},
         watcher::{self, Config},
     },
 };
@@ -28,7 +28,8 @@ impl ClusterResourceCache {
 
         let pod_api = Api::<Pod>::all(client.clone());
         let ns_api = Api::<Namespace>::all(client.clone());
-        let pod_stream = reflector::reflector(pod_writer, watcher::watcher(pod_api, Config::default()));
+        let pod_stream =
+            reflector::reflector(pod_writer, watcher::watcher(pod_api, Config::default()));
         let ns_stream =
             reflector::reflector(ns_writer, watcher::watcher(ns_api, Config::default()));
 

@@ -56,8 +56,9 @@ async fn detect_spire(client: &Client, pods: Option<&[Pod]>) -> (bool, Vec<Strin
         if name.contains("spire-agent")
             || name.contains("spire-server")
             || pod.metadata.labels.as_ref().is_some_and(|l| {
-                l.iter()
-                    .any(|(k, v)| k.contains("spire") || v.contains("spire") || k.contains("spiffe"))
+                l.iter().any(|(k, v)| {
+                    k.contains("spire") || v.contains("spire") || k.contains("spiffe")
+                })
             })
         {
             hits.push(format!("pod: {ns}/{name}"));

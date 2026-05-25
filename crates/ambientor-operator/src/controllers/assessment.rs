@@ -74,13 +74,10 @@ async fn reconcile_inner(
 ) -> anyhow::Result<()> {
     let client = &assess_ctx.client;
     let platform = detect_platform(client).await.unwrap_or_default();
-    let rule_ctx = inventory::collect_inventory(
-        client,
-        platform.mesh_flavor,
-        assess_ctx.core_snapshot(),
-    )
-    .await
-    .unwrap_or_default();
+    let rule_ctx =
+        inventory::collect_inventory(client, platform.mesh_flavor, assess_ctx.core_snapshot())
+            .await
+            .unwrap_or_default();
     let findings = default_registry().evaluate_all(&rule_ctx);
     let scores = compute_scores(&findings);
     let summary = FindingSummary::from_findings(&findings);
