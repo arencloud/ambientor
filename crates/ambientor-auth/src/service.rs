@@ -65,15 +65,16 @@ impl AuthService {
     }
 
     pub async fn authorize(
-        &mut self,
+        &self,
         claims: &Claims,
+        namespace: &str,
         object: &str,
         action: &str,
     ) -> Result<bool, AuthError> {
         for role in &claims.roles {
             if self
                 .rbac
-                .enforce(role, object, action)
+                .enforce(role, namespace, object, action)
                 .map_err(|e| AuthError::Rbac(e.to_string()))?
             {
                 return Ok(true);
@@ -81,7 +82,7 @@ impl AuthService {
         }
         if self
             .rbac
-            .enforce(&claims.username, object, action)
+            .enforce(&claims.username, namespace, object, action)
             .map_err(|e| AuthError::Rbac(e.to_string()))?
         {
             return Ok(true);

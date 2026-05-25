@@ -22,7 +22,12 @@ tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 openidconnect = { workspace = true, features = ["reqwest"] }
+sqlx-adapter = { workspace = true }
+sqlx = { workspace = true }
 
 [features]
 default = ["oidc"]
 oidc = []
+
+[dev-dependencies]
+tokio = { workspace = true }

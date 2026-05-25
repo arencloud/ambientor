@@ -46,6 +46,10 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["macros", "ws"] }
 axum-extra = { version = "0.10", features = ["typed-header"] }
 casbin = "2"
+sqlx-adapter = { version = "1.8", default-features = false, features = [
+    "postgres",
+    "runtime-tokio-rustls",
+] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
