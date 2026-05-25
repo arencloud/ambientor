@@ -92,7 +92,7 @@ kubectl get crd | grep ambientor.io
 
 ## 5. Build and load container images
 
-Published images may not exist on GHCR yet; build locally:
+Published images may not exist on Quay yet; build locally:
 
 ```bash
 ./scripts/lab-build-images.sh
@@ -224,7 +224,7 @@ Record anything that fails or surprises you; these are **expected** follow-ups (
 | Portal shows limited findings / no evidence UI | Use CLI `assess --output json` | 1.7 portal |
 | Rollout rollback does not undo pod restarts | Expect restarted workloads after failed rollout | Phase 3.2 |
 | Full rollout e2e in CI | Run `./scripts/e2e-kind-ambient.sh` locally | 3.5 |
-| GHCR images may be missing | Use `lab-build-images.sh` | 5.1 publish |
+| Quay images may be missing | Use `lab-build-images.sh` | 5.1 publish |
 | OSSM MemberRoll not fully detected | Upstream Istio lab only in this runbook | 1.6 |
 | Cluster-wide pod list (not namespaceSelector) | Full cluster scan | 1.6 |
 

@@ -97,7 +97,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 
 | Step | Task | Status | Notes |
 |------|------|--------|-------|
-| 5.1 | Publish GHCR images (multi-arch) | ✅ | PR [#24](https://github.com/arencloud/ambientor/pull/24) | `images.yml`; see `docs/roadmap/ghcr-images.md` |
+| 5.1 | Publish Quay images (multi-arch) | ✅ | PR [#24](https://github.com/arencloud/ambientor/pull/24) | `quay.io/arencloud/ambientor`; see `docs/roadmap/quay-images.md` |
 | 5.2 | kind/OpenShift in CI | ⬜ | |
 | 5.3 | Performance (10k pods / informer cache) | ⬜ | |
 | 5.4 | Pluggable DB trait | ⬜ | Optional |

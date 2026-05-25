@@ -29,14 +29,14 @@ ambientor-operator → ambientor-scan / ambientor-analyze / ambientor-plan / amb
 
 ## Container images
 
-Multi-arch images are published to GHCR on each push to `main` and on version tags (`v*`):
+Multi-arch images are published to Quay on each push to `main` and on version tags (`v*`):
 
-- `ghcr.io/arencloud/ambientor:<version>-operator`
-- `ghcr.io/arencloud/ambientor:<version>-api`
-- `ghcr.io/arencloud/ambientor:<version>-web`
-- `ghcr.io/arencloud/ambientor:<version>-cli`
+- `quay.io/arencloud/ambientor:<version>-operator`
+- `quay.io/arencloud/ambientor:<version>-api`
+- `quay.io/arencloud/ambientor:<version>-web`
+- `quay.io/arencloud/ambientor:<version>-cli`
 
-See [docs/roadmap/ghcr-images.md](docs/roadmap/ghcr-images.md). The Helm chart defaults to `ghcr.io/arencloud/ambientor` tag `0.1.0`.
+See [docs/roadmap/quay-images.md](docs/roadmap/quay-images.md). The Helm chart defaults to `quay.io/arencloud/ambientor` tag `0.1.0`.
 
 ## Quick start
 
