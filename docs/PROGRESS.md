@@ -33,7 +33,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 0.1 | Rust 1.95 workspace, 14 crates, CRDs | ✅ | PR [#1](https://github.com/arencloud/ambientor/pull/1) | Merged |
 | 0.2 | Helm chart, RBAC, operator + API + web | ✅ | PR #1 | Postgres optional via `DATABASE_URL` |
 | 0.3 | CI: fmt, clippy, test, cargo-deny | ✅ | PR #1 | |
-| 0.4 | Git rules (local author only; no co-author trailers) | ✅ | `scripts/git-hooks/` | See **Git and pull requests** below |
+| 0.4 | Git rules (local author only; no co-author trailers) | ✅ | `scripts/git-hooks/` | |
 
 ---
 
@@ -116,22 +116,6 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | P5 | Audit log for approve / apply / rollback | ✅ |
 
 ---
-
-## Git and pull requests
-
-- Commits and PRs use only the repository’s configured local git user — no `Co-authored-by` or agent attribution trailers.
-- Never run `git commit --trailer` (or any `--trailer "Co-authored-by: …"`). Use `git commit -m "subject" -m "body"` only.
-- PR titles and bodies: technical summary and test plan only; no product branding footers.
-- Branch names: `feature/<topic>` or `<topic>` (no IDE/vendor prefixes).
-
-If co-author lines still appear, the IDE is injecting them when it runs git — disable **Commit Attribution** and **PR Attribution** in the editor’s Agents settings, then restart. Repo hooks (required for agents working in this repo):
-
-```bash
-git config core.hooksPath scripts/git-hooks
-chmod +x scripts/git-hooks/prepare-commit-msg scripts/git-hooks/commit-msg
-```
-
-`prepare-commit-msg` strips all `Co-authored-by` / attribution lines; `commit-msg` fails the commit if any remain.
 
 ## How to update this file
 
