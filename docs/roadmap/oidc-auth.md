@@ -14,7 +14,7 @@ Replace the manual authorize-URL placeholder with OpenID Connect discovery, PKCE
 
 ## Branch
 
-`cursor/oidc-auth`
+Merged via PR [#20](https://github.com/arencloud/ambientor/pull/20).
 
 ## Notes
 
