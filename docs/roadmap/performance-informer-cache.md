@@ -14,7 +14,7 @@ Avoid repeated cluster-wide Pod/Namespace `list` calls during assessments on lar
 
 ## Branch
 
-`feature/performance-informer-cache`
+Merged via PR [#26](https://github.com/arencloud/ambientor/pull/26).
 
 ## Behavior
 
