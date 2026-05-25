@@ -19,7 +19,9 @@ urlencoding = "2"
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true }
+openidconnect = { workspace = true, features = ["reqwest"] }
 
 [features]
 default = ["oidc"]
