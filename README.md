@@ -27,6 +27,17 @@ ambientor-operator → ambientor-scan / ambientor-analyze / ambientor-plan / amb
 - Kubernetes 1.28+ or OpenShift 4.19+
 - Istio 1.24+ (ambient) or OpenShift Service Mesh 3.2+
 
+## Container images
+
+Multi-arch images are published to GHCR on each push to `main` and on version tags (`v*`):
+
+- `ghcr.io/arencloud/ambientor:<version>-operator`
+- `ghcr.io/arencloud/ambientor:<version>-api`
+- `ghcr.io/arencloud/ambientor:<version>-web`
+- `ghcr.io/arencloud/ambientor:<version>-cli`
+
+See [docs/roadmap/ghcr-images.md](docs/roadmap/ghcr-images.md). The Helm chart defaults to `ghcr.io/arencloud/ambientor` tag `0.1.0`.
+
 ## Quick start
 
 ```bash
