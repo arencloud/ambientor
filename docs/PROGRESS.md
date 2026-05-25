@@ -7,7 +7,7 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Current focus:** Phase 4 — enterprise (OIDC, RBAC, hub mode).
 
-**Next up:** Phase 4.2 — namespace-scoped Casbin in Postgres.
+**Next up:** Phase 4.3 — hub `ClusterConnection` remote clients.
 
 **Last updated:** 2026-05-24
 
@@ -87,7 +87,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | Step | Task | Status | Branch / PR | Notes |
 |------|------|--------|-------------|-------|
 | 4.1 | Full OIDC (discovery + callback) | ✅ | PR [#20](https://github.com/arencloud/ambientor/pull/20) | Discovery + PKCE + API routes; see `docs/roadmap/oidc-auth.md` |
-| 4.2 | Namespace-scoped Casbin in Postgres | 🔄 | `cursor/rbac-postgres` | Postgres `casbin_rule` + domain model; approve gated; see `docs/roadmap/rbac-postgres.md` |
+| 4.2 | Namespace-scoped Casbin in Postgres | ✅ | PR [#21](https://github.com/arencloud/ambientor/pull/21) | Postgres `casbin_rule` + domain model; approve gated; see `docs/roadmap/rbac-postgres.md` |
 | 4.3 | Hub `ClusterConnection` remote clients | ⬜ | `cursor/hub-aggregation` | Secret existence check only |
 | 4.4 | OpenShift OLM / SCC / MemberRoll wizard | ⬜ | `cursor/openshift-olm` | |
 

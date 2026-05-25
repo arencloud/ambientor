@@ -15,7 +15,7 @@ Persist RBAC policies in Postgres with namespace domains, and gate rollout appro
 
 ## Branch
 
-`cursor/rbac-postgres`
+Merged via PR [#21](https://github.com/arencloud/ambientor/pull/21).
 
 ## Notes
 
