@@ -12,7 +12,7 @@ Run automated platform checks in GitHub Actions: kind e2e for the migration path
 
 ## Branch
 
-`feature/platform-ci`
+Merged via PR [#25](https://github.com/arencloud/ambientor/pull/25).
 
 ## CI workflows
 
