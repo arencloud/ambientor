@@ -7,7 +7,7 @@ use ambientor_types::{Rollout, RolloutSpec, RolloutStage, RolloutStatus};
 use axum::{
     Json,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
 };
 use kube::{
     Api,
@@ -111,9 +111,17 @@ pub async fn get_rollout(
 
 pub async fn approve_rollout(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path((namespace, name)): Path<(String, String)>,
     Json(body): Json<ApproveRolloutRequest>,
 ) -> Result<Json<ApproveRolloutResponse>, (StatusCode, String)> {
+    let jwt_actor = if state.auth.is_some() {
+        let claims =
+            crate::authz::require_rollout_approve(&state, &headers, &namespace, &name).await?;
+        Some(claims.username)
+    } else {
+        None
+    };
     let k8s = k8s_client().await?;
     let rollout = fetch_rollout(&k8s, &namespace, &name).await?;
     let status = rollout
@@ -140,7 +148,7 @@ pub async fn approve_rollout(
         .await
         .map_err(internal)?;
 
-    let actor = body.actor.unwrap_or_else(|| "api".into());
+    let actor = body.actor.or(jwt_actor).unwrap_or_else(|| "api".into());
     if let Some(repo) = state.audit_repo() {
         let event = audit_rollout_approve(&namespace, &name, &actor, stage_to_approve);
         if let Err(e) = repo.append(&event).await {

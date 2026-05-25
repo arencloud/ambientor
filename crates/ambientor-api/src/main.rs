@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+mod authz;
 mod routes;
 mod state;
 

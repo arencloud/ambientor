@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ambientor_auth::jwt::JwtService;
+use ambientor_auth::jwt::{Claims, JwtService};
 use ambientor_auth::oidc::{OidcConfig, oidc_config_from_env, oidc_default_roles_from_env};
 use ambientor_auth::oidc_flow::OidcFlowService;
 use ambientor_auth::rbac::RbacEnforcer;
@@ -50,7 +50,7 @@ impl AppState {
 
         let auth = if let Some(ref pool) = pool {
             let users = UserRepository::new(pool.clone());
-            let rbac = RbacEnforcer::with_defaults().await?;
+            let rbac = RbacEnforcer::with_postgres(pool.clone()).await?;
             Some(Arc::new(AuthService {
                 users,
                 jwt: JwtService::new(secret.as_bytes()),
@@ -102,5 +102,9 @@ impl AppState {
 
     pub fn scan_repo(&self) -> Option<ScanRepository> {
         self.pool.as_ref().map(|p| ScanRepository::new(p.clone()))
+    }
+
+    pub fn verify_jwt(&self, token: &str) -> Result<Claims, ambientor_auth::jwt::JwtError> {
+        self.jwt.verify(token)
     }
 }
