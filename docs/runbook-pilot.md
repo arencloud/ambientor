@@ -20,6 +20,21 @@ Use this runbook for **P1** (multi-cluster assessment validation) and **P2** (hu
 
 Record cluster metadata in a spreadsheet or git-ignored folder: cluster name, Istio version, platform (GKE/EKS/OCP), date, operator image tag.
 
+### One-command validation (P1 + P2)
+
+From the repo root (VPN / cluster access required):
+
+```bash
+cp scripts/pilot-contexts.example scripts/pilot-contexts.txt
+# Edit: one kubectl context per line (minimum 3 for P1)
+cargo build -p ambientor-cli --release
+./scripts/pilot-validate.sh
+```
+
+This writes `pilot-artifacts/<date>-validate/PILOT-SIGNOFF.md` and per-cluster JSON/SARIF/plan exports. Exit `0` when ≥3 clusters pass blocker analysis and ≥1 cluster exports a plan.
+
+Optional: `PILOT_BLOCKER_ALLOWLIST=docs/pilot/allowlist-blockers.txt` for known platform-specific blockers.
+
 ---
 
 ## P1 — Blockers match Istio migrate docs (3+ clusters)

@@ -1,0 +1,2 @@
+# Known blocker titles that are expected on a given platform (one per line).
+# Copy to allowlist-blockers.txt and set PILOT_BLOCKER_ALLOWLIST when validating.

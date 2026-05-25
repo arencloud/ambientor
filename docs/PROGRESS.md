@@ -7,7 +7,7 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Current focus:** Production pilot P1–P2 (run on customer clusters).
 
-**Next up:** Execute [runbook-pilot.md](runbook-pilot.md) on 3+ clusters (P1 blockers) and human-approved plan exports (P2).
+**Next up:** Run `./scripts/pilot-validate.sh` (see [runbook-pilot.md](runbook-pilot.md)); then mark P1/P2 ✅ in this file from `pilot-artifacts/*/PILOT-SIGNOFF.md`.
 
 **Last updated:** 2026-05-22
 

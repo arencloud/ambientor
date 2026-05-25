@@ -10,27 +10,36 @@ if [[ -z "${CONTEXT}" ]]; then
   exit 1
 fi
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+AMBIENTOR="${AMBIENTOR:-${ROOT}/target/release/ambientor}"
+KUBECONFIG_SNIP="${OUT_DIR}/kubeconfig"
+KUBECTL_TIMEOUT="${PILOT_KUBECTL_TIMEOUT:-30s}"
+
 mkdir -p "${OUT_DIR}"
 
-export KUBECONFIG="${KUBECONFIG:-}"
 CTX=(--context "${CONTEXT}")
+kubectl config view --minify --flatten "${CTX[@]}" >"${KUBECONFIG_SNIP}"
 
 echo "==> Cluster info -> ${OUT_DIR}/cluster.txt"
 {
-  kubectl "${CTX[@]}" version -o yaml 2>/dev/null || true
-  kubectl "${CTX[@]}" get ns istio-system -o jsonpath='{.metadata.name}' 2>/dev/null && echo
-  kubectl "${CTX[@]}" -n istio-system get deploy istiod -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null && echo
+  kubectl "${CTX[@]}" --request-timeout="${KUBECTL_TIMEOUT}" version -o yaml 2>/dev/null || true
+  kubectl "${CTX[@]}" --request-timeout="${KUBECTL_TIMEOUT}" get ns istio-system -o jsonpath='{.metadata.name}' 2>/dev/null && echo
+  kubectl "${CTX[@]}" --request-timeout="${KUBECTL_TIMEOUT}" -n istio-system get deploy istiod -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null && echo
 } >"${OUT_DIR}/cluster.txt"
 
-if command -v ambientor >/dev/null 2>&1; then
+if [[ -x "${AMBIENTOR}" ]]; then
   echo "==> ambientor assess (json + sarif)"
-  ambientor assess --output json >"${OUT_DIR}/assessment.json"
-  ambientor assess --output sarif >"${OUT_DIR}/assessment.sarif"
+  "${AMBIENTOR}" --kubeconfig "${KUBECONFIG_SNIP}" assess --output json >"${OUT_DIR}/assessment.json"
+  "${AMBIENTOR}" --kubeconfig "${KUBECONFIG_SNIP}" assess --output sarif >"${OUT_DIR}/assessment.sarif"
+elif command -v ambientor >/dev/null 2>&1; then
+  echo "==> ambientor assess (json + sarif)"
+  ambientor --kubeconfig "${KUBECONFIG_SNIP}" assess --output json >"${OUT_DIR}/assessment.json"
+  ambientor --kubeconfig "${KUBECONFIG_SNIP}" assess --output sarif >"${OUT_DIR}/assessment.sarif"
 else
-  echo "==> ambientor CLI not in PATH; skipping CLI assess (use API or install CLI)" >&2
+  echo "==> ambientor CLI not found; build with: cargo build -p ambientor-cli --release" >&2
 fi
 
 echo "==> AmbientAssessment CRs"
-kubectl "${CTX[@]}" get ambientassessment -A -o yaml >"${OUT_DIR}/ambientassessments.yaml" 2>/dev/null || true
+kubectl "${CTX[@]}" --request-timeout="${KUBECTL_TIMEOUT}" get ambientassessment -A -o yaml >"${OUT_DIR}/ambientassessments.yaml" 2>/dev/null || true
 
 echo "Wrote pilot artifacts to ${OUT_DIR}"

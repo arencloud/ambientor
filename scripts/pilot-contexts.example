@@ -1,0 +1,6 @@
+# One kubectl context per line (comments and blank lines ignored).
+# Copy to pilot-contexts.txt (gitignored) and edit for your environment.
+#
+# default/api-cl01-arencloud-com:6443/kube:admin
+# default/api-cl02-arencloud-com:6443/kube:admin
+# mad
