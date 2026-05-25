@@ -43,7 +43,7 @@ impl MeshBackend for UpstreamIstioBackend {
     }
 
     async fn build_rule_context(&self, client: &Client) -> anyhow::Result<RuleContext> {
-        inventory::collect_inventory(client, MeshFlavor::UpstreamIstio).await
+        inventory::collect_inventory(client, MeshFlavor::UpstreamIstio, None).await
     }
 
     async fn preflight_checks(&self, client: &Client) -> anyhow::Result<Vec<PreflightCheck>> {
@@ -64,7 +64,7 @@ impl MeshBackend for GenericBackend {
     }
 
     async fn build_rule_context(&self, client: &Client) -> anyhow::Result<RuleContext> {
-        inventory::collect_inventory(client, MeshFlavor::GenericKubernetes).await
+        inventory::collect_inventory(client, MeshFlavor::GenericKubernetes, None).await
     }
 
     async fn preflight_checks(&self, client: &Client) -> anyhow::Result<Vec<PreflightCheck>> {

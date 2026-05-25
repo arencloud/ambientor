@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use ambientor_core::scoring::compute_scores;
 use ambientor_db::{ScanRepository, StoredAssessment, cluster_ref_from_env};
-use ambientor_k8s::detect_platform;
-use ambientor_mesh::backend::backend_for_flavor;
+use ambientor_k8s::{ClusterResourceCache, detect_platform};
+use ambientor_mesh::inventory::{self, CoreSnapshot};
 use ambientor_scan::default_registry;
 use ambientor_types::{AmbientAssessment, FindingSummary};
 use futures::StreamExt;
@@ -17,8 +17,16 @@ use kube::{
 use super::migration_plan::ensure_plan_for_assessment;
 use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 
-pub async fn run(client: Client, scan_repo: Option<Arc<ScanRepository>>) {
-    let ctx = Arc::new(AssessmentContext { client, scan_repo });
+pub async fn run(
+    client: Client,
+    scan_repo: Option<Arc<ScanRepository>>,
+    cache: Option<Arc<ClusterResourceCache>>,
+) {
+    let ctx = Arc::new(AssessmentContext {
+        client,
+        scan_repo,
+        cache,
+    });
     Controller::new(
         Api::<AmbientAssessment>::all(ctx.client.clone()),
         Config::default(),
@@ -36,6 +44,17 @@ pub async fn run(client: Client, scan_repo: Option<Arc<ScanRepository>>) {
 struct AssessmentContext {
     client: Client,
     scan_repo: Option<Arc<ScanRepository>>,
+    cache: Option<Arc<ClusterResourceCache>>,
+}
+
+impl AssessmentContext {
+    fn core_snapshot(&self) -> Option<CoreSnapshot> {
+        let cache = self.cache.as_ref()?;
+        if !cache.is_populated() {
+            return None;
+        }
+        Some((cache.pod_snapshot(), cache.namespace_snapshot()))
+    }
 }
 
 async fn reconcile(obj: Arc<AmbientAssessment>, ctx: Arc<AssessmentContext>) -> ReconcileResult {
@@ -55,8 +74,13 @@ async fn reconcile_inner(
 ) -> anyhow::Result<()> {
     let client = &assess_ctx.client;
     let platform = detect_platform(client).await.unwrap_or_default();
-    let backend = backend_for_flavor(platform.mesh_flavor);
-    let rule_ctx = backend.build_rule_context(client).await.unwrap_or_default();
+    let rule_ctx = inventory::collect_inventory(
+        client,
+        platform.mesh_flavor,
+        assess_ctx.core_snapshot(),
+    )
+    .await
+    .unwrap_or_default();
     let findings = default_registry().evaluate_all(&rule_ctx);
     let scores = compute_scores(&findings);
     let summary = FindingSummary::from_findings(&findings);

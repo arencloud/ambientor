@@ -19,7 +19,7 @@ impl MeshBackend for OssmBackend {
     }
 
     async fn build_rule_context(&self, client: &Client) -> anyhow::Result<RuleContext> {
-        let mut ctx = inventory::collect_inventory(client, MeshFlavor::OSSM3).await?;
+        let mut ctx = inventory::collect_inventory(client, MeshFlavor::OSSM3, None).await?;
         ctx.mesh_version = Some("ossm-3".into());
         Ok(ctx)
     }
