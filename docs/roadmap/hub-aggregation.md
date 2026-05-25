@@ -14,7 +14,7 @@ Build kube clients from `ClusterConnection` credential secrets, verify remote AP
 
 ## Branch
 
-`cursor/hub-aggregation`
+Merged via PR [#22](https://github.com/arencloud/ambientor/pull/22).
 
 ## Credentials secret format
 
