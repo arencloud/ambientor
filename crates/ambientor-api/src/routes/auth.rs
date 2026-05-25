@@ -29,6 +29,30 @@ pub struct RegisterRequest {
     pub roles: Vec<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthConfigResponse {
+    pub enabled: bool,
+    pub local_login: bool,
+    pub oidc_login_url: Option<String>,
+    pub require_auth_for_approve: bool,
+}
+
+/// Portal/auth clients discover whether login and OIDC are available.
+pub async fn auth_config(State(state): State<Arc<AppState>>) -> Json<AuthConfigResponse> {
+    let enabled = state.auth.is_some();
+    Json(AuthConfigResponse {
+        enabled,
+        local_login: enabled,
+        oidc_login_url: if state.oidc.is_some() {
+            Some("/api/v1/auth/oidc/login".into())
+        } else {
+            None
+        },
+        require_auth_for_approve: enabled,
+    })
+}
+
 pub async fn login(
     State(state): State<Arc<AppState>>,
     Json(body): Json<LoginRequest>,

@@ -21,6 +21,21 @@
       <a href="#plans">Migration Plans</a>
       <a href="#rollouts">Rollouts</a>
     </nav>
+    <div id="auth-bar" class="auth-bar">
+      <p id="auth-disabled-hint" class="auth-hint">Auth optional (API without <code>DATABASE_URL</code>)</p>
+      <div id="auth-user-panel" class="auth-user hidden">
+        <span>Signed in as <strong id="auth-username"></strong></span>
+        <button type="button" id="auth-logout-btn" class="btn auth-btn">Sign out</button>
+      </div>
+      <div id="auth-login-panel" class="auth-login hidden">
+        <form id="auth-local-form" class="auth-local-form">
+          <input type="text" id="auth-username-input" placeholder="Username" autocomplete="username" />
+          <input type="password" id="auth-password-input" placeholder="Password" autocomplete="current-password" />
+          <button type="button" id="auth-login-btn" class="btn auth-btn">Sign in</button>
+        </form>
+        <button type="button" id="auth-oidc-login" class="btn auth-btn hidden">Sign in with SSO</button>
+      </div>
+    </div>
   </header>
   <div id="status-banner" class="status-banner hidden" role="status"></div>
   <main>
@@ -120,10 +135,7 @@
           <div class="plan-actions">
             <button id="approve-rollout" class="btn primary" disabled>Approve current stage</button>
           </div>
-          <h3>Stages</h3>
-          <h3>Audit log</h3>
-          <p id="rollout-audit-hint" class="hint">Requires Postgres (<code>DATABASE_URL</code>).</p>
-          <ul id="rollout-audit-list" class="audit-list"></ul>
+          <p id="approve-auth-hint" class="hint hidden"></p>
           <h3>Stages</h3>
           <table class="stage-table" id="rollout-stages">
             <thead>
@@ -137,6 +149,9 @@
             </thead>
             <tbody></tbody>
           </table>
+          <h3>Audit log</h3>
+          <p id="rollout-audit-hint" class="hint">Requires Postgres (<code>DATABASE_URL</code>).</p>
+          <ul id="rollout-audit-list" class="audit-list"></ul>
         </div>
       </div>
     </section>

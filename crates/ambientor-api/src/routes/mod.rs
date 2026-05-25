@@ -21,6 +21,7 @@ pub fn api_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/healthz", get(health::healthz))
         .route("/readyz", get(health::readyz))
+        .route("/api/v1/auth/config", get(auth::auth_config))
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/register", post(auth::register))
         .route("/api/v1/auth/oidc/login", get(auth::oidc_login))

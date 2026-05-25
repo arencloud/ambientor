@@ -19,11 +19,80 @@ body {
 
 .header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 0.75rem 1.5rem;
   padding: 1rem 2rem;
   background: linear-gradient(135deg, var(--purple), var(--cyan));
   color: white;
+}
+
+.auth-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.auth-hint {
+  margin: 0;
+  opacity: 0.85;
+}
+
+.auth-hint code {
+  font-size: 0.8em;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.auth-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.auth-login {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.auth-local-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.auth-local-form input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  font-size: 0.85rem;
+  min-width: 6rem;
+}
+
+.auth-local-form input::placeholder {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.btn.auth-btn {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.btn.auth-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .brand { display: flex; align-items: center; gap: 0.75rem; }

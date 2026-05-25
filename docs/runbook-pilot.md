@@ -1,0 +1,93 @@
+# Production pilot runbook
+
+Use this runbook for **P1** (multi-cluster assessment validation) and **P2** (human-approved plans with exports). **P4** (portal OIDC approve) is covered in [roadmap/portal-oidc.md](roadmap/portal-oidc.md).
+
+| Item | Value |
+|------|--------|
+| **Progress tracker** | [PROGRESS.md](PROGRESS.md) |
+| **Lab baseline** | [runbook-lab.md](runbook-lab.md) |
+| **OIDC API** | [roadmap/oidc-auth.md](roadmap/oidc-auth.md) |
+
+---
+
+## Prerequisites
+
+| Tool | Notes |
+|------|--------|
+| `kubectl` | Access to each pilot cluster |
+| `ambientor` CLI | Built from this repo or image `quay.io/arencloud/ambientor-cli:<tag>` |
+| Portal + API | Helm release with optional `DATABASE_URL` and OIDC env for P4 |
+
+Record cluster metadata in a spreadsheet or git-ignored folder: cluster name, Istio version, platform (GKE/EKS/OCP), date, operator image tag.
+
+---
+
+## P1 — Blockers match Istio migrate docs (3+ clusters)
+
+### Per cluster
+
+1. Install or upgrade Ambientor (operator + API + web) to the pilot image tag.
+2. Run assessment and capture evidence:
+
+```bash
+export KUBECONFIG=/path/to/cluster.kubeconfig
+./scripts/pilot-record-assessment.sh ambientor-pilot \
+  ./pilot-artifacts/$(date +%Y%m%d)-cluster-a
+```
+
+Or manually:
+
+```bash
+ambientor assess --output json > assessment.json
+ambientor assess --output sarif > assessment.sarif
+kubectl get ambientassessment -A
+```
+
+3. Compare **blocker** findings to [Istio ambient migration](https://istio.io/latest/docs/ambient/install/migrate/) prerequisites for that Istio minor version.
+4. Mark P1 ✅ when three or more clusters show **no false-positive blockers** (document any expected platform-specific warnings in notes).
+
+### Sign-off template
+
+| Cluster | Istio | Blockers OK | SARIF path | Notes |
+|---------|-------|-------------|------------|-------|
+| | | ⬜ | | |
+
+---
+
+## P2 — Plans human-approved with exported manifests
+
+### Per approved migration
+
+1. Confirm `AmbientAssessment` phase is acceptable for the target namespace(s).
+2. Review operator-generated `MigrationPlan` in portal **Migration Plans** or:
+
+```bash
+kubectl get migrationplan -n <ns>
+kubectl get migrationplan <name> -n <ns> -o yaml
+```
+
+3. Human sign-off (change ticket / email / PR comment) referencing plan name and assessment ref.
+4. Export GitOps bundle:
+
+   - Portal: **Download YAML bundle**, or
+   - API: `GET /api/v1/plans/{namespace}/{name}/export`, or
+   - CLI: `ambientor plan export -n <ns> <name> -o plan-bundle.yaml`
+
+5. Store export in your config repo or artifact store; mark P2 ✅ when at least one plan per pilot environment is approved and exported.
+
+---
+
+## P4 — Portal approve with OIDC (quick check)
+
+1. API with Postgres: set `DATABASE_URL`, JWT secret, and optional OIDC vars (`AMBIENTOR_OIDC_*`).
+2. Set `AMBIENTOR_OIDC_SUCCESS_URL` to the portal origin (e.g. `https://ambientor.example.com/`).
+3. Register a user or use IdP login; assign Casbin role with `rollout:approve` on the rollout namespace.
+4. Open portal → sign in (local or **Sign in with SSO**) → **Rollouts** → **Approve current stage** with a stage awaiting approval.
+5. Confirm audit row shows JWT username (not `portal`) when `DATABASE_URL` is set.
+
+---
+
+## P3 / P5
+
+- **P3:** Covered by kind e2e (`scripts/e2e-kind-ambient.sh`, CI `e2e-kind.yml`).
+- **P5:** Approve/apply/rollback audit with Postgres — verify on rollout detail **Audit log** after P4 approve.
