@@ -2,6 +2,7 @@ pub mod assess;
 pub mod assessments;
 pub mod audit;
 pub mod auth;
+pub mod connections;
 pub mod health;
 pub mod plans;
 pub mod rollouts;
@@ -24,6 +25,11 @@ pub fn api_router() -> Router<Arc<AppState>> {
         .route("/api/v1/auth/oidc/login", get(auth::oidc_login))
         .route("/api/v1/auth/oidc/callback", get(auth::oidc_callback))
         .route("/api/v1/assess", post(assess::assess))
+        .route("/api/v1/connections", get(connections::list_connections))
+        .route(
+            "/api/v1/connections/{namespace}/{name}/assess",
+            post(connections::assess_connection),
+        )
         .route("/api/v1/assessments", get(assessments::list_assessments))
         .route("/api/v1/scans", get(scans::list_scans))
         .route("/api/v1/plans", get(plans::list_plans))

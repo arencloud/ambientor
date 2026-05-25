@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
+use ambientor_k8s::{RemoteClientError, client_for_connection, verify_connectivity};
 use ambientor_types::ClusterConnection;
+use chrono::Utc;
 use futures::StreamExt;
-use k8s_openapi::api::core::v1::Secret;
 use kube::{
     Api, Client,
     api::Patch,
@@ -33,21 +34,25 @@ async fn reconcile(conn: Arc<ClusterConnection>, client: Arc<Client>) -> Reconci
         .namespace
         .clone()
         .unwrap_or_else(|| "default".into());
-    let secret_ns = conn
-        .spec
-        .credentials_secret_ref
-        .namespace
-        .clone()
-        .unwrap_or_else(|| ns.clone());
-    let secret_name = &conn.spec.credentials_secret_ref.name;
 
-    let secrets: Api<Secret> = Api::namespaced(client.as_ref().clone(), &secret_ns);
-    let phase = match secrets.get(secret_name).await {
-        Ok(_) => "Connected",
-        Err(kube::Error::Api(e)) if e.code == 404 => "SecretMissing",
-        Err(e) => {
-            return Err(ReconcileError::Kube(e));
-        }
+    let (phase, ready, message) = match client_for_connection(client.as_ref(), &conn).await {
+        Err(RemoteClientError::Api(kube::Error::Api(e))) if e.code == 404 => (
+            "SecretMissing",
+            "False",
+            "credentials secret not found".to_string(),
+        ),
+        Err(e) => ("InvalidConfig", "False", e.to_string()),
+        Ok(remote) => match verify_connectivity(&remote.client).await {
+            Ok(version) => (
+                "Connected",
+                "True",
+                format!("reachable; kubernetes {version}"),
+            ),
+            Err(RemoteClientError::Api(e)) => {
+                ("Unreachable", "False", format!("API unreachable: {e}"))
+            }
+            Err(e) => ("InvalidConfig", "False", e.to_string()),
+        },
     };
 
     let api: Api<ClusterConnection> = Api::namespaced(client.as_ref().clone(), &ns);
@@ -55,7 +60,13 @@ async fn reconcile(conn: Arc<ClusterConnection>, client: Arc<Client>) -> Reconci
         let status = serde_json::json!({
             "status": {
                 "phase": phase,
-                "lastSyncTime": chrono::Utc::now().to_rfc3339(),
+                "lastSyncTime": Utc::now().to_rfc3339(),
+                "conditions": [{
+                    "type": "Ready",
+                    "status": ready,
+                    "reason": phase,
+                    "message": message,
+                }],
             }
         });
         api.patch_status(name, &Default::default(), &Patch::Merge(status))

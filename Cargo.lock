@@ -155,11 +155,14 @@ dependencies = [
  "ambientor-types",
  "anyhow",
  "async-trait",
+ "http",
  "k8s-openapi",
  "kube",
+ "secrecy",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 
