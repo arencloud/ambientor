@@ -26,7 +26,7 @@ Portal uses `window.AMBIENTOR_API_URL` from `/config.js` (same origin or API gat
 
 ## Branch
 
-`feature/portal-oidc-pilot`
+Merged via PR [#29](https://github.com/arencloud/ambientor/pull/29).
 
 ## Pilot validation
 
