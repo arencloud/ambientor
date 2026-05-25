@@ -1,0 +1,8 @@
+target/
+.git/
+.github/
+.cursor/
+**/*.md
+docs/
+scripts/
+config/samples/

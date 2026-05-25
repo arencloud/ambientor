@@ -7,7 +7,7 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Current focus:** Phase 5 — ecosystem (images, CI, performance).
 
-**Next up:** Phase 5.1 — publish GHCR images (multi-arch).
+**Next up:** Phase 5.2 — kind/OpenShift in CI.
 
 **Last updated:** 2026-05-25
 
@@ -97,7 +97,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 
 | Step | Task | Status | Notes |
 |------|------|--------|-------|
-| 5.1 | Publish GHCR images (multi-arch) | ⬜ | Chart points at `ghcr.io/arencloud/ambientor` |
+| 5.1 | Publish GHCR images (multi-arch) | 🔄 | `feature/ghcr-images` | `images.yml`; see `docs/roadmap/ghcr-images.md` |
 | 5.2 | kind/OpenShift in CI | ⬜ | |
 | 5.3 | Performance (10k pods / informer cache) | ⬜ | |
 | 5.4 | Pluggable DB trait | ⬜ | Optional |
