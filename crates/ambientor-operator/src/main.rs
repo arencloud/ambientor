@@ -4,7 +4,7 @@ mod controllers;
 
 use std::sync::Arc;
 
-use ambientor_k8s::K8sClient;
+use ambientor_k8s::{ClusterResourceCache, K8sClient};
 use ambientor_rollout::RolloutEngine;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -35,7 +35,15 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let rollout_engine = Arc::new(RolloutEngine::new(client.clone()));
+    let resource_cache = Arc::new(ClusterResourceCache::spawn(client.clone()));
 
-    controllers::run_all(client, rollout_engine, scan_repo, audit_repo).await;
+    controllers::run_all(
+        client,
+        rollout_engine,
+        scan_repo,
+        audit_repo,
+        resource_cache,
+    )
+    .await;
     Ok(())
 }

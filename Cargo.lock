@@ -155,6 +155,7 @@ dependencies = [
  "ambientor-types",
  "anyhow",
  "async-trait",
+ "futures",
  "http",
  "k8s-openapi",
  "kube",

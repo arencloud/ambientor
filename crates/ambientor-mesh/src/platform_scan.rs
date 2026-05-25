@@ -5,8 +5,12 @@ use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomRe
 use kube::{Api, Client};
 
 use crate::dynamic::{api_resource, list_namespaced_cr};
-pub async fn scan_platform(client: &Client, flavor: MeshFlavor) -> PlatformContext {
-    let (spire_detected, spire_hits) = detect_spire(client).await;
+pub async fn scan_platform(
+    client: &Client,
+    flavor: MeshFlavor,
+    pods: Option<&[Pod]>,
+) -> PlatformContext {
+    let (spire_detected, spire_hits) = detect_spire(client, pods).await;
     let ossm_member_namespaces = if matches!(flavor, MeshFlavor::OSSM3) {
         collect_ossm_member_namespaces(client).await
     } else {
@@ -19,7 +23,7 @@ pub async fn scan_platform(client: &Client, flavor: MeshFlavor) -> PlatformConte
     }
 }
 
-async fn detect_spire(client: &Client) -> (bool, Vec<String>) {
+async fn detect_spire(client: &Client, pods: Option<&[Pod]>) -> (bool, Vec<String>) {
     let mut hits = Vec::new();
     let crd_api: Api<CustomResourceDefinition> = Api::all(client.clone());
     if let Ok(crds) = crd_api.list(&Default::default()).await {
@@ -33,23 +37,31 @@ async fn detect_spire(client: &Client) -> (bool, Vec<String>) {
         }
     }
 
-    let pod_api: Api<Pod> = Api::all(client.clone());
-    if let Ok(pods) = pod_api.list(&Default::default()).await {
-        for pod in &pods.items {
-            let Some(name) = pod.metadata.name.as_deref() else {
-                continue;
-            };
-            let ns = pod.metadata.namespace.as_deref().unwrap_or("default");
-            if name.contains("spire-agent")
-                || name.contains("spire-server")
-                || pod.metadata.labels.as_ref().is_some_and(|l| {
-                    l.iter().any(|(k, v)| {
-                        k.contains("spire") || v.contains("spire") || k.contains("spiffe")
-                    })
+    let pod_items: Vec<Pod> = if let Some(slice) = pods {
+        slice.to_vec()
+    } else {
+        let pod_api: Api<Pod> = Api::all(client.clone());
+        pod_api
+            .list(&Default::default())
+            .await
+            .map(|list| list.items)
+            .unwrap_or_default()
+    };
+
+    for pod in &pod_items {
+        let Some(name) = pod.metadata.name.as_deref() else {
+            continue;
+        };
+        let ns = pod.metadata.namespace.as_deref().unwrap_or("default");
+        if name.contains("spire-agent")
+            || name.contains("spire-server")
+            || pod.metadata.labels.as_ref().is_some_and(|l| {
+                l.iter().any(|(k, v)| {
+                    k.contains("spire") || v.contains("spire") || k.contains("spiffe")
                 })
-            {
-                hits.push(format!("pod: {ns}/{name}"));
-            }
+            })
+        {
+            hits.push(format!("pod: {ns}/{name}"));
         }
     }
 
