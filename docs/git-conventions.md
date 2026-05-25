@@ -17,3 +17,22 @@
 ## Branches
 
 - Use descriptive names such as `feature/<topic>` or `<topic>` — do not prefix branches with IDE or tooling vendor names.
+
+## Why `Co-authored-by: Cursor` still appears
+
+The agent’s `git commit -m "..."` text does **not** include that trailer. **Cursor injects it** when it runs git on your machine (Commit Attribution), and may append **“Made with Cursor”** to PR bodies (PR Attribution). That is product behavior, not the commit message in the chat.
+
+Turn it off:
+
+1. **Cursor Settings → Agents → Attribution** — disable **Commit Attribution** and **PR Attribution**, then restart Cursor.
+2. **CLI** — in `~/.cursor/cli-config.json` set `"commitAttribution": false` and `"prAttribution": false`.
+3. **Repo hook (recommended)** — from the repository root:
+
+```bash
+git config core.hooksPath scripts/git-hooks
+chmod +x scripts/git-hooks/prepare-commit-msg
+```
+
+`scripts/git-hooks/prepare-commit-msg` removes `Co-authored-by` / `Made-with` lines that reference the agent before each commit.
+
+Squash-merged PRs on GitHub can still copy attribution from branch commits into the merge commit; disable attribution before pushing feature branches, or edit the squash message on merge.

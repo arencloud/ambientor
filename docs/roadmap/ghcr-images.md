@@ -12,7 +12,7 @@ Publish operator, API, web, and CLI container images to GitHub Container Registr
 
 ## Branch
 
-`feature/ghcr-images`
+Merged via PR [#24](https://github.com/arencloud/ambientor/pull/24).
 
 ## Image tags
 
