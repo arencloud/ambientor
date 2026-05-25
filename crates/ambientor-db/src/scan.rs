@@ -1,10 +1,12 @@
 use ambientor_types::{AssessmentScores, Finding, FindingSummary};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 use crate::pool::DbError;
+use crate::traits::ScanStore;
 
 /// Cluster identifier for multi-cluster hubs (`AMBIENTOR_CLUSTER_REF`).
 pub fn cluster_ref_from_env() -> String {
@@ -84,6 +86,22 @@ impl ScanRepository {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
+    }
+}
+
+#[async_trait]
+impl ScanStore for ScanRepository {
+    async fn record_completed(
+        &self,
+        cluster_ref: &str,
+        namespace: Option<&str>,
+        payload: &StoredAssessment,
+    ) -> Result<Uuid, DbError> {
+        ScanRepository::record_completed(self, cluster_ref, namespace, payload).await
+    }
+
+    async fn list_recent(&self, limit: i64) -> Result<Vec<ScanRunRow>, DbError> {
+        ScanRepository::list_recent(self, limit).await
     }
 }
 

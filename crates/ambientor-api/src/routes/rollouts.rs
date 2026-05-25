@@ -149,7 +149,7 @@ pub async fn approve_rollout(
         .map_err(internal)?;
 
     let actor = body.actor.or(jwt_actor).unwrap_or_else(|| "api".into());
-    if let Some(repo) = state.audit_repo() {
+    if let Some(repo) = state.audit_store() {
         let event = audit_rollout_approve(&namespace, &name, &actor, stage_to_approve);
         if let Err(e) = repo.append(&event).await {
             tracing::warn!(error = %e, rollout = %name, "failed to append rollout approve audit");

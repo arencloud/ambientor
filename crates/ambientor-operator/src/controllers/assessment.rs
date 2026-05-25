@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ambientor_core::scoring::compute_scores;
-use ambientor_db::{ScanRepository, StoredAssessment, cluster_ref_from_env};
+use ambientor_db::{ScanStore, StoredAssessment, cluster_ref_from_env};
 use ambientor_k8s::{ClusterResourceCache, detect_platform};
 use ambientor_mesh::inventory::{self, CoreSnapshot};
 use ambientor_scan::default_registry;
@@ -19,7 +19,7 @@ use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 
 pub async fn run(
     client: Client,
-    scan_repo: Option<Arc<ScanRepository>>,
+    scan_repo: Option<Arc<dyn ScanStore>>,
     cache: Option<Arc<ClusterResourceCache>>,
 ) {
     let ctx = Arc::new(AssessmentContext {
@@ -43,7 +43,7 @@ pub async fn run(
 
 struct AssessmentContext {
     client: Client,
-    scan_repo: Option<Arc<ScanRepository>>,
+    scan_repo: Option<Arc<dyn ScanStore>>,
     cache: Option<Arc<ClusterResourceCache>>,
 }
 
