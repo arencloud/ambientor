@@ -16,13 +16,7 @@ const OLM_WATCH_NAMESPACES: &[&str] = &[
     "openshift-servicemesh",
 ];
 
-const OPERATOR_NAME_HINTS: &[&str] = &[
-    "servicemesh",
-    "maistra",
-    "istio",
-    "ossm",
-    "sail",
-];
+const OPERATOR_NAME_HINTS: &[&str] = &["servicemesh", "maistra", "istio", "ossm", "sail"];
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,12 +102,14 @@ pub async fn run_wizard(
     });
 
     steps.push(check_olm_operator(client).await);
-    steps.push(check_operator_scc(
-        client,
-        &opts.ambientor_namespace,
-        &opts.operator_service_account,
-    )
-    .await);
+    steps.push(
+        check_operator_scc(
+            client,
+            &opts.ambientor_namespace,
+            &opts.operator_service_account,
+        )
+        .await,
+    );
 
     let member_roll = member_roll_wizard(client, opts).await;
     steps.push(member_roll_step(&member_roll));
@@ -275,10 +271,7 @@ async fn check_operator_scc(client: &Client, namespace: &str, sa: &str) -> Wizar
     }
 }
 
-async fn member_roll_wizard(
-    client: &Client,
-    opts: &OpenShiftWizardOptions,
-) -> MemberRollWizard {
+async fn member_roll_wizard(client: &Client, opts: &OpenShiftWizardOptions) -> MemberRollWizard {
     let existing = collect_ossm_member_namespaces(client).await;
     let missing: Vec<String> = opts
         .enroll_namespaces
@@ -290,10 +283,7 @@ async fn member_roll_wizard(
     let suggested_manifest = if missing.is_empty() && opts.enroll_namespaces.is_empty() {
         None
     } else {
-        Some(suggest_member_roll_yaml(
-            &existing,
-            &opts.enroll_namespaces,
-        ))
+        Some(suggest_member_roll_yaml(&existing, &opts.enroll_namespaces))
     };
 
     MemberRollWizard {
@@ -375,9 +365,7 @@ spec:
 
 fn operator_name_matches(name: &str) -> bool {
     let lower = name.to_lowercase();
-    OPERATOR_NAME_HINTS
-        .iter()
-        .any(|hint| lower.contains(hint))
+    OPERATOR_NAME_HINTS.iter().any(|hint| lower.contains(hint))
 }
 
 fn scc_users(data: &serde_json::Value) -> Vec<String> {
@@ -404,8 +392,10 @@ fn scc_groups(data: &serde_json::Value) -> Vec<String> {
 
 /// Mesh namespaces with injection/ambient labels that are not yet in MemberRoll.
 pub async fn namespaces_needing_enrollment(client: &Client) -> anyhow::Result<Vec<String>> {
-    let members: std::collections::HashSet<String> =
-        collect_ossm_member_namespaces(client).await.into_iter().collect();
+    let members: std::collections::HashSet<String> = collect_ossm_member_namespaces(client)
+        .await
+        .into_iter()
+        .collect();
     let ns_api: Api<Namespace> = Api::all(client.clone());
     let list = ns_api.list(&Default::default()).await?;
     let mut out = Vec::new();

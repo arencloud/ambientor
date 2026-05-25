@@ -7,9 +7,7 @@ mod sarif;
 use ambientor_core::scoring::compute_scores;
 use ambientor_k8s::K8sClient;
 use ambientor_mesh::backend::backend_for_flavor;
-use ambientor_mesh::{
-    OpenShiftWizardOptions, namespaces_needing_enrollment, run_wizard,
-};
+use ambientor_mesh::{OpenShiftWizardOptions, namespaces_needing_enrollment, run_wizard};
 use ambientor_scan::default_registry;
 use ambientor_types::FindingSummary;
 use anyhow::Context;
