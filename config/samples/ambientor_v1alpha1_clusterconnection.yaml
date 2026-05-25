@@ -1,0 +1,12 @@
+apiVersion: ambientor.io/v1alpha1
+kind: ClusterConnection
+metadata:
+  name: lab-remote
+  namespace: ambientor-system
+spec:
+  displayName: Lab remote cluster
+  apiServer: https://remote-cluster.example:6443
+  credentialsSecretRef:
+    name: lab-remote-kubeconfig
+    namespace: ambientor-system
+  hub: false
