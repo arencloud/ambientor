@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ambientor_k8s::K8sClient;
 use ambientor_plan::plan_to_rollout;
 use ambientor_rollout::audit::audit_rollout_approve;
-use ambientor_types::{Rollout, RolloutSpec, RolloutStage, RolloutStatus};
+use ambientor_types::{Rollout, RolloutStage, RolloutStatus};
 use axum::{
     Json,
     extract::{Path, State},

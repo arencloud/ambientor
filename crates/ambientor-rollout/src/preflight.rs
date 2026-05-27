@@ -131,21 +131,21 @@ pub fn namespace_conflicts_with_mesh(
     labels: &BTreeMap<String, String>,
     mesh: &MeshInstance,
 ) -> Option<String> {
-    if let Some(discovery) = labels.get("istio-discovery") {
-        if discovery != &mesh.discovery_label {
-            return Some(format!(
-                "namespace has istio-discovery={discovery}, expected {}",
-                mesh.discovery_label
-            ));
-        }
+    if let Some(discovery) = labels.get("istio-discovery")
+        && discovery != &mesh.discovery_label
+    {
+        return Some(format!(
+            "namespace has istio-discovery={discovery}, expected {}",
+            mesh.discovery_label
+        ));
     }
-    if let Some(rev) = labels.get("istio.io/rev") {
-        if rev != &mesh.revision {
-            return Some(format!(
-                "namespace has istio.io/rev={rev}, expected {}",
-                mesh.revision
-            ));
-        }
+    if let Some(rev) = labels.get("istio.io/rev")
+        && rev != &mesh.revision
+    {
+        return Some(format!(
+            "namespace has istio.io/rev={rev}, expected {}",
+            mesh.revision
+        ));
     }
     None
 }
@@ -164,7 +164,7 @@ async fn first_sidecar_injected_pod(
     Ok(pods
         .items
         .into_iter()
-        .filter(|p| pod_has_sidecar(p))
+        .filter(pod_has_sidecar)
         .filter_map(|p| p.metadata.name)
         .next())
 }

@@ -120,10 +120,9 @@ fn istio_revision_labels(dep: &Deployment) -> Vec<String> {
         .and_then(|s| s.template.metadata.as_ref())
         .and_then(|m| m.labels.as_ref())
         .and_then(|l| l.get("istio.io/rev").cloned())
+        && !revs.contains(&rev)
     {
-        if !revs.contains(&rev) {
-            revs.push(rev);
-        }
+        revs.push(rev);
     }
     revs
 }
