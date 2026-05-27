@@ -5,6 +5,7 @@ use kube::Client;
 
 use crate::backend::{MeshBackend, PreflightCheck};
 use crate::inventory;
+use crate::version::detect_istio_version;
 
 pub struct OssmBackend;
 
@@ -14,14 +15,12 @@ impl MeshBackend for OssmBackend {
         MeshFlavor::OSSM3
     }
 
-    async fn detect_version(&self, _client: &Client) -> anyhow::Result<Option<String>> {
-        Ok(Some("ossm-3".into()))
+    async fn detect_version(&self, client: &Client) -> anyhow::Result<Option<String>> {
+        Ok(detect_istio_version(client).await)
     }
 
     async fn build_rule_context(&self, client: &Client) -> anyhow::Result<RuleContext> {
-        let mut ctx = inventory::collect_inventory(client, MeshFlavor::OSSM3, None).await?;
-        ctx.mesh_version = Some("ossm-3".into());
-        Ok(ctx)
+        inventory::collect_inventory(client, MeshFlavor::OSSM3, None).await
     }
 
     async fn preflight_checks(&self, client: &Client) -> anyhow::Result<Vec<PreflightCheck>> {

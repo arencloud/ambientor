@@ -48,6 +48,28 @@ impl Rule for IstioVersionGateRule {
         if istio_version_sufficient(version) {
             return vec![];
         }
+        // Legacy OSSM placeholder (no longer set); do not treat as semver failure.
+        if version.starts_with("ossm-")
+            && ctx
+                .mesh_flavor
+                .as_deref()
+                .is_some_and(|f| f.contains("OSSM"))
+        {
+            return vec![{
+                let mut f = finding(
+                    self.id(),
+                    FindingSeverity::Warning,
+                    self.category(),
+                    "Istio control-plane version unknown",
+                    format!(
+                        "OpenShift Service Mesh is present but istiod semver was not detected (reported '{version}'); confirm Istio 1.24+ from istiod image or istio.io/rev label."
+                    ),
+                );
+                f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
+                f.evidence = Some(format!("meshVersion: {version}"));
+                f
+            }];
+        }
         vec![{
             let mut f = finding(
                 self.id(),
