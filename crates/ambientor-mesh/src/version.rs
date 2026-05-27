@@ -37,14 +37,14 @@ fn version_from_deployments(deployments: &[Deployment]) -> Option<String> {
         if !name.contains("istiod") && !deployment_has_istiod_label(dep) {
             continue;
         }
-        if let Some(v) = version_from_deployment(dep) {
-            if let Some((maj, min)) = parse_major_minor(&v) {
-                let replaces = best
-                    .as_ref()
-                    .is_none_or(|(bmaj, bmin, _)| (maj, min) > (*bmaj, *bmin));
-                if replaces {
-                    best = Some((maj, min, v));
-                }
+        if let Some(v) = version_from_deployment(dep)
+            && let Some((maj, min)) = parse_major_minor(&v)
+        {
+            let replaces = best
+                .as_ref()
+                .is_none_or(|(bmaj, bmin, _)| (maj, min) > (*bmaj, *bmin));
+            if replaces {
+                best = Some((maj, min, v));
             }
         }
     }
