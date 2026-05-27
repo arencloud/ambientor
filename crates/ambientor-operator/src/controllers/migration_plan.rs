@@ -24,7 +24,7 @@ pub async fn run(client: Client) {
         .run(reconcile, error_policy, Arc::new(client))
         .for_each(|res| async move {
             if let Err(e) = res {
-                tracing::error!(error = %e, "migrationplan controller error");
+                tracing::error!(error = ?e, "migrationplan controller error");
             }
         })
         .await;

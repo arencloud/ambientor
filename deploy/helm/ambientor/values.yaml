@@ -43,24 +43,22 @@ web:
 postgresql:
   enabled: true
   image:
-    # OpenShift-friendly defaults: Bitnami has pruned some historical revision tags;
-    # pin to a tag that exists and is multi-arch.
-    repository: bitnami/postgresql
-    tag: "17.0.0-debian-12-r0"
-  volumePermissions:
-    # Needed on OpenShift when PVC permissions require chown (works with anyuid SCC binding).
-    enabled: true
+    # OpenShift-friendly, rootless Postgres (RHEL image by default).
+    # Override these if you mirror images internally.
+    repository: registry.redhat.io/rhel9/postgresql-16
+    tag: "latest"
+    pullPolicy: IfNotPresent
   auth:
     username: ambientor
     password: ambientor
     database: ambientor
   primary:
-    containerSecurityContext:
-      # Bitnami chart defaults to readOnlyRootFilesystem=true; OpenShift + init can require writes.
-      readOnlyRootFilesystem: false
     persistence:
       enabled: true
       size: 8Gi
+      # On OpenShift, prefer an RWO block storage class for Postgres.
+      # Example: truenas-iscsi
+      storageClass: ""
 
 database:
   url: ""

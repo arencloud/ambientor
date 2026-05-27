@@ -1,0 +1,94 @@
+{{- if and .Values.postgresql.enabled (not .Values.database.url) -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "ambientor.fullname" . }}-postgresql
+  namespace: {{ .Values.namespace }}
+type: Opaque
+stringData:
+  POSTGRESQL_USER: {{ .Values.postgresql.auth.username | quote }}
+  POSTGRESQL_PASSWORD: {{ .Values.postgresql.auth.password | quote }}
+  POSTGRESQL_DATABASE: {{ .Values.postgresql.auth.database | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ambientor.fullname" . }}-postgresql
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: {{ include "ambientor.fullname" . }}-postgresql
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "ambientor.fullname" . }}-postgresql
+  namespace: {{ .Values.namespace }}
+spec:
+  serviceName: {{ include "ambientor.fullname" . }}-postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "ambientor.fullname" . }}-postgresql
+  template:
+    metadata:
+      labels:
+        app: {{ include "ambientor.fullname" . }}-postgresql
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql
+          image: {{ printf "%s:%s"
+            (get (.Values.postgresql.image | default dict) "repository" | default "registry.redhat.io/rhel9/postgresql-16")
+            (get (.Values.postgresql.image | default dict) "tag" | default "latest")
+            | quote }}
+          imagePullPolicy: {{ (get (.Values.postgresql.image | default dict) "pullPolicy" | default "IfNotPresent") | quote }}
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - secretRef:
+                name: {{ include "ambientor.fullname" . }}-postgresql
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pgsql/data
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - pg_isready -U \"$POSTGRESQL_USER\" -d \"$POSTGRESQL_DATABASE\"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - pg_isready -U \"$POSTGRESQL_USER\" -d \"$POSTGRESQL_DATABASE\"
+            initialDelaySeconds: 30
+            periodSeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.postgresql.primary.persistence.storageClass }}
+        storageClassName: {{ .Values.postgresql.primary.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.primary.persistence.size | default "8Gi" | quote }}
+{{- end -}}
+
