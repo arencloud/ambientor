@@ -81,11 +81,9 @@ async fn wait_gateway_programmed(
         }
         sleep(Duration::from_secs(GATEWAY_POLL_INTERVAL_SECS)).await;
     }
-    Err(RolloutError::ExecutionFailed(waypoint_gateway_stuck_message(
-        namespace,
-        mesh,
-        last_data.as_ref(),
-    )))
+    Err(RolloutError::ExecutionFailed(
+        waypoint_gateway_stuck_message(namespace, mesh, last_data.as_ref()),
+    ))
 }
 
 /// Remove waypoint Gateway (if managed by Ambientor) and `istio.io/use-waypoint` label.

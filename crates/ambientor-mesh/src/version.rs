@@ -57,9 +57,9 @@ fn version_from_deployments(deployments: &[Deployment]) -> Option<String> {
         if let Some(v) = version_from_deployment(dep, name)
             && let Some((maj, min, patch)) = parse_semver_triple(&v)
         {
-            let replaces = best.as_ref().is_none_or(|(bmaj, bmin, bpatch, _)| {
-                (maj, min, patch) > (*bmaj, *bmin, *bpatch)
-            });
+            let replaces = best
+                .as_ref()
+                .is_none_or(|(bmaj, bmin, bpatch, _)| (maj, min, patch) > (*bmaj, *bmin, *bpatch));
             if replaces {
                 best = Some((maj, min, patch, v));
             }
@@ -139,10 +139,7 @@ pub fn parse_revision_version(value: &str) -> Option<String> {
     }
     let major: u32 = parts[0].parse().ok()?;
     let minor: u32 = parts[1].parse().ok()?;
-    let patch: u32 = parts
-        .get(2)
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(0);
+    let patch: u32 = parts.get(2).and_then(|p| p.parse().ok()).unwrap_or(0);
     Some(format!("{major}.{minor}.{patch}"))
 }
 

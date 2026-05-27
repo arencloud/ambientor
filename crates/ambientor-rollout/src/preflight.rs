@@ -72,7 +72,8 @@ pub async fn preflight_before_deploy_waypoint(
 
     let ns = fetch_namespace(client, namespace).await?;
     let labels = ns.metadata.labels.unwrap_or_default();
-    let ambient_labeled = labels.get("istio.io/dataplane-mode").map(String::as_str) == Some("ambient");
+    let ambient_labeled =
+        labels.get("istio.io/dataplane-mode").map(String::as_str) == Some("ambient");
     if !ambient_labeled && !namespace_enrolled_on_mesh(&labels, mesh) {
         return Err(RolloutError::ExecutionFailed(format!(
             "namespace {namespace} is not enrolled on mesh '{}' (expected istio-discovery={} or \
@@ -180,17 +181,12 @@ fn pod_has_sidecar(pod: &Pod) -> bool {
     pod.spec
         .as_ref()
         .map(|spec| {
-            spec.containers
-                .iter()
-                .any(|c| c.name == "istio-proxy")
-                || spec
-                    .init_containers
-                    .as_ref()
-                    .is_some_and(|inits| {
-                        inits
-                            .iter()
-                            .any(|c| c.name == "istio-proxy" || c.name == "istio-validation")
-                    })
+            spec.containers.iter().any(|c| c.name == "istio-proxy")
+                || spec.init_containers.as_ref().is_some_and(|inits| {
+                    inits
+                        .iter()
+                        .any(|c| c.name == "istio-proxy" || c.name == "istio-validation")
+                })
         })
         .unwrap_or(false)
 }

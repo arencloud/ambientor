@@ -6,8 +6,8 @@ use tracing::warn;
 
 use crate::events::{RolloutEvent, RolloutEventType};
 use crate::labels::label_namespace_ambient;
-use crate::preflight::{namespaces_in_rollout, preflight_namespace_for_ambient_rollout};
 use crate::policy::translate_policies_in_namespace;
+use crate::preflight::{namespaces_in_rollout, preflight_namespace_for_ambient_rollout};
 use crate::restart::rolling_restart_namespace;
 use crate::rollback::revert_completed_stages;
 use crate::verify::verify_namespace_traffic;

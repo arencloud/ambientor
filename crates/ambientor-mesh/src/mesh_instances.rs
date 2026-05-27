@@ -51,10 +51,8 @@ pub async fn discover_mesh_instances(client: &Client) -> anyhow::Result<Vec<Mesh
         .into_iter()
         .map(|(revision, (control_plane_namespace, version, ambient))| {
             let discovery_label = infer_discovery_label(&revision, &namespaces);
-            let enrolled_namespace_count = discovery_counts
-                .get(&discovery_label)
-                .copied()
-                .unwrap_or(0);
+            let enrolled_namespace_count =
+                discovery_counts.get(&discovery_label).copied().unwrap_or(0);
             MeshInstance {
                 revision,
                 discovery_label,
@@ -94,7 +92,12 @@ pub fn resolve_mesh_target(
         n => Err(MeshTargetError::Ambiguous {
             list: ambient[..n]
                 .iter()
-                .map(|i| format!("{} (revision={}, ns={})", i.discovery_label, i.revision, i.control_plane_namespace))
+                .map(|i| {
+                    format!(
+                        "{} (revision={}, ns={})",
+                        i.discovery_label, i.revision, i.control_plane_namespace
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(", "),
         }),
@@ -198,9 +201,7 @@ pub fn infer_discovery_label(revision: &str, namespaces: &[Namespace]) -> String
             None => continue,
         };
         let rev_match = labels.get("istio.io/rev").map(String::as_str) == Some(revision);
-        if rev_match
-            && let Some(d) = labels.get("istio-discovery")
-        {
+        if rev_match && let Some(d) = labels.get("istio-discovery") {
             *counts.entry(d.clone()).or_insert(0) += 1;
         }
     }
@@ -232,7 +233,12 @@ mod tests {
     fn ns(labels: Vec<(&str, &str)>) -> Namespace {
         Namespace {
             metadata: kube::api::ObjectMeta {
-                labels: Some(labels.into_iter().map(|(k, v)| (k.into(), v.into())).collect()),
+                labels: Some(
+                    labels
+                        .into_iter()
+                        .map(|(k, v)| (k.into(), v.into()))
+                        .collect(),
+                ),
                 ..Default::default()
             },
             ..Default::default()
