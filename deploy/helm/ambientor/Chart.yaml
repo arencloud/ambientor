@@ -12,8 +12,4 @@ keywords:
 maintainers:
   - name: Ambientor Contributors
 
-dependencies:
-  - name: postgresql
-    version: "15.x.x"
-    repository: https://charts.bitnami.com/bitnami
-    condition: postgresql.enabled
+dependencies: []

@@ -21,7 +21,7 @@ pub async fn run(ctx: Arc<OperatorContext>) {
         .run(reconcile, error_policy, ctx)
         .for_each(|res| async move {
             if let Err(e) = res {
-                tracing::error!(error = %e, "rollout controller error");
+                tracing::error!(error = ?e, "rollout controller error");
             }
         })
         .await;

@@ -31,11 +31,6 @@
 {{- if .Values.database.url -}}
 {{- .Values.database.url -}}
 {{- else if .Values.postgresql.enabled -}}
-{{- /*
-Bitnami's postgresql subchart default fullname is "<release>-postgresql".
-Our chart fullname is "<release>-ambientor", so using ambientor.fullname here produces
-"<release>-ambientor-postgresql" (wrong service name).
-*/ -}}
-{{- printf "postgres://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password .Release.Name .Values.postgresql.auth.database -}}
+{{- printf "postgres://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "ambientor.fullname" .) .Values.postgresql.auth.database -}}
 {{- end -}}
 {{- end }}
