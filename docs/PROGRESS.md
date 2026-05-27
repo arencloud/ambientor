@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Production pilot P1–P2 (run on customer clusters).
+**Current focus:** Production pilot P2 (MigrationPlan + export).
 
-**Next up:** Run `./scripts/pilot-validate.sh` (see [runbook-pilot.md](runbook-pilot.md)); then mark P1/P2 ✅ in this file from `pilot-artifacts/*/PILOT-SIGNOFF.md`.
+**Next up:** Create/review `MigrationPlan` CRs on a pilot cluster, export YAML, then re-run `./scripts/pilot-validate.sh` for P2.
 
 **Last updated:** 2026-05-22
 
@@ -109,8 +109,8 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 
 | # | Criterion | Status |
 |---|-----------|--------|
-| P1 | Blockers match Istio migrate docs on 3+ clusters | ⬜ |
-| P2 | Plans human-approved with exported manifests | ⬜ |
+| P1 | Blockers match Istio migrate docs on 3+ clusters | ✅ `pilot-artifacts/20260527-validate` (cl01/cl02/cl03, 0 blockers) |
+| P2 | Plans human-approved with exported manifests | ⬜ no `MigrationPlan` on pilot clusters yet |
 | P3 | Rollout: one NS, verify + auto-rollback in e2e | ✅ |
 | P4 | Portal/OIDC gates approve + execute | ✅ PR [#29](https://github.com/arencloud/ambientor/pull/29) |
 | P5 | Audit log for approve / apply / rollback | ✅ |
