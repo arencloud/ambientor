@@ -30,7 +30,7 @@ mapfile -t PLANS < <(
 
 if [[ "${#PLANS[@]}" -eq 0 ]]; then
   echo "No MigrationPlan resources found on ${CONTEXT}" >&2
-  exit 0
+  exit 1
 fi
 
 EXPORTED=0
