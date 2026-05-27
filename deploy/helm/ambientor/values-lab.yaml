@@ -1,7 +1,7 @@
 # Local kind lab / CI e2e: images loaded via `kind load docker-image`.
 image:
   registry: ""
-  tag: "0.1.1"
+  tag: "0.1.2"
   pullPolicy: Never
 
 operator:

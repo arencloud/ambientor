@@ -8,6 +8,31 @@ use crate::dto::{Finding, FindingSummary};
 pub const GROUP: &str = "ambientor.io";
 pub const VERSION: &str = "v1alpha1";
 
+/// Selects which Istio / OSSM control plane a rollout or plan targets.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MeshTarget {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_plane_namespace: Option<String>,
+}
+
+/// Resolved mesh control plane (istiod revision + discovery label).
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MeshInstance {
+    pub revision: String,
+    pub discovery_label: String,
+    pub control_plane_namespace: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    pub ambient: bool,
+    pub enrolled_namespace_count: usize,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub enum MeshFlavor {
@@ -177,6 +202,8 @@ pub struct MigrationPlanSpec {
     pub assessment_ref: Option<String>,
     #[serde(default = "default_ambient")]
     pub target_mesh_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh_target: Option<MeshTarget>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub waves: Vec<MigrationWave>,
 }
@@ -242,6 +269,9 @@ pub struct RolloutSpec {
     pub plan_ref: Option<String>,
     #[serde(default = "default_true")]
     pub auto_rollback: bool,
+    /// When omitted and exactly one ambient control plane exists, it is selected automatically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh_target: Option<MeshTarget>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stages: Vec<RolloutStage>,
 }
@@ -265,6 +295,8 @@ pub struct RolloutStatus {
     pub current_stage: i32,
     #[serde(default)]
     pub approved_stage: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_mesh_target: Option<MeshInstance>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditions: Vec<Condition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

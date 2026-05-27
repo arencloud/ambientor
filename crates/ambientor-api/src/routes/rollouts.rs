@@ -185,10 +185,9 @@ pub async fn create_rollout_from_plan(
         ));
     }
 
-    let spec = RolloutSpec {
-        plan_ref: Some(plan_name.clone()),
-        ..plan_to_rollout(&plan.spec)
-    };
+    let mut spec = plan_to_rollout(&plan.spec);
+    spec.plan_ref = Some(plan_name.clone());
+    spec.mesh_target = plan.spec.mesh_target.clone();
     let cr = Rollout::new(&rollout_name, spec);
     let pp = PatchParams::apply("ambientor.io").force();
     existing

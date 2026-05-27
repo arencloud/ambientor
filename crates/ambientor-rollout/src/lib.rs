@@ -6,6 +6,7 @@ pub mod engine;
 pub mod events;
 pub mod labels;
 pub mod policy;
+pub mod preflight;
 pub mod restart;
 pub mod rollback;
 pub mod verify;

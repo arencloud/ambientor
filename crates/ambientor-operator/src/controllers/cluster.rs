@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ambientor_k8s::detect_platform;
+use ambientor_mesh::version::detect_istio_version;
 use ambientor_types::Cluster;
 use futures::StreamExt;
 use kube::{
@@ -25,13 +26,14 @@ pub async fn run(client: Client) {
 }
 
 async fn reconcile(obj: Arc<Cluster>, client: Arc<Client>) -> ReconcileResult {
-    let platform = detect_platform(client.as_ref()).await.unwrap_or_default();
+    let _platform = detect_platform(client.as_ref()).await.unwrap_or_default();
+    let mesh_version = detect_istio_version(client.as_ref()).await;
     let api: Api<Cluster> = Api::all(client.as_ref().clone());
     if let Some(name) = &obj.metadata.name {
         let status = serde_json::json!({
             "status": {
                 "phase": "Ready",
-                "meshVersion": platform.version,
+                "meshVersion": mesh_version,
             }
         });
         api.patch_status(name, &Default::default(), &Patch::Merge(status))

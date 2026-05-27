@@ -1,4 +1,4 @@
-use ambientor_types::{RolloutSpec, RolloutStageType, RolloutStatus, StageResult};
+use ambientor_types::{MeshInstance, RolloutSpec, RolloutStageType, RolloutStatus, StageResult};
 use chrono::Utc;
 use kube::Client;
 use thiserror::Error;
@@ -6,6 +6,7 @@ use tracing::warn;
 
 use crate::events::{RolloutEvent, RolloutEventType};
 use crate::labels::label_namespace_ambient;
+use crate::preflight::{namespaces_in_rollout, preflight_namespace_for_ambient_rollout};
 use crate::policy::translate_policies_in_namespace;
 use crate::restart::rolling_restart_namespace;
 use crate::rollback::revert_completed_stages;
@@ -37,7 +38,9 @@ impl RolloutEngine {
         &self,
         spec: &RolloutSpec,
         status: &mut RolloutStatus,
+        mesh: &MeshInstance,
     ) -> Result<Vec<RolloutEvent>, RolloutError> {
+        status.resolved_mesh_target = Some(mesh.clone());
         let mut events = Vec::new();
         if status.phase.is_empty() {
             status.phase = "Pending".into();
@@ -82,7 +85,7 @@ impl RolloutEngine {
             timestamp: started,
         });
 
-        let result = self.execute_stage(stage).await;
+        let result = self.execute_stage(spec, stage, mesh).await;
         let finished = Utc::now();
 
         match result {
@@ -134,19 +137,30 @@ impl RolloutEngine {
 
     async fn execute_stage(
         &self,
+        spec: &RolloutSpec,
         stage: &ambientor_types::RolloutStage,
+        mesh: &MeshInstance,
     ) -> Result<String, RolloutError> {
         match stage.r#type {
-            RolloutStageType::DryRun => Ok("Dry run passed".into()),
+            RolloutStageType::DryRun => {
+                for ns in namespaces_in_rollout(&spec.stages) {
+                    preflight_namespace_for_ambient_rollout(&self.client, &ns, mesh).await?;
+                }
+                Ok(format!(
+                    "Dry run passed for mesh {} ({})",
+                    mesh.discovery_label, mesh.revision
+                ))
+            }
             RolloutStageType::LabelNamespace => {
                 for ns in &stage.namespaces {
+                    preflight_namespace_for_ambient_rollout(&self.client, ns, mesh).await?;
                     label_namespace_ambient(&self.client, ns).await?;
                 }
                 Ok(format!("Labeled {} namespace(s)", stage.namespaces.len()))
             }
             RolloutStageType::DeployWaypoint => {
                 for ns in &stage.namespaces {
-                    deploy_waypoint(&self.client, ns).await?;
+                    deploy_waypoint(&self.client, ns, mesh).await?;
                 }
                 Ok(format!(
                     "Deployed waypoint Gateway for {} namespace(s)",
@@ -171,7 +185,7 @@ impl RolloutEngine {
             }
             RolloutStageType::VerifyTraffic => {
                 for ns in &stage.namespaces {
-                    verify_namespace_traffic(&self.client, ns).await?;
+                    verify_namespace_traffic(&self.client, ns, mesh).await?;
                 }
                 Ok(format!(
                     "Verified ambient labels, waypoint, and policy for {} namespace(s)",

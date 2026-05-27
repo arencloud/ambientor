@@ -91,6 +91,7 @@ mod tests {
         let spec = RolloutSpec {
             plan_ref: None,
             auto_rollback: true,
+            mesh_target: None,
             stages: vec![
                 stage("dry", RolloutStageType::DryRun),
                 stage("label", RolloutStageType::LabelNamespace),

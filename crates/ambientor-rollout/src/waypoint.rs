@@ -14,6 +14,9 @@ use tracing::info;
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
 use crate::labels::unlabel_namespace_use_waypoint;
+use ambientor_types::MeshInstance;
+
+use crate::preflight::{preflight_before_deploy_waypoint, waypoint_gateway_stuck_message};
 use crate::verify::gateway_ready;
 
 const GATEWAY_READY_TIMEOUT_SECS: u64 = 120;
@@ -24,7 +27,12 @@ const MANAGED_BY_LABEL: &str = "app.kubernetes.io/managed-by";
 const MANAGED_BY_VALUE: &str = "ambientor";
 
 /// Deploy an Istio ambient waypoint (`Gateway` + `istio.io/use-waypoint` on the namespace).
-pub async fn deploy_waypoint(client: &Client, namespace: &str) -> Result<(), RolloutError> {
+pub async fn deploy_waypoint(
+    client: &Client,
+    namespace: &str,
+    mesh: &MeshInstance,
+) -> Result<(), RolloutError> {
+    preflight_before_deploy_waypoint(client, namespace, mesh).await?;
     let manifest = json!({
         "apiVersion": "gateway.networking.k8s.io/v1",
         "kind": "Gateway",
@@ -47,27 +55,36 @@ pub async fn deploy_waypoint(client: &Client, namespace: &str) -> Result<(), Rol
     });
     apply_namespaced_manifest(client, namespace, &manifest).await?;
     label_namespace_use_waypoint(client, namespace).await?;
-    wait_gateway_programmed(client, namespace).await?;
+    wait_gateway_programmed(client, namespace, mesh).await?;
     info!(namespace = %namespace, waypoint = %WAYPOINT_GATEWAY_NAME, "deployed ambient waypoint");
     Ok(())
 }
 
-async fn wait_gateway_programmed(client: &Client, namespace: &str) -> Result<(), RolloutError> {
+async fn wait_gateway_programmed(
+    client: &Client,
+    namespace: &str,
+    mesh: &MeshInstance,
+) -> Result<(), RolloutError> {
     let ar = api_resource("gateway.networking.k8s.io", "v1", "Gateway", "gateways");
     let api = Api::<DynamicObject>::namespaced_with(client.clone(), namespace, &ar);
     let deadline = Duration::from_secs(GATEWAY_READY_TIMEOUT_SECS);
     let started = std::time::Instant::now();
+    let mut last_data: Option<serde_json::Value> = None;
     while started.elapsed() < deadline {
         match api.get(WAYPOINT_GATEWAY_NAME).await {
             Ok(gw) if gateway_ready(&gw.data) => return Ok(()),
-            Ok(_) => {}
+            Ok(gw) => {
+                last_data = Some(gw.data);
+            }
             Err(kube::Error::Api(e)) if e.code == 404 => {}
             Err(e) => return Err(RolloutError::Kube(e)),
         }
         sleep(Duration::from_secs(GATEWAY_POLL_INTERVAL_SECS)).await;
     }
-    Err(RolloutError::ExecutionFailed(format!(
-        "waypoint Gateway {WAYPOINT_GATEWAY_NAME} in {namespace} not programmed within {GATEWAY_READY_TIMEOUT_SECS}s"
+    Err(RolloutError::ExecutionFailed(waypoint_gateway_stuck_message(
+        namespace,
+        mesh,
+        last_data.as_ref(),
     )))
 }
 

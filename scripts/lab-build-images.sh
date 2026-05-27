@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TAG="${AMBIENTOR_IMAGE_TAG:-0.1.1}"
+TAG="${AMBIENTOR_IMAGE_TAG:-0.1.2}"
 REGISTRY="${AMBIENTOR_IMAGE_REGISTRY:-}"
 
 image_ref() {

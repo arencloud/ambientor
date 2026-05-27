@@ -4,6 +4,7 @@ pub mod audit;
 pub mod auth;
 pub mod connections;
 pub mod health;
+pub mod mesh_instances;
 pub mod openshift;
 pub mod plans;
 pub mod rollouts;
@@ -33,6 +34,10 @@ pub fn api_router() -> Router<Arc<AppState>> {
             post(connections::assess_connection),
         )
         .route("/api/v1/assessments", get(assessments::list_assessments))
+        .route(
+            "/api/v1/mesh-instances",
+            get(mesh_instances::list_mesh_instances),
+        )
         .route("/api/v1/scans", get(scans::list_scans))
         .route("/api/v1/plans", get(plans::list_plans))
         .route("/api/v1/plans/{namespace}/{name}", get(plans::get_plan))

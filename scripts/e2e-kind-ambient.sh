@@ -191,7 +191,7 @@ wait_rollout_terminal() {
 }
 
 load_e2e_images() {
-  local tag="${AMBIENTOR_IMAGE_TAG:-0.1.1}"
+  local tag="${AMBIENTOR_IMAGE_TAG:-0.1.2}"
   local registry="${AMBIENTOR_IMAGE_REGISTRY:-}"
   local image component
   for component in operator api; do

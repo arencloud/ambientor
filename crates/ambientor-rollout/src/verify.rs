@@ -1,4 +1,6 @@
 use ambientor_mesh::dynamic::{api_resource, list_cr_in_namespace};
+use ambientor_mesh::mesh_instances::namespace_enrolled_on_mesh;
+use ambientor_types::MeshInstance;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::api::DynamicObject;
 use kube::{Api, Client};
@@ -11,20 +13,31 @@ use crate::waypoint::WAYPOINT_GATEWAY_NAME;
 pub async fn verify_namespace_traffic(
     client: &Client,
     namespace: &str,
+    mesh: &MeshInstance,
 ) -> Result<(), RolloutError> {
-    verify_namespace_labels(client, namespace).await?;
+    verify_namespace_labels(client, namespace, mesh).await?;
     verify_waypoint_gateway(client, namespace).await?;
     verify_no_pending_virtual_services(client, namespace).await?;
     Ok(())
 }
 
-async fn verify_namespace_labels(client: &Client, namespace: &str) -> Result<(), RolloutError> {
+async fn verify_namespace_labels(
+    client: &Client,
+    namespace: &str,
+    mesh: &MeshInstance,
+) -> Result<(), RolloutError> {
     let api: Api<Namespace> = Api::all(client.clone());
     let ns = api.get(namespace).await.map_err(RolloutError::Kube)?;
     let labels = ns.metadata.labels.unwrap_or_default();
     if labels.get("istio.io/dataplane-mode").map(String::as_str) != Some("ambient") {
         return Err(RolloutError::ExecutionFailed(format!(
             "namespace {namespace} missing istio.io/dataplane-mode=ambient"
+        )));
+    }
+    if !namespace_enrolled_on_mesh(&labels, mesh) {
+        return Err(RolloutError::ExecutionFailed(format!(
+            "namespace {namespace} not enrolled on rollout mesh '{}' (istio-discovery or istio.io/rev)",
+            mesh.discovery_label
         )));
     }
     if labels.get("istio.io/use-waypoint").map(String::as_str) != Some(WAYPOINT_GATEWAY_NAME) {

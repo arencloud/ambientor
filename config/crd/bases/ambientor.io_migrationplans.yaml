@@ -26,6 +26,15 @@ spec:
                 targetMeshMode:
                   type: string
                   enum: [ambient]
+                meshTarget:
+                  type: object
+                  properties:
+                    revision:
+                      type: string
+                    discoveryLabel:
+                      type: string
+                    controlPlaneNamespace:
+                      type: string
                 waves:
                   type: array
                   items:

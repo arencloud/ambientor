@@ -86,6 +86,7 @@ async fn reconcile_inner(client: &Client, plan: &MigrationPlan) -> anyhow::Resul
     let spec = MigrationPlanSpec {
         assessment_ref: Some(assessment_ref.clone()),
         target_mesh_mode: built.target_mesh_mode,
+        mesh_target: plan.spec.mesh_target.clone(),
         waves: built.waves,
     };
 
@@ -168,6 +169,7 @@ pub async fn ensure_plan_for_assessment(
         MigrationPlanSpec {
             assessment_ref: Some(assessment_name.to_string()),
             target_mesh_mode: "ambient".into(),
+            mesh_target: None,
             waves: vec![],
         },
     );

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use ambientor_mesh::mesh_instances::{discover_mesh_instances, resolve_mesh_target};
 use ambientor_rollout::audit::audit_from_rollout_event;
 use ambientor_types::Rollout;
 use futures::StreamExt;
@@ -48,9 +49,15 @@ async fn reconcile_inner(
     obj: &Rollout,
     status: &mut ambientor_types::RolloutStatus,
 ) -> anyhow::Result<()> {
+    let instances = discover_mesh_instances(&ctx.client)
+        .await
+        .map_err(|e| anyhow::anyhow!("discover mesh instances: {e}"))?;
+    let mesh = resolve_mesh_target(&instances, obj.spec.mesh_target.as_ref())
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
     let events = ctx
         .rollout_engine
-        .reconcile(&obj.spec, status)
+        .reconcile(&obj.spec, status, &mesh)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 

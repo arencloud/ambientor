@@ -26,6 +26,15 @@ spec:
                 autoRollback:
                   type: boolean
                   default: true
+                meshTarget:
+                  type: object
+                  properties:
+                    revision:
+                      type: string
+                    discoveryLabel:
+                      type: string
+                    controlPlaneNamespace:
+                      type: string
                 stages:
                   type: array
                   items:
@@ -60,6 +69,21 @@ spec:
                   type: integer
                 approvedStage:
                   type: integer
+                resolvedMeshTarget:
+                  type: object
+                  properties:
+                    revision:
+                      type: string
+                    discoveryLabel:
+                      type: string
+                    controlPlaneNamespace:
+                      type: string
+                    version:
+                      type: string
+                    ambient:
+                      type: boolean
+                    enrolledNamespaceCount:
+                      type: integer
                 conditions:
                   type: array
                   items:

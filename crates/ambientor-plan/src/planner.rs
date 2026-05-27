@@ -41,6 +41,7 @@ pub fn build_plan(assessment: &AssessmentResult, namespaces: &[String]) -> Migra
     MigrationPlanSpec {
         assessment_ref: None,
         target_mesh_mode: "ambient".into(),
+        mesh_target: None,
         waves,
     }
 }
@@ -162,6 +163,7 @@ pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
     RolloutSpec {
         plan_ref: None,
         auto_rollback: true,
+        mesh_target: None,
         stages,
     }
 }

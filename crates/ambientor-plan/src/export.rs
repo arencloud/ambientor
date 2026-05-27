@@ -98,6 +98,7 @@ mod tests {
             spec: MigrationPlanSpec {
                 assessment_ref: Some("lab-assessment".into()),
                 target_mesh_mode: "ambient".into(),
+                mesh_target: None,
                 waves: vec![MigrationWave {
                     name: "wave-1".into(),
                     namespaces: vec!["bookinfo".into()],
