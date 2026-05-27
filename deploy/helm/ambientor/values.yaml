@@ -42,6 +42,12 @@ web:
 
 postgresql:
   enabled: true
+  image:
+    # OpenShift-friendly, rootless Postgres (RHEL image by default).
+    # Override these if you mirror images internally.
+    repository: registry.redhat.io/rhel9/postgresql-16
+    tag: "latest"
+    pullPolicy: IfNotPresent
   auth:
     username: ambientor
     password: ambientor
@@ -50,6 +56,9 @@ postgresql:
     persistence:
       enabled: true
       size: 8Gi
+      # On OpenShift, prefer an RWO block storage class for Postgres.
+      # Example: truenas-iscsi
+      storageClass: ""
 
 database:
   url: ""

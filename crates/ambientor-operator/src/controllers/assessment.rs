@@ -35,7 +35,7 @@ pub async fn run(
     .run(reconcile, error_policy, ctx)
     .for_each(|res| async move {
         if let Err(e) = res {
-            tracing::error!(error = %e, "ambientassessment controller error");
+            tracing::error!(error = ?e, "ambientassessment controller error");
         }
     })
     .await;
