@@ -34,4 +34,4 @@ spec:
             - name: AMBIENTOR_WEB_ADDR
               value: {{ .Values.web.env.AMBIENTOR_WEB_ADDR | quote }}
             - name: AMBIENTOR_API_URL
-              value: {{ .Values.web.env.AMBIENTOR_API_URL | quote }}
+              value: {{ (default .Values.web.env.AMBIENTOR_API_URL .Values.openshift.apiUrl) | quote }}

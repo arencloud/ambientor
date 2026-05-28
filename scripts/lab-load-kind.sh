@@ -2,7 +2,7 @@
 # Load lab images into a kind cluster.
 set -euo pipefail
 CLUSTER="${1:-ambientor-lab}"
-TAG="${AMBIENTOR_IMAGE_TAG:-0.1.2}"
+TAG="${AMBIENTOR_IMAGE_TAG:-0.1.4}"
 REGISTRY="${AMBIENTOR_IMAGE_REGISTRY:-}"
 
 image_ref() {

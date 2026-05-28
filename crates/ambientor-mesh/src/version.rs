@@ -76,6 +76,9 @@ fn deployment_has_istiod_label(dep: &Deployment) -> bool {
 }
 
 fn version_from_deployment(dep: &Deployment, deployment_name: &str) -> Option<String> {
+    if let Some(v) = deployment_version_label(dep) {
+        return Some(v);
+    }
     for rev in istio_revision_labels(dep) {
         if let Some(v) = parse_revision_version(&rev) {
             return Some(v);
@@ -88,20 +91,37 @@ fn version_from_deployment(dep: &Deployment, deployment_name: &str) -> Option<St
         return Some(v);
     }
     dep.spec.as_ref().and_then(|s| {
-        s.template
-            .spec
-            .as_ref()
-            .and_then(|ps| ps.containers.first())
-            .and_then(|c| c.image.as_ref())
-            .and_then(|img| img.rsplit_once(':').map(|(_, tag)| tag))
-            .and_then(|tag| {
+        let pod_spec = s.template.spec.as_ref()?;
+        for c in &pod_spec.containers {
+            if let Some(img) = c.image.as_ref()
+                && let Some((_, tag)) = img.rsplit_once(':')
+            {
                 if looks_like_istio_version(tag) {
-                    Some(tag.to_string())
-                } else {
-                    parse_revision_version(tag)
+                    return Some(tag.to_string());
                 }
-            })
+                if let Some(v) = parse_revision_version(tag) {
+                    return Some(v);
+                }
+            }
+        }
+        None
     })
+}
+
+fn deployment_version_label(dep: &Deployment) -> Option<String> {
+    // Upstream Istio frequently sets `app.kubernetes.io/version: 1.24.2` on istiod deployments.
+    let labels = dep.metadata.labels.as_ref().or_else(|| {
+        dep.spec
+            .as_ref()
+            .and_then(|s| s.template.metadata.as_ref())
+            .and_then(|m| m.labels.as_ref())
+    })?;
+    let v = labels.get("app.kubernetes.io/version")?;
+    if looks_like_istio_version(v) {
+        Some(v.clone())
+    } else {
+        None
+    }
 }
 
 fn istio_revision_labels(dep: &Deployment) -> Vec<String> {

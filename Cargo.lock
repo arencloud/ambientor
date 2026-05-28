@@ -33,7 +33,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "ambientor-analyze"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-core",
  "ambientor-types",
@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-api"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-analyze",
  "ambientor-auth",
@@ -77,7 +77,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-auth"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-db",
  "ambientor-types",
@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-cli"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-analyze",
  "ambientor-core",
@@ -122,7 +122,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-core"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-types",
  "chrono",
@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-db"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-types",
  "async-trait",
@@ -150,7 +150,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-k8s"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-types",
  "anyhow",
@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-mesh"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-core",
  "ambientor-k8s",
@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-operator"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-analyze",
  "ambientor-core",
@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-plan"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-core",
  "ambientor-types",
@@ -225,7 +225,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-rollout"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-analyze",
  "ambientor-mesh",
@@ -245,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-scan"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "ambientor-analyze",
  "ambientor-core",
@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-types"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "k8s-openapi",
@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "ambientor-web"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "axum",
  "serde_json",

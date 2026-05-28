@@ -157,7 +157,9 @@ async fn list_namespaces(client: &Client) -> anyhow::Result<Vec<Namespace>> {
 
 async fn ztunnel_revisions(client: &Client) -> anyhow::Result<Vec<String>> {
     let api: Api<Pod> = Api::all(client.clone());
-    let pods = api.list(&ListParams::default().labels("app=ztunnel")).await?;
+    let pods = api
+        .list(&ListParams::default().labels("app=ztunnel"))
+        .await?;
     let mut set = std::collections::BTreeSet::new();
     for p in pods.items {
         if let Some(rev) = p

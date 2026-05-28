@@ -3,7 +3,7 @@ global:
 
 image:
   registry: quay.io/arencloud
-  tag: "0.1.2"
+  tag: "0.1.4"
   pullPolicy: IfNotPresent
 
 namespace: ambientor-system
@@ -39,6 +39,11 @@ web:
   env:
     AMBIENTOR_WEB_ADDR: "0.0.0.0:3000"
     AMBIENTOR_API_URL: "http://ambientor-api:8080"
+
+openshift:
+  # Optional: set this to your public API route URL so the browser can call the API.
+  # Example: https://ambientor-api-ambientor-system.apps.cl01.arencloud.com
+  apiUrl: ""
 
 postgresql:
   enabled: true
