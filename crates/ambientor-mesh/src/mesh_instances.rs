@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use ambientor_types::{MeshInstance, MeshTarget};
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::Namespace;
+use k8s_openapi::api::core::v1::{Namespace, Pod};
 use kube::api::ListParams;
 use kube::{Api, Client};
 
@@ -24,6 +24,7 @@ pub enum MeshTargetError {
 pub async fn discover_mesh_instances(client: &Client) -> anyhow::Result<Vec<MeshInstance>> {
     let namespaces = list_namespaces(client).await?;
     let discovery_counts = discovery_label_counts(&namespaces);
+    let ztunnel_revs = ztunnel_revisions(client).await.unwrap_or_default();
     let mut by_revision: HashMap<String, (String, Option<String>, bool)> = HashMap::new();
 
     for cp_ns in istiod_namespace_candidates(client).await {
@@ -39,8 +40,13 @@ pub async fn discover_mesh_instances(client: &Client) -> anyhow::Result<Vec<Mesh
                 continue;
             };
             let version = parse_revision_version(&revision);
+            // OSSM/Sail: ambient revisions/namespaces contain "ambient".
+            // Upstream Istio ambient: revision may be "default"; detect ambient via ztunnel presence.
             let ambient = revision.to_ascii_lowercase().contains("ambient")
-                || cp_ns.to_ascii_lowercase().contains("ambient");
+                || cp_ns.to_ascii_lowercase().contains("ambient")
+                || (!ztunnel_revs.is_empty()
+                    && (ztunnel_revs.contains(&revision)
+                        || (ztunnel_revs.len() == 1 && revision == "default")));
             by_revision
                 .entry(revision.clone())
                 .or_insert_with(|| (cp_ns.clone(), version, ambient));
@@ -69,6 +75,13 @@ pub async fn discover_mesh_instances(client: &Client) -> anyhow::Result<Vec<Mesh
             .cmp(&b.discovery_label)
             .then(a.revision.cmp(&b.revision))
     });
+
+    // Upstream Istio ambient profile in kind often uses the default revision. If ztunnel exists and
+    // only one istiod revision was discovered, treat it as ambient so rollouts can proceed.
+    if !ztunnel_revs.is_empty() && instances.len() == 1 {
+        instances[0].ambient = true;
+    }
+
     Ok(instances)
 }
 
@@ -140,6 +153,23 @@ pub fn namespace_enrolled_on_mesh(
 async fn list_namespaces(client: &Client) -> anyhow::Result<Vec<Namespace>> {
     let api: Api<Namespace> = Api::all(client.clone());
     Ok(api.list(&ListParams::default()).await?.items)
+}
+
+async fn ztunnel_revisions(client: &Client) -> anyhow::Result<Vec<String>> {
+    let api: Api<Pod> = Api::all(client.clone());
+    let pods = api.list(&ListParams::default().labels("app=ztunnel")).await?;
+    let mut set = std::collections::BTreeSet::new();
+    for p in pods.items {
+        if let Some(rev) = p
+            .metadata
+            .labels
+            .as_ref()
+            .and_then(|l| l.get("istio.io/rev"))
+        {
+            set.insert(rev.clone());
+        }
+    }
+    Ok(set.into_iter().collect())
 }
 
 fn discovery_label_counts(namespaces: &[Namespace]) -> HashMap<String, usize> {
