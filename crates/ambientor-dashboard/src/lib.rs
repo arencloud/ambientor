@@ -7,6 +7,7 @@ mod compute;
 mod dashboard_from_run;
 mod dataplane;
 mod deep_analysis;
+mod findings_attribution;
 mod types;
 
 pub use application_types::*;

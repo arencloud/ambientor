@@ -17,6 +17,7 @@ use crate::application_types::{
 use crate::compute::namespace_belongs_to_mesh;
 use crate::dataplane::{derive_dataplane_mode, is_ambient_mesh_scope};
 use crate::deep_analysis::enrich_ambient_application;
+use crate::findings_attribution::partition_findings_by_namespace;
 
 const ISTIO_LABEL_KEYS: &[&str] = &[
     "istio-discovery",
@@ -103,12 +104,7 @@ pub fn build_cluster_assessment(
     hostnames_by_ns: &HashMap<String, BTreeSet<String>>,
     ingress_ns: &HashSet<String>,
 ) -> ClusterAssessmentRun {
-    let mut by_ns: HashMap<String, Vec<Finding>> = HashMap::new();
-    for f in all_findings {
-        if let Some(ns) = &f.namespace {
-            by_ns.entry(ns.clone()).or_default().push(f.clone());
-        }
-    }
+    let (by_ns, cluster_findings) = partition_findings_by_namespace(all_findings, ctx);
 
     let mut applications = Vec::new();
     let mut seen = HashSet::new();
@@ -175,6 +171,7 @@ pub fn build_cluster_assessment(
         applications,
         cluster_scores: compute_scores(all_findings),
         cluster_summary: ambientor_types::FindingSummary::from_findings(all_findings),
+        cluster_findings,
     }
 }
 

@@ -165,6 +165,7 @@ impl DashboardRepository {
             applications,
             cluster_scores: Default::default(),
             cluster_summary: Default::default(),
+            cluster_findings: Vec::new(),
         };
 
         let cluster = ambientor_dashboard::ClusterDashboard {

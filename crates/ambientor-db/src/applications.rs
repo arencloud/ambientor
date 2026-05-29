@@ -39,9 +39,9 @@ impl ApplicationAssessmentRepository {
             r#"
             INSERT INTO assessment_runs (
                 id, cluster_id, status, application_count,
-                cluster_scores, cluster_summary, started_at, finished_at
+                cluster_scores, cluster_summary, cluster_findings, started_at, finished_at
             )
-            VALUES ($1, $2, 'completed', $3, $4, $5, NOW(), NOW())
+            VALUES ($1, $2, 'completed', $3, $4, $5, $6, NOW(), NOW())
             "#,
         )
         .bind(run_id)
@@ -49,6 +49,7 @@ impl ApplicationAssessmentRepository {
         .bind(run.applications.len() as i32)
         .bind(serde_json::to_value(&run.cluster_scores).map_err(|e| DbError::Serialize(e.to_string()))?)
         .bind(serde_json::to_value(&run.cluster_summary).map_err(|e| DbError::Serialize(e.to_string()))?)
+        .bind(serde_json::to_value(&run.cluster_findings).map_err(|e| DbError::Serialize(e.to_string()))?)
         .execute(&mut *tx)
         .await?;
 
@@ -152,6 +153,10 @@ impl ApplicationAssessmentRepository {
         let run_id = rows.first().map(|r| r.run_id.to_string());
         let last_assessed_at = rows.first().map(|r| r.finished_at.to_rfc3339());
 
+        let (cluster_summary, cluster_findings) = latest_run_findings(&self.pool, &query.cluster_ref)
+            .await
+            .unwrap_or_default();
+
         Ok(ApplicationListPage {
             items,
             total: total.0 as u64,
@@ -160,6 +165,8 @@ impl ApplicationAssessmentRepository {
             cluster_ref: query.cluster_ref,
             run_id,
             last_assessed_at,
+            cluster_summary,
+            cluster_findings,
         })
     }
 
@@ -395,6 +402,34 @@ impl AppDetailRow {
                 .map_err(|e| DbError::Serialize(e.to_string()))?,
         })
     }
+}
+
+async fn latest_run_findings(
+    pool: &PgPool,
+    cluster_ref: &str,
+) -> Result<(ambientor_types::FindingSummary, Vec<ambientor_types::Finding>), DbError> {
+    let row: Option<(serde_json::Value, serde_json::Value)> = sqlx::query_as(
+        r#"
+        SELECT ar.cluster_summary, ar.cluster_findings
+        FROM assessment_runs ar
+        INNER JOIN clusters c ON c.id = ar.cluster_id
+        WHERE c.cluster_ref = $1
+        ORDER BY ar.finished_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(cluster_ref)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((summary_json, findings_json)) = row else {
+        return Ok((Default::default(), Vec::new()));
+    };
+    let summary: ambientor_types::FindingSummary =
+        serde_json::from_value(summary_json).unwrap_or_default();
+    let cluster_findings: Vec<ambientor_types::Finding> =
+        serde_json::from_value(findings_json).unwrap_or_default();
+    Ok((summary, cluster_findings))
 }
 
 fn effective_dataplane_mode(

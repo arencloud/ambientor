@@ -72,6 +72,9 @@ pub struct ClusterAssessmentRun {
     pub applications: Vec<ApplicationAssessmentRecord>,
     pub cluster_scores: AssessmentScores,
     pub cluster_summary: FindingSummary,
+    /// Findings that could not be mapped to a single namespace (shown cluster-wide in UI).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cluster_findings: Vec<Finding>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -104,6 +107,10 @@ pub struct ApplicationListPage {
     pub cluster_ref: String,
     pub run_id: Option<String>,
     pub last_assessed_at: Option<String>,
+    #[serde(default)]
+    pub cluster_summary: FindingSummary,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cluster_findings: Vec<Finding>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

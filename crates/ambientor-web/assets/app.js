@@ -311,13 +311,49 @@
     select.value = current;
   }
 
+  function renderClusterFindings() {
+    const panel = $('cluster-findings-panel');
+    const list = $('cluster-findings-list');
+    const summaryEl = $('cluster-findings-summary');
+    if (!panel || !list) return;
+
+    const summary = applicationsPage.clusterSummary || applicationsPage.cluster_summary || {};
+    const clusterFindings =
+      applicationsPage.clusterFindings || applicationsPage.cluster_findings || [];
+    const allFindings = [...clusterFindings];
+    const blockers = summary.blockers ?? 0;
+    const warnings = summary.warnings ?? 0;
+
+    const hasClusterList = allFindings.length > 0;
+    const hasCounts = blockers > 0 || warnings > 0;
+    if (!hasClusterList && !hasCounts) {
+      panel.classList.add('hidden');
+      return;
+    }
+
+    panel.classList.remove('hidden');
+    if (summaryEl) {
+      summaryEl.textContent = `${blockers} blocker(s), ${warnings} warning(s) in latest scan — open an application row for namespace-specific findings`;
+    }
+    list.innerHTML = '';
+    if (hasClusterList) {
+      allFindings.forEach((f) => list.appendChild(renderFinding(f)));
+    } else {
+      const li = document.createElement('li');
+      li.className = 'hint';
+      li.textContent =
+        'Blockers are attributed to application namespaces below (filter by risk: critical).';
+      list.appendChild(li);
+    }
+  }
+
   function renderApplicationsTable() {
     const tbody = $('app-assess-tbody');
     if (!tbody) return;
     const items = applicationsPage.items || [];
     if (!items.length) {
       tbody.innerHTML =
-        '<tr><td colspan="8" class="hint">No applications match filters. Run assessment to scan the cluster.</td></tr>';
+        '<tr><td colspan="9" class="hint">No applications match filters. Run assessment to scan the cluster.</td></tr>';
       return;
     }
     tbody.innerHTML = items
@@ -326,6 +362,7 @@
         const selected = ns === selectedAppNamespace ? ' selected' : '';
         const readiness = app.readinessPct ?? app.readiness_pct ?? 0;
         const risk = app.riskLevel || app.risk_level || 'low';
+        const blockers = app.blockerCount ?? app.blocker_count ?? 0;
         const dp = formatDataplane(app);
         return `<tr class="app-row${selected}" data-ns="${escapeHtml(ns)}" tabindex="0">
           <td><strong>${escapeHtml(ns)}</strong></td>
@@ -334,6 +371,7 @@
           <td class="mono">${escapeHtml(formatHostnames(app.hostnames))}</td>
           <td class="mono small">${escapeHtml(formatLabels(app.namespaceLabels || app.namespace_labels))}</td>
           <td>${escapeHtml(formatIngress(app))}</td>
+          <td>${blockers ? `<span class="badge-status blocker">${blockers}</span>` : '—'}</td>
           <td>
             <div class="readiness-cell">
               <div class="readiness-bar"><span style="width:${readiness}%"></span></div>
@@ -402,6 +440,7 @@
           : 'Run assessment to populate the application catalog in the database.';
       }
       renderMeshFilterOptions();
+      renderClusterFindings();
       renderApplicationsTable();
       updatePaginationUi();
       setStatus(`Loaded ${applicationsPage.total.toLocaleString()} application(s)`);

@@ -99,6 +99,14 @@
         </div>
       </header>
 
+      <section id="cluster-findings-panel" class="cluster-findings hidden" aria-label="Cluster-wide findings">
+        <header class="cluster-findings-head">
+          <h3>Cluster-wide findings</h3>
+          <p class="hint" id="cluster-findings-summary">—</p>
+        </header>
+        <ul id="cluster-findings-list" class="findings compact"></ul>
+      </section>
+
       <div class="app-filters">
         <input type="search" id="app-search" class="filter-input" placeholder="Search namespace or hostname…" />
         <select id="app-risk-filter" class="filter-select" aria-label="Risk level">
@@ -123,12 +131,13 @@
               <th>Hostnames</th>
               <th>Istio labels</th>
               <th>Ingress</th>
+              <th>Blockers</th>
               <th>Readiness</th>
               <th>Risk</th>
             </tr>
           </thead>
           <tbody id="app-assess-tbody">
-            <tr><td colspan="8" class="hint">Run assessment or refresh to load applications.</td></tr>
+            <tr><td colspan="9" class="hint">Run assessment or refresh to load applications.</td></tr>
           </tbody>
         </table>
       </div>

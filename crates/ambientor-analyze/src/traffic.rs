@@ -3,6 +3,14 @@ use ambientor_types::{Finding, FindingCategory, FindingSeverity};
 
 const MIXED_MODE_DOC: &str = "https://preliminary.istio.io/latest/docs/ambient/migrate/";
 
+fn parse_resource_namespace(resource: &str) -> Option<String> {
+    let (ns, name) = resource.split_once('/')?;
+    if ns.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some(ns.to_string())
+}
+
 pub struct VsHttpRouteConflictRule;
 
 impl Rule for VsHttpRouteConflictRule {
@@ -60,6 +68,7 @@ impl Rule for L7WaypointRule {
                     ),
                 );
                 f.resource = Some(name.clone());
+                f.namespace = parse_resource_namespace(name.as_str());
                 f.doc_url = Some(MIXED_MODE_DOC.into());
                 f.remediation = Some("Deploy waypoint before migrating namespaces with L7 AuthZ".into());
                 f.evidence = Some(format!(
@@ -133,6 +142,7 @@ impl Rule for DestinationRuleSubsetsRule {
                     ),
                 );
                 f.resource = Some(name.clone());
+                f.namespace = parse_resource_namespace(name.as_str());
                 f.doc_url = Some(MIXED_MODE_DOC.into());
                 f.remediation = Some(
                     "Review subset labels and traffic policies; migrate to Gateway API/ServiceEntry patterns where appropriate"
