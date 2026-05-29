@@ -607,8 +607,17 @@
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       const count = data.applicationCount ?? data.application_count ?? 0;
+      const trigger = data.trigger || 'crd';
+      const assessName = data.assessmentName || data.assessment_name;
+      const assessNs = data.assessmentNamespace || data.assessment_namespace;
+      const crdHint =
+        trigger === 'crd' && assessName
+          ? ` via ${assessNs || 'ambientor-system'}/${assessName}`
+          : trigger === 'direct'
+            ? ' (direct API scan)'
+            : '';
       setStatus(
-        `Assessment complete — ${count.toLocaleString()} application(s) updated in database`
+        `Assessment complete${crdHint} — ${count.toLocaleString()} application(s) in database`
       );
       showPanel('assessments');
       appListPage = 1;

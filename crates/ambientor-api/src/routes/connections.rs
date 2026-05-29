@@ -138,6 +138,9 @@ pub async fn assess_connection(
         scores,
         summary,
         application_count: 0,
+        trigger: "direct".into(),
+        assessment_name: None,
+        assessment_namespace: None,
     }))
 }
 
