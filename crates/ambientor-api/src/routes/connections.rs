@@ -16,6 +16,7 @@ use axum::{
 use kube::Api;
 use serde::Serialize;
 
+use crate::routes::applications::persist_assessment_from_findings;
 use crate::routes::assess::{AssessRequest, AssessResponse};
 use crate::state::AppState;
 
@@ -116,10 +117,27 @@ pub async fn assess_connection(
         }
     }
 
+    if let Err(e) = persist_assessment_from_findings(
+        state.as_ref(),
+        &remote.client,
+        &cluster_ref,
+        &ctx,
+        &findings,
+    )
+    .await
+    {
+        tracing::warn!(
+            error = %e,
+            cluster_ref = %cluster_ref,
+            "failed to persist remote application assessments"
+        );
+    }
+
     Ok(Json(AssessResponse {
         findings,
         scores,
         summary,
+        application_count: 0,
     }))
 }
 

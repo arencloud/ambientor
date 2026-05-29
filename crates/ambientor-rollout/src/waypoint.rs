@@ -14,7 +14,7 @@ use tracing::info;
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
 use crate::labels::unlabel_namespace_use_waypoint;
-use ambientor_types::MeshInstance;
+use ambientor_types::{MeshInstance, RolloutStage};
 
 use crate::preflight::{preflight_before_deploy_waypoint, waypoint_gateway_stuck_message};
 use crate::verify::gateway_ready;
@@ -31,8 +31,9 @@ pub async fn deploy_waypoint(
     client: &Client,
     namespace: &str,
     mesh: &MeshInstance,
+    stages: &[RolloutStage],
 ) -> Result<(), RolloutError> {
-    preflight_before_deploy_waypoint(client, namespace, mesh).await?;
+    preflight_before_deploy_waypoint(client, namespace, mesh, stages).await?;
     let manifest = json!({
         "apiVersion": "gateway.networking.k8s.io/v1",
         "kind": "Gateway",

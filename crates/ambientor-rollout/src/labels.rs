@@ -35,6 +35,20 @@ pub async fn unlabel_namespace_ambient(client: &Client, name: &str) -> Result<()
     Ok(())
 }
 
+pub async fn remove_namespace_injection(client: &Client, name: &str) -> Result<(), RolloutError> {
+    let api: Api<Namespace> = Api::all(client.clone());
+    let patch = json!({
+        "metadata": {
+            "labels": { "istio-injection": null },
+            "annotations": { "sidecar.istio.io/inject": null }
+        }
+    });
+    api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await?;
+    info!(namespace = %name, "removed sidecar injection labels/annotations");
+    Ok(())
+}
+
 pub async fn unlabel_namespace_use_waypoint(
     client: &Client,
     name: &str,

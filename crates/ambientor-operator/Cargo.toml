@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 ambientor-analyze = { workspace = true }
 ambientor-core = { workspace = true }
+ambientor-dashboard = { workspace = true }
 ambientor-db = { workspace = true }
 ambientor-k8s = { workspace = true }
 ambientor-mesh = { workspace = true }

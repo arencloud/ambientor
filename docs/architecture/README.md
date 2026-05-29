@@ -23,6 +23,8 @@ See the repository [README](../../README.md) and CRDs under [`config/crd/`](../.
 
 Register remote clusters with `ClusterConnection` on the hub cluster. Credentials are stored in Kubernetes Secrets; the hub controller validates references and aggregates status.
 
+Postgres tables for fleet dashboard materialization (`clusters`, `mesh_instances`, `application_status`, `dashboard_snapshots`) are defined in [ADR 003](../adr/003-dashboard-multicluster-persistence.md). The portal dashboard API still live-reads the cluster until a sync reconciler lands.
+
 ## Implementation progress
 
 Phased tasks, PR history, and **next step**: [PROGRESS.md](../PROGRESS.md).

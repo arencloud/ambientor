@@ -1,5 +1,6 @@
 # Ambientor
 .env
+.dev-image-tag
 
 # Local IDE / agent config (not part of the product)
 .cursor/

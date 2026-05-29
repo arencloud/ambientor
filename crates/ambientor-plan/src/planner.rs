@@ -129,6 +129,24 @@ pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
             continue;
         }
         stages.push(RolloutStage {
+            name: format!("{}-enroll", wave.name),
+            r#type: RolloutStageType::EnrollNamespace,
+            namespaces: wave.namespaces.clone(),
+            requires_approval: true,
+        });
+        stages.push(RolloutStage {
+            name: format!("{}-remove-injection", wave.name),
+            r#type: RolloutStageType::RemoveInjection,
+            namespaces: wave.namespaces.clone(),
+            requires_approval: true,
+        });
+        stages.push(RolloutStage {
+            name: format!("{}-restart-sidecars", wave.name),
+            r#type: RolloutStageType::RollingRestart,
+            namespaces: wave.namespaces.clone(),
+            requires_approval: true,
+        });
+        stages.push(RolloutStage {
             name: format!("{}-label", wave.name),
             r#type: RolloutStageType::LabelNamespace,
             namespaces: wave.namespaces.clone(),

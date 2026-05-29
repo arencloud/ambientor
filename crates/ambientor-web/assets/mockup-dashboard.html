@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ambientor — Dashboard mockup</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .mockup-banner {
+      background: #fff8e1;
+      border-bottom: 1px solid #ffe082;
+      padding: 0.5rem 2rem;
+      font-size: 0.85rem;
+      color: #6d4c00;
+    }
+  </style>
+</head>
+<body>
+  <div class="mockup-banner">Design mockup — sample data. Live UI uses <code>/api/v1/dashboard</code>.</div>
+  <header class="header">
+    <div class="brand">
+      <img class="logo" src="/logo/icon-64.png" width="40" height="40" alt="" />
+      <h1>Ambientor</h1>
+    </div>
+    <nav>
+      <a href="#" class="active">Dashboard</a>
+      <a href="#">Assessments</a>
+      <a href="#">Plans</a>
+      <a href="#">Rollouts</a>
+    </nav>
+  </header>
+  <main class="dash-main">
+    <section class="dash-hero">
+      <div class="dash-cluster">
+        <p class="dash-eyebrow">Connected cluster</p>
+        <h2>cl01 — OpenShift</h2>
+        <p class="dash-meta">OSSM3 · Istio 1.28.6 · 2 control planes · Updated just now</p>
+      </div>
+      <button class="btn">Refresh</button>
+    </section>
+
+    <section class="status-summary" aria-label="Migration status summary">
+      <article class="status-card migrated">
+        <span class="status-count">1</span>
+        <span class="status-label">Migrated</span>
+      </article>
+      <article class="status-card processing">
+        <span class="status-count">0</span>
+        <span class="status-label">Processing</span>
+      </article>
+      <article class="status-card blocker">
+        <span class="status-count">0</span>
+        <span class="status-label">Blocker</span>
+      </article>
+      <article class="status-card failed">
+        <span class="status-count">0</span>
+        <span class="status-label">Failed</span>
+      </article>
+      <article class="status-card scanned">
+        <span class="status-count">3</span>
+        <span class="status-label">Scanned</span>
+      </article>
+      <article class="status-card not-scanned">
+        <span class="status-count">2</span>
+        <span class="status-label">Not scanned</span>
+      </article>
+    </section>
+
+    <section class="mesh-panel">
+      <header class="mesh-panel-head">
+        <h3>Control planes (istiod)</h3>
+        <span class="hint">Applications grouped by mesh instance / revision</span>
+      </header>
+
+      <article class="istiod-card ambient">
+        <div class="istiod-card-head">
+          <div>
+            <h4>mesh-ambient</h4>
+            <p class="istiod-sub">revision <code>ambient-v1-28-6</code> · ns <code>ambient-istio-system</code> · ambient</p>
+          </div>
+          <div class="istiod-counts">
+            <span class="pill migrated">1 migrated</span>
+            <span class="pill scanned">2 scanned</span>
+          </div>
+        </div>
+        <table class="app-table">
+          <thead>
+            <tr><th>Application (namespace)</th><th>Status</th><th>Dataplane</th><th>Assessment</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>ambient-demo</strong></td>
+              <td><span class="badge-status migrated">Migrated</span></td>
+              <td>ambient</td>
+              <td>ambient-demo-scan-assessment</td>
+            </tr>
+            <tr>
+              <td><strong>mesh-sidecar-2</strong></td>
+              <td><span class="badge-status migrated">Migrated</span></td>
+              <td>ambient</td>
+              <td>mesh-sidecar-2-scan-assessment</td>
+            </tr>
+            <tr>
+              <td><strong>ambient-bookinfo</strong></td>
+              <td><span class="badge-status scanned">Scanned</span></td>
+              <td>—</td>
+              <td>bookinfo-assessment</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+      <article class="istiod-card sidecar">
+        <div class="istiod-card-head">
+          <div>
+            <h4>mesh-demo</h4>
+            <p class="istiod-sub">revision <code>demo-v1-28-6</code> · ns <code>demo-istio-system</code> · sidecar</p>
+          </div>
+          <div class="istiod-counts">
+            <span class="pill scanned">3 scanned</span>
+            <span class="pill not-scanned">1 not scanned</span>
+          </div>
+        </div>
+        <table class="app-table">
+          <thead>
+            <tr><th>Application (namespace)</th><th>Status</th><th>Dataplane</th><th>Assessment</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>mesh-sidecar-1</strong></td>
+              <td><span class="badge-status scanned">Scanned</span></td>
+              <td>sidecar</td>
+              <td>mesh-sidecar-1-scan</td>
+            </tr>
+            <tr>
+              <td><strong>legacy-app</strong></td>
+              <td><span class="badge-status not-scanned">Not scanned</span></td>
+              <td>sidecar</td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

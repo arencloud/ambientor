@@ -17,7 +17,7 @@
     </div>
     <nav>
       <a href="#dashboard" class="active">Dashboard</a>
-      <a href="#assessments">Assessments</a>
+      <a href="#assessments">Applications</a>
       <a href="#plans">Migration Plans</a>
       <a href="#rollouts">Rollouts</a>
     </nav>
@@ -39,59 +39,130 @@
   </header>
   <div id="status-banner" class="status-banner hidden" role="status"></div>
   <main>
-    <section id="dashboard" class="panel">
-      <h2>Cluster dashboard</h2>
-      <p class="hint">Run a live assessment against the connected cluster or browse completed assessments.</p>
-      <div class="cards">
-        <div class="card">
-          <h3>Overall readiness</h3>
-          <p class="score" id="dash-overall-score">—</p>
+    <section id="dashboard" class="panel dash-main">
+      <div class="dash-hero">
+        <div class="dash-cluster">
+          <p class="dash-eyebrow">Connected cluster</p>
+          <h2 id="dash-cluster-name">Loading…</h2>
+          <p class="dash-meta" id="dash-cluster-meta">—</p>
         </div>
-        <div class="card">
-          <h3>Blockers</h3>
-          <p class="metric danger" id="dash-blockers">—</p>
-        </div>
-        <div class="card">
-          <h3>Warnings</h3>
-          <p class="metric warn" id="dash-warnings">—</p>
-        </div>
-        <div class="card">
-          <h3>Info</h3>
-          <p class="metric" id="dash-info">—</p>
+        <div class="dash-hero-actions">
+          <button id="refresh-dashboard" class="btn">Refresh</button>
         </div>
       </div>
-      <div class="score-breakdown">
-        <span>Readiness: <strong id="dash-readiness">—</strong></span>
-        <span>Sidecar: <strong id="dash-sidecar">—</strong></span>
-        <span>Traffic: <strong id="dash-traffic">—</strong></span>
-      </div>
-      <button id="run-assess" class="btn primary">Run assessment now</button>
-      <h3>Latest findings</h3>
-      <ul id="dash-findings" class="findings"></ul>
-      <h3>Live events</h3>
-      <div id="live-events" class="timeline"></div>
+
+      <section class="status-summary" id="dash-status-summary" aria-label="Migration status summary">
+        <article class="status-card migrated">
+          <span class="status-count" id="sum-migrated">—</span>
+          <span class="status-label">Migrated</span>
+        </article>
+        <article class="status-card processing">
+          <span class="status-count" id="sum-processing">—</span>
+          <span class="status-label">Processing</span>
+        </article>
+        <article class="status-card blocker">
+          <span class="status-count" id="sum-blocker">—</span>
+          <span class="status-label">Blocker</span>
+        </article>
+        <article class="status-card failed">
+          <span class="status-count" id="sum-failed">—</span>
+          <span class="status-label">Failed</span>
+        </article>
+        <article class="status-card scanned">
+          <span class="status-count" id="sum-scanned">—</span>
+          <span class="status-label">Scanned</span>
+        </article>
+        <article class="status-card not-scanned">
+          <span class="status-count" id="sum-not-scanned">—</span>
+          <span class="status-label">Not scanned</span>
+        </article>
+      </section>
+
+      <section class="mesh-panel">
+        <header class="mesh-panel-head">
+          <h3>Control planes (istiod)</h3>
+          <span class="hint" id="dash-last-updated">Applications per mesh instance</span>
+        </header>
+        <div id="dash-mesh-instances"></div>
+      </section>
     </section>
 
-    <section id="assessments" class="panel hidden">
-      <h2>Assessments</h2>
-      <div class="assessments-layout">
-        <aside class="assessment-sidebar">
-          <button id="refresh-assessments" class="btn">Refresh list</button>
-          <ul id="assessment-list" class="assessment-list"></ul>
-        </aside>
-        <div class="assessment-detail">
-          <header class="detail-header">
-            <h3 id="detail-title">Select an assessment</h3>
-            <span id="detail-phase" class="phase-badge"></span>
-          </header>
+    <section id="assessments" class="panel hidden app-assessments">
+      <header class="panel-toolbar">
+        <div>
+          <h2>Applications</h2>
+          <p class="hint" id="assess-meta">Migration readiness per namespace — run assessment to refresh database.</p>
+        </div>
+        <div class="panel-toolbar-actions">
+          <button id="refresh-assessments" class="btn">Refresh</button>
+          <button id="run-assess" class="btn primary">Run assessment</button>
+        </div>
+      </header>
+
+      <div class="app-filters">
+        <input type="search" id="app-search" class="filter-input" placeholder="Search namespace or hostname…" />
+        <select id="app-risk-filter" class="filter-select" aria-label="Risk level">
+          <option value="">All risks</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </select>
+        <select id="app-mesh-filter" class="filter-select" aria-label="Istiod revision">
+          <option value="">All control planes</option>
+        </select>
+      </div>
+
+      <div class="app-table-wrap">
+        <table class="app-assess-table" id="app-assess-table">
+          <thead>
+            <tr>
+              <th>Application</th>
+              <th>Control plane</th>
+              <th>Dataplane</th>
+              <th>Hostnames</th>
+              <th>Istio labels</th>
+              <th>Ingress</th>
+              <th>Readiness</th>
+              <th>Risk</th>
+            </tr>
+          </thead>
+          <tbody id="app-assess-tbody">
+            <tr><td colspan="8" class="hint">Run assessment or refresh to load applications.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <footer class="app-pagination">
+        <button type="button" id="app-page-prev" class="btn" disabled>Previous</button>
+        <span id="app-page-info" class="hint">—</span>
+        <button type="button" id="app-page-next" class="btn" disabled>Next</button>
+      </footer>
+
+      <aside id="app-detail-drawer" class="app-detail-drawer hidden" aria-hidden="true">
+        <header class="drawer-head">
+          <div>
+            <p class="dash-eyebrow">Application detail</p>
+            <h3 id="app-detail-title">—</h3>
+          </div>
+          <button type="button" id="app-detail-close" class="btn" aria-label="Close detail">Close</button>
+        </header>
+        <div class="drawer-body">
+          <div class="app-detail-grid" id="app-detail-meta"></div>
           <div class="cards compact">
-            <div class="card"><h4>Overall</h4><p class="score small" id="detail-overall-score">—</p></div>
+            <div class="card"><h4>Readiness</h4><p class="score small" id="detail-overall-score">—</p></div>
             <div class="card"><h4>Blockers</h4><p class="metric danger" id="detail-blockers">—</p></div>
             <div class="card"><h4>Warnings</h4><p class="metric warn" id="detail-warnings">—</p></div>
           </div>
+          <h4>Suggestions</h4>
+          <ul id="app-detail-suggestions" class="suggestions-list"></ul>
+          <h4>Findings</h4>
           <ul id="detail-findings" class="findings"></ul>
         </div>
-      </div>
+      </aside>
+
+      <h4 class="live-events-head">Live events</h4>
+      <div id="live-events" class="timeline"></div>
     </section>
 
     <section id="plans" class="panel hidden">
@@ -132,6 +203,7 @@
             <span id="rollout-detail-phase" class="phase-badge"></span>
           </header>
           <p id="rollout-stage-progress" class="hint"></p>
+          <p id="mesh-instances-hint" class="hint"></p>
           <div class="plan-actions">
             <button id="approve-rollout" class="btn primary" disabled>Approve current stage</button>
           </div>

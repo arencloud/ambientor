@@ -20,17 +20,137 @@ pub struct MeshTarget {
     pub control_plane_namespace: Option<String>,
 }
 
-/// Resolved mesh control plane (istiod revision + discovery label).
+/// How a namespace is associated with a particular istiod / OSSM control plane.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum MeshEnrollmentMode {
+    /// Namespace `istio.io/rev` must match the control-plane revision.
+    RevisionOnly,
+    /// Namespace must carry a discovery selector label (key/value from istiod mesh config).
+    DiscoveryLabel,
+    /// Both revision and discovery label are required (common on OSSM / Sail).
+    RevisionAndDiscovery,
+    /// OSSM `ServiceMeshMemberRoll` membership plus revision/discovery labels when configured.
+    OssmMemberRoll,
+}
+
+/// Enrollment contract for a mesh instance, derived from istiod mesh config and cluster observation.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MeshEnrollment {
+    pub mode: MeshEnrollmentMode,
+    pub revision: String,
+    /// Label key from istiod `discoverySelectors` (e.g. `istio-discovery`); absent when revision-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_label_key: Option<String>,
+    /// Value namespaces must carry for discovery enrollment; absent when revision-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_label_value: Option<String>,
+    /// Control-plane namespace hosting `ServiceMeshMemberRoll` when mode is `ossmMemberRoll`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_roll_namespace: Option<String>,
+    /// True when enrollment was read from istiod ConfigMap mesh config (not inferred).
+    #[serde(default)]
+    pub from_istiod_config: bool,
+}
+
+/// Resolved mesh control plane (istiod revision + discovery label).
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct MeshInstance {
     pub revision: String,
+    /// Primary discovery label value for UI/selection (same as `enrollment.discovery_label_value` when set).
     pub discovery_label: String,
     pub control_plane_namespace: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     pub ambient: bool,
     pub enrolled_namespace_count: usize,
+    pub enrollment: MeshEnrollment,
+}
+
+/// Build enrollment from pre–`MeshEnrollment` rollout status (`revision` + `discoveryLabel` only).
+pub fn legacy_enrollment_from_mesh_instance(mesh: &MeshInstance) -> MeshEnrollment {
+    MeshEnrollment {
+        mode: MeshEnrollmentMode::RevisionAndDiscovery,
+        revision: mesh.revision.clone(),
+        discovery_label_key: Some("istio-discovery".into()),
+        discovery_label_value: Some(mesh.discovery_label.clone()),
+        member_roll_namespace: None,
+        from_istiod_config: false,
+    }
+}
+
+impl<'de> Deserialize<'de> for MeshInstance {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Raw {
+            revision: String,
+            discovery_label: String,
+            control_plane_namespace: String,
+            #[serde(default)]
+            version: Option<String>,
+            ambient: bool,
+            #[serde(default)]
+            enrolled_namespace_count: usize,
+            #[serde(default)]
+            enrollment: Option<MeshEnrollment>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        let enrollment = raw
+            .enrollment
+            .unwrap_or_else(|| legacy_enrollment_from_mesh_instance(&MeshInstance {
+                revision: raw.revision.clone(),
+                discovery_label: raw.discovery_label.clone(),
+                control_plane_namespace: raw.control_plane_namespace.clone(),
+                version: raw.version.clone(),
+                ambient: raw.ambient,
+                enrolled_namespace_count: raw.enrolled_namespace_count,
+                enrollment: MeshEnrollment {
+                    mode: MeshEnrollmentMode::RevisionOnly,
+                    revision: String::new(),
+                    discovery_label_key: None,
+                    discovery_label_value: None,
+                    member_roll_namespace: None,
+                    from_istiod_config: false,
+                },
+            }));
+        Ok(MeshInstance {
+            revision: raw.revision,
+            discovery_label: raw.discovery_label,
+            control_plane_namespace: raw.control_plane_namespace,
+            version: raw.version,
+            ambient: raw.ambient,
+            enrolled_namespace_count: raw.enrolled_namespace_count,
+            enrollment,
+        })
+    }
+}
+
+#[cfg(test)]
+mod mesh_instance_tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_rollout_status_without_enrollment_field() {
+        let json = r#"{
+            "revision": "ambient-v1-28-6",
+            "discoveryLabel": "mesh-ambient",
+            "controlPlaneNamespace": "ambient-istio-system",
+            "ambient": true,
+            "enrolledNamespaceCount": 2
+        }"#;
+        let mesh: MeshInstance = serde_json::from_str(json).expect("deserialize legacy status");
+        assert_eq!(mesh.enrollment.revision, "ambient-v1-28-6");
+        assert_eq!(
+            mesh.enrollment.discovery_label_value.as_deref(),
+            Some("mesh-ambient")
+        );
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -246,6 +366,8 @@ pub struct MigrationPlanStatus {
 #[serde(rename_all = "PascalCase")]
 pub enum RolloutStageType {
     InstallAmbientComponents,
+    /// Enroll namespaces on the rollout mesh target (labels, OSSM MemberRoll, etc.).
+    EnrollNamespace,
     DeployWaypoint,
     LabelNamespace,
     TranslatePolicy,

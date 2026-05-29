@@ -6,6 +6,12 @@ use ambientor_types::dto::AuditEvent;
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use ambientor_dashboard::{
+    ApplicationDetail, ApplicationListPage, ClusterAssessmentRun, DashboardResponse,
+    FleetDashboardResponse,
+};
+use crate::applications::ApplicationListQuery;
+
 use crate::pool::DbError;
 use crate::repository::UserRecord;
 use crate::scan::{ScanRunRow, StoredAssessment};
@@ -36,6 +42,41 @@ pub trait AuditStore: Send + Sync {
 }
 
 #[async_trait]
+pub trait ApplicationAssessmentStore: Send + Sync {
+    async fn replace_run(&self, run: &ClusterAssessmentRun) -> Result<uuid::Uuid, DbError>;
+
+    async fn list_applications(
+        &self,
+        query: ApplicationListQuery,
+    ) -> Result<ApplicationListPage, DbError>;
+
+    async fn get_application(
+        &self,
+        cluster_ref: &str,
+        namespace: &str,
+    ) -> Result<Option<ApplicationDetail>, DbError>;
+}
+
+#[async_trait]
+pub trait DashboardStore: Send + Sync {
+    async fn sync_snapshot(&self, response: &DashboardResponse) -> Result<(), DbError>;
+
+    async fn load_by_cluster_ref(
+        &self,
+        cluster_ref: &str,
+    ) -> Result<Option<DashboardResponse>, DbError>;
+
+    async fn load_fleet(&self) -> Result<Option<FleetDashboardResponse>, DbError>;
+
+    async fn is_snapshot_stale(&self, cluster_ref: &str) -> Result<bool, DbError>;
+
+    async fn rebuild_from_latest_assessment(
+        &self,
+        cluster_ref: &str,
+    ) -> Result<Option<DashboardResponse>, DbError>;
+}
+
+#[async_trait]
 pub trait UserStore: Send + Sync {
     async fn find_by_username(&self, username: &str) -> Result<Option<UserRecord>, DbError>;
 
@@ -59,5 +100,7 @@ pub struct DbBackend {
     pub pool: sqlx::PgPool,
     pub scan: Arc<dyn ScanStore>,
     pub audit: Arc<dyn AuditStore>,
+    pub dashboard: Arc<dyn DashboardStore>,
+    pub applications: Arc<dyn ApplicationAssessmentStore>,
     pub users: Arc<dyn UserStore>,
 }

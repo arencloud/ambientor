@@ -5,7 +5,9 @@ use ambientor_auth::oidc::{OidcConfig, oidc_config_from_env, oidc_default_roles_
 use ambientor_auth::oidc_flow::OidcFlowService;
 use ambientor_auth::rbac::RbacEnforcer;
 use ambientor_auth::service::AuthService;
-use ambientor_db::{AuditStore, DbBackend, ScanStore, open_postgres};
+use ambientor_db::{
+    ApplicationAssessmentStore, AuditStore, DashboardStore, DbBackend, ScanStore, open_postgres,
+};
 use tokio::sync::RwLock;
 
 use crate::routes::sse::SseHub;
@@ -96,6 +98,14 @@ impl AppState {
 
     pub fn scan_store(&self) -> Option<Arc<dyn ScanStore>> {
         self.db.as_ref().map(|d| d.scan.clone())
+    }
+
+    pub fn dashboard_store(&self) -> Option<Arc<dyn DashboardStore>> {
+        self.db.as_ref().map(|d| d.dashboard.clone())
+    }
+
+    pub fn applications_store(&self) -> Option<Arc<dyn ApplicationAssessmentStore>> {
+        self.db.as_ref().map(|d| d.applications.clone())
     }
 
     pub fn verify_jwt(&self, token: &str) -> Result<Claims, ambientor_auth::jwt::JwtError> {

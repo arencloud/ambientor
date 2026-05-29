@@ -21,14 +21,20 @@ async fn main() -> anyhow::Result<()> {
     let k8s = K8sClient::in_cluster().await?;
     let client = k8s.client.clone();
 
-    let (scan_repo, audit_repo) = if let Ok(url) = std::env::var("DATABASE_URL") {
-        let db = ambientor_db::open_postgres(&url).await?;
-        tracing::info!("database migrations applied");
-        (Some(db.scan), Some(db.audit))
-    } else {
-        tracing::warn!("DATABASE_URL not set; scans and audit log will not be persisted");
-        (None, None)
-    };
+    let (scan_repo, audit_repo, dashboard_repo, applications_repo) =
+        if let Ok(url) = std::env::var("DATABASE_URL") {
+            let db = ambientor_db::open_postgres(&url).await?;
+            tracing::info!("database migrations applied");
+            (
+                Some(db.scan),
+                Some(db.audit),
+                Some(db.dashboard),
+                Some(db.applications),
+            )
+        } else {
+            tracing::warn!("DATABASE_URL not set; scans and audit log will not be persisted");
+            (None, None, None, None)
+        };
 
     let rollout_engine = Arc::new(RolloutEngine::new(client.clone()));
     let resource_cache = Arc::new(ClusterResourceCache::spawn(client.clone()));
@@ -38,6 +44,8 @@ async fn main() -> anyhow::Result<()> {
         rollout_engine,
         scan_repo,
         audit_repo,
+        dashboard_repo,
+        applications_repo,
         resource_cache,
     )
     .await;

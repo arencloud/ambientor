@@ -18,10 +18,16 @@
 {{- define "ambientor.imageRef" -}}
 {{- $root := required "root" .root -}}
 {{- $component := required "component" .component -}}
-{{- $registry := $root.Values.image.registry -}}
-{{- $tag := $root.Values.image.tag -}}
-{{- if $registry -}}
-{{- printf "%s/ambientor-%s:%s" $registry $component $tag -}}
+{{- $defaultRegistry := $root.Values.image.registry -}}
+{{- $defaultTag := $root.Values.image.tag -}}
+{{- $componentValues := (get $root.Values $component | default dict) -}}
+{{- $componentImage := (get $componentValues "image" | default dict) -}}
+{{- $repo := (get $componentImage "repository" | default "") -}}
+{{- $tag := (get $componentImage "tag" | default $defaultTag) -}}
+{{- if $repo -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- else if $defaultRegistry -}}
+{{- printf "%s/ambientor-%s:%s" $defaultRegistry $component $tag -}}
 {{- else -}}
 {{- printf "ambientor-%s:%s" $component $tag -}}
 {{- end -}}

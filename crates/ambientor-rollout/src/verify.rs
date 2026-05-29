@@ -1,5 +1,5 @@
 use ambientor_mesh::dynamic::{api_resource, list_cr_in_namespace};
-use ambientor_mesh::mesh_instances::namespace_enrolled_on_mesh;
+use ambientor_mesh::namespace_enrolled_on_mesh;
 use ambientor_types::MeshInstance;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::api::DynamicObject;

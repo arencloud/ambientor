@@ -66,7 +66,9 @@ async fn revert_stage(client: &Client, stage: &RolloutStage) -> Result<String, R
         RolloutStageType::VerifyTraffic | RolloutStageType::DryRun => {
             Ok(format!("No resources to revert for {:?}", stage.r#type))
         }
-        RolloutStageType::RemoveInjection | RolloutStageType::InstallAmbientComponents => {
+        RolloutStageType::EnrollNamespace
+        | RolloutStageType::RemoveInjection
+        | RolloutStageType::InstallAmbientComponents => {
             Ok(format!("No rollback implemented for {:?}", stage.r#type))
         }
     }

@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use ambientor_core::scoring::compute_scores;
-use ambientor_db::{ScanStore, StoredAssessment, cluster_ref_from_env};
+use ambientor_db::{
+    ApplicationAssessmentStore, DashboardStore, ScanStore, StoredAssessment,
+    assessment_sync::persist_full_assessment, cluster_ref_from_env,
+};
 use ambientor_k8s::{ClusterResourceCache, detect_platform};
 use ambientor_mesh::inventory::{self, CoreSnapshot};
 use ambientor_scan::default_registry;
@@ -20,11 +23,15 @@ use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 pub async fn run(
     client: Client,
     scan_repo: Option<Arc<dyn ScanStore>>,
+    dashboard_repo: Option<Arc<dyn DashboardStore>>,
+    applications_repo: Option<Arc<dyn ApplicationAssessmentStore>>,
     cache: Option<Arc<ClusterResourceCache>>,
 ) {
     let ctx = Arc::new(AssessmentContext {
         client,
         scan_repo,
+        dashboard_repo,
+        applications_repo,
         cache,
     });
     Controller::new(
@@ -44,6 +51,8 @@ pub async fn run(
 struct AssessmentContext {
     client: Client,
     scan_repo: Option<Arc<dyn ScanStore>>,
+    dashboard_repo: Option<Arc<dyn DashboardStore>>,
+    applications_repo: Option<Arc<dyn ApplicationAssessmentStore>>,
     cache: Option<Arc<ClusterResourceCache>>,
 }
 
@@ -120,6 +129,25 @@ async fn reconcile_inner(
 
         if let Err(e) = ensure_plan_for_assessment(client, &ns, name).await {
             tracing::warn!(error = %e, assessment = %name, "failed to ensure MigrationPlan");
+        }
+
+        if let (Some(apps), Some(dash)) = (
+            &assess_ctx.applications_repo,
+            &assess_ctx.dashboard_repo,
+        ) {
+            let cluster_ref = cluster_ref_from_env();
+            if let Err(e) = persist_full_assessment(
+                apps.as_ref(),
+                dash.as_ref(),
+                client,
+                &cluster_ref,
+                &rule_ctx,
+                &findings,
+            )
+            .await
+            {
+                tracing::warn!(error = %e, "failed to persist assessment and dashboard");
+            }
         }
     }
     Ok(())

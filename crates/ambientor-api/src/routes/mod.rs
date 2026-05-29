@@ -1,8 +1,10 @@
 pub mod assess;
+pub mod applications;
 pub mod assessments;
 pub mod audit;
 pub mod auth;
 pub mod connections;
+pub mod dashboard;
 pub mod health;
 pub mod mesh_instances;
 pub mod openshift;
@@ -33,10 +35,21 @@ pub fn api_router() -> Router<Arc<AppState>> {
             "/api/v1/connections/{namespace}/{name}/assess",
             post(connections::assess_connection),
         )
+        .route("/api/v1/dashboard", get(dashboard::get_dashboard))
+        .route("/api/v1/dashboard/fleet", get(dashboard::get_fleet_dashboard))
+        .route("/api/v1/applications", get(applications::list_applications))
+        .route(
+            "/api/v1/applications/{namespace}",
+            get(applications::get_application),
+        )
         .route("/api/v1/assessments", get(assessments::list_assessments))
         .route(
             "/api/v1/mesh-instances",
             get(mesh_instances::list_mesh_instances),
+        )
+        .route(
+            "/api/v1/mesh-instances/enroll",
+            post(mesh_instances::enroll_namespace),
         )
         .route("/api/v1/scans", get(scans::list_scans))
         .route("/api/v1/plans", get(plans::list_plans))

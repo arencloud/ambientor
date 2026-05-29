@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use ambientor_mesh::mesh_instances::discover_mesh_instances;
-use ambientor_types::MeshInstance;
+use ambientor_mesh::enroll_namespace_on_mesh;
+use ambientor_mesh::mesh_instances::{discover_mesh_instances, resolve_mesh_target};
+use ambientor_types::{MeshEnrollment, MeshInstance};
 use axum::{Json, extract::State, http::StatusCode};
 
 use crate::state::AppState;
@@ -17,6 +18,7 @@ pub struct MeshInstanceListItem {
     pub version: Option<String>,
     pub ambient: bool,
     pub enrolled_namespace_count: usize,
+    pub enrollment: MeshEnrollment,
     /// True when this is the only ambient instance (safe to omit rollout.spec.meshTarget).
     pub auto_select: bool,
 }
@@ -30,9 +32,26 @@ impl From<MeshInstance> for MeshInstanceListItem {
             version: i.version,
             ambient: i.ambient,
             enrolled_namespace_count: i.enrolled_namespace_count,
+            enrollment: i.enrollment,
             auto_select: false,
         }
     }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnrollNamespaceRequest {
+    pub namespace: String,
+    #[serde(default)]
+    pub mesh_target: Option<ambientor_types::MeshTarget>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnrollNamespaceResponse {
+    pub namespace: String,
+    pub mesh: MeshInstanceListItem,
+    pub actions: Vec<String>,
 }
 
 /// List Istio / OSSM control-plane instances (for rollout meshTarget selection).
@@ -51,4 +70,25 @@ pub async fn list_mesh_instances(
         }
     }
     Ok(Json(items))
+}
+
+/// Enroll a namespace on a mesh instance (same logic as rollout `EnrollNamespace` stage).
+pub async fn enroll_namespace(
+    State(_state): State<Arc<AppState>>,
+    Json(body): Json<EnrollNamespaceRequest>,
+) -> Result<Json<EnrollNamespaceResponse>, (StatusCode, String)> {
+    let k8s = k8s_client().await?;
+    let instances = discover_mesh_instances(&k8s.client)
+        .await
+        .map_err(internal)?;
+    let mesh = resolve_mesh_target(&instances, body.mesh_target.as_ref())
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let actions = enroll_namespace_on_mesh(&k8s.client, &body.namespace, &mesh)
+        .await
+        .map_err(internal)?;
+    Ok(Json(EnrollNamespaceResponse {
+        namespace: body.namespace,
+        mesh: mesh.into(),
+        actions,
+    }))
 }

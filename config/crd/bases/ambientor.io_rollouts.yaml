@@ -46,6 +46,7 @@ spec:
                         type: string
                         enum:
                           - InstallAmbientComponents
+                          - EnrollNamespace
                           - DeployWaypoint
                           - LabelNamespace
                           - TranslatePolicy
@@ -84,6 +85,21 @@ spec:
                       type: boolean
                     enrolledNamespaceCount:
                       type: integer
+                    enrollment:
+                      type: object
+                      properties:
+                        mode:
+                          type: string
+                        revision:
+                          type: string
+                        discoveryLabelKey:
+                          type: string
+                        discoveryLabelValue:
+                          type: string
+                        memberRollNamespace:
+                          type: string
+                        fromIstiodConfig:
+                          type: boolean
                 conditions:
                   type: array
                   items:

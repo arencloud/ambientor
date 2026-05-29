@@ -11,8 +11,10 @@
     requireAuthForApprove: false,
   };
 
-  let assessments = [];
-  let selectedKey = null;
+  let applicationsPage = { items: [], total: 0, page: 1, pageSize: 50 };
+  let appListPage = 1;
+  let appListFilters = { q: '', riskLevel: '', meshRevision: '' };
+  let selectedAppNamespace = null;
   let plans = [];
   let selectedPlanKey = null;
   let rollouts = [];
@@ -171,10 +173,11 @@
   }
 
   function renderScores(scores, prefix) {
-    $(prefix + 'overall-score').textContent = scores?.overall ?? '—';
-    const readiness = $('dash-readiness');
-    const sidecar = $('dash-sidecar');
-    const traffic = $('dash-traffic');
+    const overall = $(prefix + 'overall-score');
+    if (overall) overall.textContent = scores?.overall ?? '—';
+    const readiness = $(prefix + 'readiness');
+    const sidecar = $(prefix + 'sidecar');
+    const traffic = $(prefix + 'traffic');
     if (readiness) readiness.textContent = scores?.readiness ?? '—';
     if (sidecar) {
       sidecar.textContent = scores?.sidecarDependency ?? scores?.sidecar_dependency ?? '—';
@@ -229,66 +232,372 @@
     (findings || []).forEach((f) => list.appendChild(renderFinding(f)));
   }
 
-  function itemKey(a) {
-    return a.namespace + '/' + a.name;
+  function riskBadgeClass(risk) {
+    const r = (risk || '').toLowerCase();
+    return 'risk-badge ' + (r || 'low');
   }
 
-  function renderAssessmentList() {
-    const ul = $('assessment-list');
-    ul.innerHTML = '';
-    assessments.forEach((a) => {
-      const li = document.createElement('li');
-      const key = itemKey(a);
-      li.className = 'assessment-item' + (key === selectedKey ? ' selected' : '');
-      li.innerHTML = `
-        <button type="button" data-key="${escapeHtml(key)}">
-          <span class="name">${escapeHtml(a.namespace)}/${escapeHtml(a.name)}</span>
-          <span class="phase">${escapeHtml(a.phase)}</span>
-          <span class="score-mini">${a.scores?.overall ?? '—'}/100</span>
-        </button>
-      `;
-      li.querySelector('button').addEventListener('click', () => selectAssessment(key));
-      ul.appendChild(li);
+  function formatLabels(labels) {
+    if (!labels || typeof labels !== 'object') return '—';
+    const entries = Object.entries(labels);
+    if (!entries.length) return '—';
+    return entries.map(([k, v]) => `${k}=${v}`).join(', ');
+  }
+
+  function formatDataplane(app) {
+    const mode = app.dataplaneMode || app.dataplane_mode;
+    if (mode === 'ambient' || mode === 'sidecar' || mode === 'notEnrolled') {
+      if (mode === 'notEnrolled') return 'not enrolled';
+      return mode;
+    }
+    if (app.ambientDataplane || app.ambient_dataplane) return 'ambient';
+    const labels = app.namespaceLabels || app.namespace_labels;
+    if (labels && labels['istio.io/dataplane-mode'] === 'ambient') return 'ambient';
+    if (
+      labels &&
+      (labels['istio.io/rev'] ||
+        labels['istio-discovery'] ||
+        labels['istio-injection'] === 'enabled' ||
+        labels['istio-injection'] === 'true')
+    ) {
+      return 'sidecar';
+    }
+    return '—';
+  }
+
+  function dataplaneBadgeClass(mode) {
+    const m = (mode || '').toLowerCase();
+    if (m === 'ambient') return 'dataplane-ambient';
+    if (m === 'sidecar') return 'dataplane-sidecar';
+    return 'dataplane-unknown';
+  }
+
+  function formatIngress(app) {
+    if (!app.ingressGatewayNamespace && !app.ingress_gateway_namespace) return '—';
+    if (app.ingressSameNamespace || app.ingress_same_namespace) return 'Same namespace';
+    return `Separate (${app.ingressGatewayNamespace || app.ingress_gateway_namespace})`;
+  }
+
+  function formatHostnames(hostnames) {
+    if (!hostnames || !hostnames.length) return '—';
+    if (hostnames.length <= 2) return hostnames.join(', ');
+    return `${hostnames.slice(0, 2).join(', ')} +${hostnames.length - 2}`;
+  }
+
+  function formatControlPlane(app) {
+    const parts = [
+      app.discoveryLabel || app.discovery_label,
+      app.meshRevision || app.mesh_revision,
+    ].filter(Boolean);
+    return parts.length ? parts.join(' · ') : '—';
+  }
+
+  function renderMeshFilterOptions() {
+    const select = $('app-mesh-filter');
+    if (!select) return;
+    const revisions = new Set();
+    (applicationsPage.items || []).forEach((a) => {
+      const rev = a.meshRevision || a.mesh_revision;
+      if (rev) revisions.add(rev);
+    });
+    const current = select.value;
+    select.innerHTML = '<option value="">All control planes</option>';
+    [...revisions].sort().forEach((rev) => {
+      const opt = document.createElement('option');
+      opt.value = rev;
+      opt.textContent = rev;
+      select.appendChild(opt);
+    });
+    select.value = current;
+  }
+
+  function renderApplicationsTable() {
+    const tbody = $('app-assess-tbody');
+    if (!tbody) return;
+    const items = applicationsPage.items || [];
+    if (!items.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="8" class="hint">No applications match filters. Run assessment to scan the cluster.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items
+      .map((app) => {
+        const ns = app.namespace;
+        const selected = ns === selectedAppNamespace ? ' selected' : '';
+        const readiness = app.readinessPct ?? app.readiness_pct ?? 0;
+        const risk = app.riskLevel || app.risk_level || 'low';
+        const dp = formatDataplane(app);
+        return `<tr class="app-row${selected}" data-ns="${escapeHtml(ns)}" tabindex="0">
+          <td><strong>${escapeHtml(ns)}</strong></td>
+          <td>${escapeHtml(formatControlPlane(app))}</td>
+          <td><span class="badge-dataplane ${dataplaneBadgeClass(dp)}">${escapeHtml(dp)}</span></td>
+          <td class="mono">${escapeHtml(formatHostnames(app.hostnames))}</td>
+          <td class="mono small">${escapeHtml(formatLabels(app.namespaceLabels || app.namespace_labels))}</td>
+          <td>${escapeHtml(formatIngress(app))}</td>
+          <td>
+            <div class="readiness-cell">
+              <div class="readiness-bar"><span style="width:${readiness}%"></span></div>
+              <span>${readiness}%</span>
+            </div>
+          </td>
+          <td><span class="${riskBadgeClass(risk)}">${escapeHtml(String(risk))}</span></td>
+        </tr>`;
+      })
+      .join('');
+
+    tbody.querySelectorAll('.app-row').forEach((row) => {
+      const ns = row.getAttribute('data-ns');
+      row.addEventListener('click', () => openApplicationDetail(ns));
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openApplicationDetail(ns);
+        }
+      });
     });
   }
 
-  function selectAssessment(key) {
-    selectedKey = key;
-    const a = assessments.find((x) => itemKey(x) === key);
-    if (!a) return;
-    renderAssessmentList();
-    $('detail-title').textContent = `${a.namespace}/${a.name}`;
-    $('detail-phase').textContent = a.phase;
-    $('detail-phase').className = 'phase-badge ' + (a.phase || '').toLowerCase();
-    renderScores(a.scores, 'detail-');
-    renderSummary(a.summary, 'detail-');
-    renderFindings(a.findings, 'detail-findings');
-    showPanel('assessments');
+  function updatePaginationUi() {
+    const total = applicationsPage.total || 0;
+    const page = applicationsPage.page || appListPage;
+    const pageSize = applicationsPage.pageSize || applicationsPage.page_size || 50;
+    const pages = Math.max(1, Math.ceil(total / pageSize));
+    const info = $('app-page-info');
+    if (info) {
+      info.textContent = total
+        ? `Page ${page} of ${pages} · ${total.toLocaleString()} application(s)`
+        : 'No applications';
+    }
+    const prev = $('app-page-prev');
+    const next = $('app-page-next');
+    if (prev) prev.disabled = page <= 1;
+    if (next) next.disabled = page >= pages;
+  }
+
+  function applicationsQueryString() {
+    const params = new URLSearchParams();
+    params.set('page', String(appListPage));
+    params.set('pageSize', '50');
+    if (appListFilters.q) params.set('q', appListFilters.q);
+    if (appListFilters.riskLevel) params.set('riskLevel', appListFilters.riskLevel);
+    if (appListFilters.meshRevision) params.set('meshRevision', appListFilters.meshRevision);
+    return params.toString();
+  }
+
+  async function loadApplications() {
+    setStatus('Loading applications…');
+    try {
+      const res = await fetch(API() + '/api/v1/applications?' + applicationsQueryString());
+      if (res.status === 503) {
+        throw new Error('Database not configured (set DATABASE_URL on API)');
+      }
+      if (!res.ok) throw new Error(await res.text());
+      applicationsPage = await res.json();
+      appListPage = applicationsPage.page || 1;
+      const meta = $('assess-meta');
+      if (meta) {
+        const when = applicationsPage.lastAssessedAt || applicationsPage.last_assessed_at;
+        meta.textContent = when
+          ? `${applicationsPage.total.toLocaleString()} application(s) · last assessed ${new Date(when).toLocaleString()}`
+          : 'Run assessment to populate the application catalog in the database.';
+      }
+      renderMeshFilterOptions();
+      renderApplicationsTable();
+      updatePaginationUi();
+      setStatus(`Loaded ${applicationsPage.total.toLocaleString()} application(s)`);
+    } catch (e) {
+      setStatus('Failed to load applications: ' + e.message, true);
+    }
+  }
+
+  function closeApplicationDetail() {
+    const drawer = $('app-detail-drawer');
+    if (drawer) {
+      drawer.classList.add('hidden');
+      drawer.setAttribute('aria-hidden', 'true');
+    }
+    selectedAppNamespace = null;
+    renderApplicationsTable();
+  }
+
+  async function openApplicationDetail(namespace) {
+    selectedAppNamespace = namespace;
+    renderApplicationsTable();
+    const drawer = $('app-detail-drawer');
+    if (drawer) {
+      drawer.classList.remove('hidden');
+      drawer.setAttribute('aria-hidden', 'false');
+    }
+    $('app-detail-title').textContent = namespace;
+    $('app-detail-meta').innerHTML = '<p class="hint">Loading…</p>';
+    setStatus('Loading application detail…');
+    try {
+      const res = await fetch(
+        API() + '/api/v1/applications/' + encodeURIComponent(namespace)
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const detail = await res.json();
+      const app = detail.list || detail;
+      $('app-detail-meta').innerHTML = `
+        <dl class="meta-dl">
+          <dt>Control plane</dt><dd>${escapeHtml(formatControlPlane(app))}</dd>
+          <dt>Revision NS</dt><dd>${escapeHtml(app.controlPlaneNamespace || app.control_plane_namespace || '—')}</dd>
+          <dt>Hostnames</dt><dd class="mono">${escapeHtml((app.hostnames || []).join(', ') || '—')}</dd>
+          <dt>Dataplane</dt><dd><span class="badge-dataplane ${dataplaneBadgeClass(formatDataplane(app))}">${escapeHtml(formatDataplane(app))}</span></dd>
+          <dt>Istio labels</dt><dd class="mono small">${escapeHtml(formatLabels(app.namespaceLabels || app.namespace_labels))}</dd>
+          <dt>Ingress gateway</dt><dd>${escapeHtml(formatIngress(app))}</dd>
+          <dt>Workloads</dt><dd>${app.workloadCount ?? app.workload_count ?? 0}</dd>
+        </dl>
+      `;
+      renderScores(detail.scores, 'detail-');
+      renderSummary(detail.summary, 'detail-');
+      renderFindings(detail.findings, 'detail-findings');
+      const sugUl = $('app-detail-suggestions');
+      if (sugUl) {
+        sugUl.innerHTML = '';
+        (detail.suggestions || []).forEach((s) => {
+          const li = document.createElement('li');
+          li.className = 'suggestion-card';
+          li.innerHTML = `
+            <span class="badge-status ${escapeHtml(s.severity)}">${escapeHtml(s.severity)}</span>
+            <strong>${escapeHtml(s.title)}</strong>
+            <p>${escapeHtml(s.remediation)}</p>
+          `;
+          sugUl.appendChild(li);
+        });
+        if (!(detail.suggestions || []).length) {
+          sugUl.innerHTML = '<li class="hint">No remediation suggestions for this application.</li>';
+        }
+      }
+      setStatus(`Application ${namespace} loaded`);
+    } catch (e) {
+      setStatus('Failed to load detail: ' + e.message, true);
+    }
   }
 
   async function loadAssessments() {
-    setStatus('Loading assessments…');
+    await loadApplications();
+  }
+
+  function statusLabel(status) {
+    const map = {
+      migrated: 'Migrated',
+      processing: 'Processing',
+      blocker: 'Blocker',
+      failed: 'Failed',
+      scanned: 'Scanned',
+      notScanned: 'Not scanned',
+    };
+    return map[status] || status;
+  }
+
+  function statusCssClass(status) {
+    if (status === 'notScanned') return 'not-scanned';
+    return status;
+  }
+
+  function renderStatusSummary(counts) {
+    const c = counts || {};
+    $('sum-migrated').textContent = c.migrated ?? 0;
+    $('sum-processing').textContent = c.processing ?? 0;
+    $('sum-blocker').textContent = c.blocker ?? 0;
+    $('sum-failed').textContent = c.failed ?? 0;
+    $('sum-scanned').textContent = c.scanned ?? 0;
+    $('sum-not-scanned').textContent = c.notScanned ?? c.not_scanned ?? 0;
+  }
+
+  function renderIstiodCard(mesh) {
+    const card = document.createElement('article');
+    card.className = 'istiod-card ' + (mesh.ambient ? 'ambient' : 'sidecar');
+    const counts = mesh.counts || {};
+    const pills = [];
+    if (counts.migrated) pills.push(`<span class="pill migrated">${counts.migrated} migrated</span>`);
+    if (counts.processing) pills.push(`<span class="pill processing">${counts.processing} processing</span>`);
+    if (counts.blocker) pills.push(`<span class="pill blocker">${counts.blocker} blocker</span>`);
+    if (counts.failed) pills.push(`<span class="pill failed">${counts.failed} failed</span>`);
+    if (counts.scanned) pills.push(`<span class="pill scanned">${counts.scanned} scanned</span>`);
+    if (counts.notScanned || counts.not_scanned) {
+      const n = counts.notScanned ?? counts.not_scanned;
+      pills.push(`<span class="pill not-scanned">${n} not scanned</span>`);
+    }
+
+    const rows = (mesh.applications || [])
+      .map((app) => {
+        const st = app.status || 'notScanned';
+        const dp = formatDataplane(app);
+        const assess = app.assessmentRef || app.assessment_ref || '—';
+        return `<tr>
+          <td><strong>${escapeHtml(app.namespace)}</strong></td>
+          <td><span class="badge-status ${statusCssClass(st)}">${escapeHtml(statusLabel(st))}</span></td>
+          <td><span class="badge-dataplane ${dataplaneBadgeClass(dp)}">${escapeHtml(dp)}</span></td>
+          <td>${escapeHtml(assess)}</td>
+        </tr>`;
+      })
+      .join('');
+
+    const kind = mesh.ambient ? 'ambient' : 'sidecar';
+    card.innerHTML = `
+      <div class="istiod-card-head">
+        <div>
+          <h4>${escapeHtml(mesh.discoveryLabel || mesh.discovery_label)}</h4>
+          <p class="istiod-sub">revision <code>${escapeHtml(mesh.revision)}</code> · ns <code>${escapeHtml(mesh.controlPlaneNamespace || mesh.control_plane_namespace)}</code> · ${kind}</p>
+        </div>
+        <div class="istiod-counts">${pills.join('') || '<span class="pill">No applications</span>'}</div>
+      </div>
+      <table class="app-table">
+        <thead><tr><th>Application (namespace)</th><th>Status</th><th>Dataplane</th><th>Assessment</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="4">No enrolled namespaces on this control plane</td></tr>'}</tbody>
+      </table>
+    `;
+    return card;
+  }
+
+  async function loadDashboard() {
+    setStatus('Loading dashboard…');
+    const container = $('dash-mesh-instances');
     try {
-      const res = await fetch(API() + '/api/v1/assessments');
+      const res = await fetch(API() + '/api/v1/dashboard?fresh=true');
       if (!res.ok) throw new Error(await res.text());
-      assessments = await res.json();
-      renderAssessmentList();
-      setStatus(
-        assessments.length
-          ? `Loaded ${assessments.length} assessment(s)`
-          : 'No completed assessments in cluster'
-      );
-      if (assessments.length && !selectedKey) {
-        selectAssessment(itemKey(assessments[0]));
+      const data = await res.json();
+      const cluster = data.cluster || {};
+      $('dash-cluster-name').textContent = cluster.name || 'Connected cluster';
+      const meta = [
+        cluster.platform,
+        cluster.meshFlavor || cluster.mesh_flavor,
+        cluster.istioVersion || cluster.istio_version
+          ? 'Istio ' + (cluster.istioVersion || cluster.istio_version)
+          : null,
+        (cluster.meshInstanceCount ?? cluster.mesh_instance_count ?? 0) +
+          ' control plane(s)',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      $('dash-cluster-meta').textContent = meta || '—';
+      if (data.lastUpdated || data.last_updated) {
+        $('dash-last-updated').textContent =
+          'Updated ' + new Date(data.lastUpdated || data.last_updated).toLocaleString();
       }
+      renderStatusSummary(data.summary);
+      if (container) {
+        container.innerHTML = '';
+        (data.meshInstances || data.mesh_instances || []).forEach((m) => {
+          container.appendChild(renderIstiodCard(m));
+        });
+        if (!(data.meshInstances || data.mesh_instances || []).length) {
+          container.innerHTML = '<p class="hint">No Istio control planes discovered.</p>';
+        }
+      }
+      setStatus('Dashboard loaded');
     } catch (e) {
-      setStatus('Failed to load assessments: ' + e.message, true);
+      if (container) container.innerHTML = '';
+      setStatus('Dashboard failed: ' + e.message, true);
     }
   }
 
   async function runAssessment() {
     setStatus('Running assessment…');
-    $('run-assess').disabled = true;
+    const btn = $('run-assess');
+    if (btn) btn.disabled = true;
     try {
       const res = await fetch(API() + '/api/v1/assess', {
         method: 'POST',
@@ -297,16 +606,19 @@
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      renderScores(data.scores, 'dash-');
-      renderSummary(data.summary, 'dash-');
-      renderFindings(data.findings, 'dash-findings');
-      setStatus(`Assessment complete (${(data.findings || []).length} findings)`);
-      await loadAssessments();
-      showPanel('dashboard');
+      const count = data.applicationCount ?? data.application_count ?? 0;
+      setStatus(
+        `Assessment complete — ${count.toLocaleString()} application(s) updated in database`
+      );
+      showPanel('assessments');
+      appListPage = 1;
+      closeApplicationDetail();
+      await loadApplications();
+      await loadDashboard();
     } catch (e) {
       setStatus('Assessment failed: ' + e.message, true);
     } finally {
-      $('run-assess').disabled = false;
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -576,8 +888,41 @@
     showPanel('rollouts');
   }
 
+  async function loadMeshInstances() {
+    const el = $('mesh-instances-hint');
+    if (!el || !API()) return;
+    try {
+      const res = await fetch(API() + '/api/v1/mesh-instances');
+      if (!res.ok) throw new Error(await res.text());
+      const items = await res.json();
+      if (!items.length) {
+        el.textContent = 'No Istio control planes discovered.';
+        return;
+      }
+      const ambient = items.filter((m) => m.ambient);
+      const lines = items.map((m) => {
+        const mode = m.enrollment?.mode || 'unknown';
+        const disc =
+          m.enrollment?.discoveryLabelKey && m.enrollment?.discoveryLabelValue
+            ? `${m.enrollment.discoveryLabelKey}=${m.enrollment.discoveryLabelValue}`
+            : 'revision-only';
+        const auto = m.autoSelect || m.auto_select ? ' (auto)' : '';
+        return `${m.discoveryLabel || m.discovery_label}: rev=${m.revision}, ${disc}, mode=${mode}${auto}`;
+      });
+      el.textContent =
+        (ambient.length === 1
+          ? 'Single ambient mesh — rollouts can omit meshTarget. '
+          : ambient.length > 1
+            ? 'Multiple ambient meshes — set rollout.spec.meshTarget. '
+            : '') + lines.join(' · ');
+    } catch (e) {
+      el.textContent = 'Mesh instances: ' + e.message;
+    }
+  }
+
   async function loadRollouts() {
     setStatus('Loading rollouts…');
+    loadMeshInstances();
     try {
       const res = await fetch(API() + '/api/v1/rollouts');
       if (!res.ok) throw new Error(await res.text());
@@ -685,6 +1030,7 @@
         e.preventDefault();
         const id = a.getAttribute('href').slice(1);
         showPanel(id);
+        if (id === 'dashboard') loadDashboard();
         if (id === 'assessments') loadAssessments();
         if (id === 'plans') loadPlans();
         if (id === 'rollouts') loadRollouts();
@@ -709,7 +1055,36 @@
     $('auth-logout-btn')?.addEventListener('click', logout);
     $('auth-oidc-login')?.addEventListener('click', startOidcLogin);
     $('run-assess')?.addEventListener('click', runAssessment);
+    $('refresh-dashboard')?.addEventListener('click', loadDashboard);
     $('refresh-assessments')?.addEventListener('click', loadAssessments);
+    $('app-detail-close')?.addEventListener('click', closeApplicationDetail);
+    $('app-page-prev')?.addEventListener('click', () => {
+      if (appListPage > 1) {
+        appListPage -= 1;
+        loadApplications();
+      }
+    });
+    $('app-page-next')?.addEventListener('click', () => {
+      appListPage += 1;
+      loadApplications();
+    });
+    $('app-search')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        appListFilters.q = e.target.value.trim();
+        appListPage = 1;
+        loadApplications();
+      }
+    });
+    $('app-risk-filter')?.addEventListener('change', (e) => {
+      appListFilters.riskLevel = e.target.value;
+      appListPage = 1;
+      loadApplications();
+    });
+    $('app-mesh-filter')?.addEventListener('change', (e) => {
+      appListFilters.meshRevision = e.target.value;
+      appListPage = 1;
+      loadApplications();
+    });
     $('refresh-plans')?.addEventListener('click', loadPlans);
     $('export-plan')?.addEventListener('click', downloadPlanExport);
     $('start-rollout')?.addEventListener('click', startRolloutFromPlan);
@@ -717,5 +1092,6 @@
     $('approve-rollout')?.addEventListener('click', approveCurrentRolloutStage);
     initSse();
     showPanel('dashboard');
+    loadDashboard();
   });
 })();

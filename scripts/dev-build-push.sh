@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Build and push Ambientor *-dev images with a unique tag every run.
+#
+# Why not only dev-$(git rev-parse --short HEAD)?
+# - Same tag until you commit → cluster may not pull new layers (imagePullPolicy: IfNotPresent).
+# - This script appends UTC time (and -dirty when the tree is not clean).
+#
+# Usage:
+#   ./scripts/dev-build-push.sh
+#   ./scripts/dev-build-push.sh --helm-upgrade   # also helm upgrade on current kubectl context
+#   API_URL=https://ambientor-api-.... ./scripts/dev-build-push.sh --helm-upgrade
+#
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+REGISTRY="${AMBIENTOR_DEV_REGISTRY:-quay.io/arencloud}"
+HELM_UPGRADE=false
+for arg in "$@"; do
+  case "$arg" in
+    --helm-upgrade) HELM_UPGRADE=true ;;
+    -h | --help)
+      sed -n '2,12p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      exit 1
+      ;;
+  esac
+done
+
+SHA="$(git rev-parse --short HEAD)"
+DIRTY=""
+if ! git diff --quiet --ignore-submodules 2>/dev/null \
+  || ! git diff --cached --quiet --ignore-submodules 2>/dev/null; then
+  DIRTY="-dirty"
+fi
+TS="$(date -u +%Y%m%d%H%M%S)"
+TAG="dev-${SHA}${DIRTY}-${TS}"
+
+echo "Image tag: ${TAG}"
+echo "  (git: ${SHA}${DIRTY}, time: ${TS})"
+echo "${TAG}" >.dev-image-tag
+
+build_push() {
+  local target="$1"
+  local repo="${REGISTRY}/ambientor-${target}-dev"
+  echo "==> ${target}: ${repo}:${TAG}"
+  podman build --target "${target}" -t "${repo}:${TAG}" .
+  podman push "${repo}:${TAG}"
+}
+
+for t in operator api web cli; do
+  build_push "${t}"
+done
+
+echo ""
+echo "Built and pushed. Tag written to .dev-image-tag"
+echo ""
+echo "Helm upgrade example:"
+cat <<EOF
+helm upgrade --install ambientor deploy/helm/ambientor/ \\
+  -n ambientor-system --create-namespace \\
+  --set image.pullPolicy=Always \\
+  --set operator.image.repository=${REGISTRY}/ambientor-operator-dev \\
+  --set operator.image.tag=${TAG} \\
+  --set api.image.repository=${REGISTRY}/ambientor-api-dev \\
+  --set api.image.tag=${TAG} \\
+  --set web.image.repository=${REGISTRY}/ambientor-web-dev \\
+  --set web.image.tag=${TAG} \\
+  --set openshift.apiUrl="\${API_URL:-https://ambientor-api-ambientor-system.apps.cl01.arencloud.com}"
+EOF
+
+if [[ "${HELM_UPGRADE}" == true ]]; then
+  API_URL="${API_URL:-https://ambientor-api-ambientor-system.apps.cl01.arencloud.com}"
+  helm upgrade --install ambientor deploy/helm/ambientor/ \
+    -n ambientor-system --create-namespace \
+    --set image.pullPolicy=Always \
+    --set operator.image.repository="${REGISTRY}/ambientor-operator-dev" \
+    --set operator.image.tag="${TAG}" \
+    --set api.image.repository="${REGISTRY}/ambientor-api-dev" \
+    --set api.image.tag="${TAG}" \
+    --set web.image.repository="${REGISTRY}/ambientor-web-dev" \
+    --set web.image.tag="${TAG}" \
+    --set openshift.apiUrl="${API_URL}"
+  kubectl rollout restart deployment -n ambientor-system \
+    -l 'app in (ambientor-operator,ambientor-api,ambientor-web)' 2>/dev/null || true
+fi

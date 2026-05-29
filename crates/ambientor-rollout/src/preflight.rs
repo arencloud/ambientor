@@ -1,7 +1,5 @@
-use std::collections::BTreeMap;
-
-use ambientor_mesh::mesh_instances::namespace_enrolled_on_mesh;
-use ambientor_types::MeshInstance;
+use ambientor_mesh::{namespace_conflicts_with_mesh, namespace_enrolled_on_mesh};
+use ambientor_types::{MeshInstance, RolloutStage, RolloutStageType};
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use kube::api::ListParams;
 use kube::{Api, Client};
@@ -24,11 +22,75 @@ pub fn namespaces_in_rollout(stages: &[ambientor_types::RolloutStage]) -> Vec<St
     set.into_iter().collect()
 }
 
+/// True when a later stage will enroll this namespace on the rollout mesh target.
+pub fn rollout_will_enroll_namespace(stages: &[RolloutStage], namespace: &str) -> bool {
+    stages.iter().any(|s| {
+        s.r#type == RolloutStageType::EnrollNamespace && s.namespaces.iter().any(|n| n == namespace)
+    })
+}
+
+/// True when rollout includes sidecar removal + restart for this namespace.
+pub fn rollout_will_remove_sidecars(stages: &[RolloutStage], namespace: &str) -> bool {
+    let in_ns = |s: &RolloutStage| s.namespaces.iter().any(|n| n == namespace);
+    let has_remove = stages
+        .iter()
+        .any(|s| s.r#type == RolloutStageType::RemoveInjection && in_ns(s));
+    let has_restart = stages
+        .iter()
+        .any(|s| s.r#type == RolloutStageType::RollingRestart && in_ns(s));
+    has_remove && has_restart
+}
+
+/// Dry-run only: do not block on demo→ambient enrollment when `EnrollNamespace` is planned.
+pub async fn dry_run_namespace(
+    client: &Client,
+    namespace: &str,
+    mesh: &MeshInstance,
+    stages: &[RolloutStage],
+) -> Result<(), RolloutError> {
+    let ns = fetch_namespace(client, namespace).await?;
+    let labels = ns.metadata.labels.unwrap_or_default();
+    let will_enroll = rollout_will_enroll_namespace(stages, namespace);
+
+    if let Some(msg) = namespace_conflicts_with_mesh(&labels, mesh) {
+        if will_enroll {
+            return Ok(());
+        }
+        return Err(RolloutError::ExecutionFailed(format!(
+            "namespace {namespace} is on another mesh ({msg}). This rollout has no EnrollNamespace \
+             stage — delete the Rollout CR and create a new one from the MigrationPlan (new \
+             operator), or enroll manually: ambientor mesh enroll --namespace {namespace} \
+             --discovery-label {}",
+            mesh.discovery_label
+        )));
+    }
+
+    if !namespace_enrolled_on_mesh(&labels, mesh) && !will_enroll {
+        return Err(RolloutError::ExecutionFailed(format!(
+            "namespace {namespace} is not enrolled on mesh '{}' (revision={}). Add an \
+             EnrollNamespace stage or enroll before rollout",
+            mesh.discovery_label, mesh.enrollment.revision
+        )));
+    }
+
+    if let Some(pod) = first_sidecar_injected_pod(client, namespace).await?
+        && !rollout_will_remove_sidecars(stages, namespace)
+    {
+        return Err(RolloutError::ExecutionFailed(format!(
+            "namespace {namespace} has sidecar-injected pod '{pod}'; this rollout needs \
+             RemoveInjection and RollingRestart stages (or remove sidecars manually first)"
+        )));
+    }
+
+    Ok(())
+}
+
 /// Dry-run and early validation before mutating the cluster for ambient migration.
 pub async fn preflight_namespace_for_ambient_rollout(
     client: &Client,
     namespace: &str,
     mesh: &MeshInstance,
+    stages: &[RolloutStage],
 ) -> Result<(), RolloutError> {
     if !mesh.ambient {
         return Err(RolloutError::ExecutionFailed(format!(
@@ -39,27 +101,51 @@ pub async fn preflight_namespace_for_ambient_rollout(
 
     let ns = fetch_namespace(client, namespace).await?;
     let labels = ns.metadata.labels.unwrap_or_default();
+    let will_enroll = rollout_will_enroll_namespace(stages, namespace);
 
-    if namespace_enrolled_on_mesh(&labels, mesh) {
-        return Ok(());
+    if !namespace_enrolled_on_mesh(&labels, mesh) {
+        if let Some(msg) = namespace_conflicts_with_mesh(&labels, mesh) {
+            if !will_enroll {
+                return Err(RolloutError::ExecutionFailed(format!(
+                    "namespace {namespace} is not ready for ambient rollout on mesh '{}': {msg}",
+                    mesh.discovery_label
+                )));
+            }
+        } else if !will_enroll {
+            return Err(RolloutError::ExecutionFailed(format!(
+                "namespace {namespace} is not enrolled on mesh '{}' (revision={}); add an \
+                 EnrollNamespace stage or enroll manually",
+                mesh.discovery_label, mesh.enrollment.revision
+            )));
+        }
     }
 
-    if let Some(msg) = namespace_conflicts_with_mesh(&labels, mesh) {
+    if let Some(pod) = first_sidecar_injected_pod(client, namespace).await?
+        && !rollout_will_remove_sidecars(stages, namespace)
+    {
+        let hint = enrollment_hint(mesh);
         return Err(RolloutError::ExecutionFailed(format!(
-            "namespace {namespace} is not ready for ambient rollout on mesh '{}': {msg}",
-            mesh.discovery_label
-        )));
-    }
-
-    if let Some(pod) = first_sidecar_injected_pod(client, namespace).await? {
-        return Err(RolloutError::ExecutionFailed(format!(
-            "namespace {namespace} still has sidecar-injected pod '{pod}'; enroll it on mesh '{}' \
-             (istio-discovery={}) before rollout",
-            mesh.discovery_label, mesh.discovery_label
+            "namespace {namespace} still has sidecar-injected pod '{pod}'; {hint}"
         )));
     }
 
     Ok(())
+}
+
+fn enrollment_hint(mesh: &MeshInstance) -> String {
+    match (
+        mesh.enrollment.discovery_label_key.as_deref(),
+        mesh.enrollment.discovery_label_value.as_deref(),
+    ) {
+        (Some(k), Some(v)) => format!(
+            "complete RemoveInjection and RollingRestart stages, or enroll on mesh '{}' ({k}={v}, istio.io/rev={})",
+            mesh.discovery_label, mesh.enrollment.revision
+        ),
+        _ => format!(
+            "complete RemoveInjection and RollingRestart stages, or set istio.io/rev={}",
+            mesh.enrollment.revision
+        ),
+    }
 }
 
 /// Validates namespace state immediately before creating a waypoint Gateway.
@@ -67,18 +153,26 @@ pub async fn preflight_before_deploy_waypoint(
     client: &Client,
     namespace: &str,
     mesh: &MeshInstance,
+    stages: &[RolloutStage],
 ) -> Result<(), RolloutError> {
-    preflight_namespace_for_ambient_rollout(client, namespace, mesh).await?;
+    preflight_namespace_for_ambient_rollout(client, namespace, mesh, stages).await?;
 
     let ns = fetch_namespace(client, namespace).await?;
     let labels = ns.metadata.labels.unwrap_or_default();
     let ambient_labeled =
         labels.get("istio.io/dataplane-mode").map(String::as_str) == Some("ambient");
     if !ambient_labeled && !namespace_enrolled_on_mesh(&labels, mesh) {
+        let discovery = mesh
+            .enrollment
+            .discovery_label_key
+            .as_deref()
+            .zip(mesh.enrollment.discovery_label_value.as_deref())
+            .map(|(k, v)| format!("{k}={v}"))
+            .unwrap_or_else(|| "revision-only enrollment".into());
         return Err(RolloutError::ExecutionFailed(format!(
-            "namespace {namespace} is not enrolled on mesh '{}' (expected istio-discovery={} or \
-             istio.io/rev={}); complete LabelNamespace or OSSM discovery first",
-            mesh.discovery_label, mesh.discovery_label, mesh.revision
+            "namespace {namespace} is not enrolled on mesh '{}' ({discovery}, istio.io/rev={}); \
+             complete EnrollNamespace and LabelNamespace first",
+            mesh.discovery_label, mesh.enrollment.revision
         )));
     }
 
@@ -126,30 +220,6 @@ pub fn gateway_controller_pending(gateway_status: Option<&Value>) -> bool {
         })
 }
 
-/// Namespace is on a different Istio discovery / revision than the rollout target.
-pub fn namespace_conflicts_with_mesh(
-    labels: &BTreeMap<String, String>,
-    mesh: &MeshInstance,
-) -> Option<String> {
-    if let Some(discovery) = labels.get("istio-discovery")
-        && discovery != &mesh.discovery_label
-    {
-        return Some(format!(
-            "namespace has istio-discovery={discovery}, expected {}",
-            mesh.discovery_label
-        ));
-    }
-    if let Some(rev) = labels.get("istio.io/rev")
-        && rev != &mesh.revision
-    {
-        return Some(format!(
-            "namespace has istio.io/rev={rev}, expected {}",
-            mesh.revision
-        ));
-    }
-    None
-}
-
 async fn fetch_namespace(client: &Client, name: &str) -> Result<Namespace, RolloutError> {
     let api: Api<Namespace> = Api::all(client.clone());
     api.get(name).await.map_err(RolloutError::Kube)
@@ -194,26 +264,37 @@ fn pod_has_sidecar(pod: &Pod) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ambientor_types::MeshInstance;
+    use ambientor_types::{MeshEnrollment, MeshEnrollmentMode, MeshInstance};
     use serde_json::json;
 
     fn ambient_mesh() -> MeshInstance {
-        MeshInstance {
+        let enrollment = MeshEnrollment {
+            mode: MeshEnrollmentMode::RevisionAndDiscovery,
             revision: "ambient-v1-28-6".into(),
+            discovery_label_key: Some("istio-discovery".into()),
+            discovery_label_value: Some("mesh-ambient".into()),
+            member_roll_namespace: None,
+            from_istiod_config: false,
+        };
+        MeshInstance {
+            revision: enrollment.revision.clone(),
             discovery_label: "mesh-ambient".into(),
             control_plane_namespace: "ambient-istio-system".into(),
             version: Some("1.28.6".into()),
             ambient: true,
             enrolled_namespace_count: 2,
+            enrollment,
         }
     }
 
     #[test]
     fn detects_conflicting_discovery_label() {
+        use std::collections::BTreeMap;
         let mut labels = BTreeMap::new();
         labels.insert("istio-discovery".into(), "mesh-demo".into());
+        labels.insert("istio.io/rev".into(), "demo".into());
         let msg = namespace_conflicts_with_mesh(&labels, &ambient_mesh()).unwrap();
-        assert!(msg.contains("mesh-demo"));
+        assert!(msg.contains("demo"));
     }
 
     #[test]

@@ -11,6 +11,7 @@ use axum::{
 };
 
 const INDEX: &str = include_str!("../assets/index.html");
+const MOCKUP_DASHBOARD: &str = include_str!("../assets/mockup-dashboard.html");
 const STYLE: &str = include_str!("../assets/style.css");
 const APP_JS: &str = include_str!("../assets/app.js");
 const LOGO_ICON_64: &[u8] = include_bytes!("../assets/logo/icon-64.png");
@@ -23,6 +24,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/mockup-dashboard.html", get(mockup_dashboard))
         .route("/style.css", get(style))
         .route("/app.js", get(app_js))
         .route("/config.js", get(config_js))
@@ -41,6 +43,10 @@ async fn main() {
 
 async fn index() -> Html<&'static str> {
     Html(INDEX)
+}
+
+async fn mockup_dashboard() -> Html<&'static str> {
+    Html(MOCKUP_DASHBOARD)
 }
 
 async fn style() -> ([(&'static str, &'static str); 1], &'static str) {

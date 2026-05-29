@@ -49,6 +49,7 @@ dependencies = [
  "ambientor-analyze",
  "ambientor-auth",
  "ambientor-core",
+ "ambientor-dashboard",
  "ambientor-db",
  "ambientor-k8s",
  "ambientor-mesh",
@@ -61,6 +62,7 @@ dependencies = [
  "axum-extra",
  "chrono",
  "futures",
+ "k8s-openapi",
  "kube",
  "serde",
  "serde_json",
@@ -134,12 +136,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "ambientor-dashboard"
+version = "0.1.4"
+dependencies = [
+ "ambientor-core",
+ "ambientor-k8s",
+ "ambientor-mesh",
+ "ambientor-types",
+ "anyhow",
+ "chrono",
+ "k8s-openapi",
+ "kube",
+ "serde",
+]
+
+[[package]]
 name = "ambientor-db"
 version = "0.1.4"
 dependencies = [
+ "ambientor-core",
+ "ambientor-dashboard",
  "ambientor-types",
  "async-trait",
  "chrono",
+ "kube",
  "serde",
  "serde_json",
  "sqlx",
@@ -191,6 +211,7 @@ version = "0.1.4"
 dependencies = [
  "ambientor-analyze",
  "ambientor-core",
+ "ambientor-dashboard",
  "ambientor-db",
  "ambientor-k8s",
  "ambientor-mesh",

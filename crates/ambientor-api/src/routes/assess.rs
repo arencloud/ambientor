@@ -9,6 +9,7 @@ use ambientor_types::FindingSummary;
 use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 
+use crate::routes::applications::persist_assessment_from_findings;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -18,10 +19,12 @@ pub struct AssessRequest {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AssessResponse {
     pub findings: Vec<ambientor_types::Finding>,
     pub scores: ambientor_types::AssessmentScores,
     pub summary: FindingSummary,
+    pub application_count: usize,
 }
 
 pub async fn assess(
@@ -52,10 +55,15 @@ pub async fn assess(
     let findings = registry.evaluate_all(&ctx);
     let scores = compute_scores(&findings);
     let summary = FindingSummary::from_findings(&findings);
+    let cluster_ref = cluster_ref_from_env();
 
     state.sse.write().await.publish(
         "assessment",
-        &serde_json::json!({ "phase": "completed", "findingCount": findings.len() }),
+        &serde_json::json!({
+            "phase": "completed",
+            "findingCount": findings.len(),
+            "clusterRef": cluster_ref,
+        }),
     );
 
     if let Some(repo) = state.scan_store() {
@@ -67,16 +75,30 @@ pub async fn assess(
             assessment_name: None,
         };
         if let Err(e) = repo
-            .record_completed(&cluster_ref_from_env(), namespace_filter, &payload)
+            .record_completed(&cluster_ref, namespace_filter, &payload)
             .await
         {
             tracing::warn!(error = %e, "failed to persist scan run");
         }
     }
 
+    let application_count = persist_assessment_from_findings(
+        state.as_ref(),
+        &k8s.client,
+        &cluster_ref,
+        &ctx,
+        &findings,
+    )
+    .await
+    .unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "failed to persist application assessments");
+        0
+    });
+
     Ok(Json(AssessResponse {
         findings,
         scores,
         summary,
+        application_count,
     }))
 }

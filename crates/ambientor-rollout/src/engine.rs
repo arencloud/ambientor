@@ -5,13 +5,16 @@ use thiserror::Error;
 use tracing::warn;
 
 use crate::events::{RolloutEvent, RolloutEventType};
-use crate::labels::label_namespace_ambient;
+use crate::labels::{label_namespace_ambient, remove_namespace_injection};
 use crate::policy::translate_policies_in_namespace;
-use crate::preflight::{namespaces_in_rollout, preflight_namespace_for_ambient_rollout};
+use crate::preflight::{
+    dry_run_namespace, namespaces_in_rollout, preflight_namespace_for_ambient_rollout,
+};
 use crate::restart::rolling_restart_namespace;
 use crate::rollback::revert_completed_stages;
 use crate::verify::verify_namespace_traffic;
 use crate::waypoint::deploy_waypoint;
+use ambientor_mesh::enroll_namespace_on_mesh;
 
 pub const FIELD_MANAGER: &str = "ambientor.io";
 
@@ -143,24 +146,51 @@ impl RolloutEngine {
     ) -> Result<String, RolloutError> {
         match stage.r#type {
             RolloutStageType::DryRun => {
-                for ns in namespaces_in_rollout(&spec.stages) {
-                    preflight_namespace_for_ambient_rollout(&self.client, &ns, mesh).await?;
+                let namespaces = namespaces_in_rollout(&spec.stages);
+                for ns in &namespaces {
+                    dry_run_namespace(&self.client, ns, mesh, &spec.stages).await?;
                 }
+                let enroll_note = if namespaces.iter().any(|ns| {
+                    crate::preflight::rollout_will_enroll_namespace(&spec.stages, ns)
+                }) {
+                    "; enrollment will run in EnrollNamespace stage(s)"
+                } else {
+                    ""
+                };
                 Ok(format!(
-                    "Dry run passed for mesh {} ({})",
-                    mesh.discovery_label, mesh.revision
+                    "Dry run passed for mesh {} ({}) on {} namespace(s){enroll_note}",
+                    mesh.discovery_label,
+                    mesh.enrollment.revision,
+                    namespaces.len()
                 ))
+            }
+            RolloutStageType::EnrollNamespace => {
+                let mut actions = Vec::new();
+                for ns in &stage.namespaces {
+                    let mut step = enroll_namespace_on_mesh(&self.client, ns, mesh)
+                        .await
+                        .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+                    actions.append(&mut step);
+                }
+                Ok(actions.join("; "))
+            }
+            RolloutStageType::RemoveInjection => {
+                for ns in &stage.namespaces {
+                    remove_namespace_injection(&self.client, ns).await?;
+                }
+                Ok("Removed sidecar injection from namespace(s)".into())
             }
             RolloutStageType::LabelNamespace => {
                 for ns in &stage.namespaces {
-                    preflight_namespace_for_ambient_rollout(&self.client, ns, mesh).await?;
+                    preflight_namespace_for_ambient_rollout(&self.client, ns, mesh, &spec.stages)
+                        .await?;
                     label_namespace_ambient(&self.client, ns).await?;
                 }
                 Ok(format!("Labeled {} namespace(s)", stage.namespaces.len()))
             }
             RolloutStageType::DeployWaypoint => {
                 for ns in &stage.namespaces {
-                    deploy_waypoint(&self.client, ns, mesh).await?;
+                    deploy_waypoint(&self.client, ns, mesh, &spec.stages).await?;
                 }
                 Ok(format!(
                     "Deployed waypoint Gateway for {} namespace(s)",
@@ -192,7 +222,6 @@ impl RolloutEngine {
                     stage.namespaces.len()
                 ))
             }
-            RolloutStageType::RemoveInjection => Ok("Injection labels removed".into()),
             RolloutStageType::InstallAmbientComponents => {
                 Ok("Ambient components check passed".into())
             }

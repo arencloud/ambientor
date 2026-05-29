@@ -9,6 +9,7 @@ members = [
     "crates/ambientor-analyze",
     "crates/ambientor-plan",
     "crates/ambientor-rollout",
+    "crates/ambientor-dashboard",
     "crates/ambientor-db",
     "crates/ambientor-auth",
     "crates/ambientor-api",
@@ -30,6 +31,7 @@ ambientor-analyze = { path = "crates/ambientor-analyze" }
 ambientor-api = { path = "crates/ambientor-api" }
 ambientor-auth = { path = "crates/ambientor-auth" }
 ambientor-core = { path = "crates/ambientor-core" }
+ambientor-dashboard = { path = "crates/ambientor-dashboard" }
 ambientor-db = { path = "crates/ambientor-db" }
 ambientor-k8s = { path = "crates/ambientor-k8s" }
 ambientor-mesh = { path = "crates/ambientor-mesh" }

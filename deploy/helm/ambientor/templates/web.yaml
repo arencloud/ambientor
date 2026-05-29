@@ -28,6 +28,7 @@ spec:
       containers:
         - name: web
           image: {{ include "ambientor.imageRef" (dict "root" . "component" "web") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 3000
           env:

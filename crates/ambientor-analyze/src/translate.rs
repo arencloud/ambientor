@@ -26,9 +26,13 @@ pub fn virtual_service_to_httproute(
     warnings
         .push("parentRefs are omitted; attach this HTTPRoute to your Gateway or waypoint.".into());
 
-    let hostnames = hosts_from_spec(spec);
+    let (hostnames, host_warnings) = httproute_hostnames_from_spec(spec);
+    warnings.extend(host_warnings);
     if hostnames.is_empty() {
-        warnings.push("No spec.hosts found; HTTPRoute hostnames left empty.".into());
+        warnings.push(
+            "HTTPRoute spec.hostnames omitted (empty matches all hostnames, same as Istio wildcard)."
+                .into(),
+        );
     }
 
     let rules = http_rules_from_spec(spec, &mut warnings);
@@ -37,6 +41,10 @@ pub fn virtual_service_to_httproute(
     }
 
     let route_name = format!("{vs_name}-ambientor");
+    let mut spec = json!({ "rules": rules });
+    if !hostnames.is_empty() {
+        spec["hostnames"] = json!(hostnames);
+    }
     let manifest_value = json!({
         "apiVersion": "gateway.networking.k8s.io/v1",
         "kind": "HTTPRoute",
@@ -48,10 +56,7 @@ pub fn virtual_service_to_httproute(
                 "ambientor.io/source-name": vs_name,
             }
         },
-        "spec": {
-            "hostnames": hostnames,
-            "rules": rules,
-        }
+        "spec": spec,
     });
 
     let manifest = serde_yaml::to_string(&manifest_value)
@@ -60,15 +65,37 @@ pub fn virtual_service_to_httproute(
     Ok(TranslationResult { manifest, warnings })
 }
 
-fn hosts_from_spec(spec: &Value) -> Vec<Value> {
-    spec.get("hosts")
+/// Gateway API hostnames must match a DNS subdomain pattern; bare `*` is invalid.
+fn is_valid_httproute_hostname(host: &str) -> bool {
+    if host == "*" {
+        return false;
+    }
+    // `*.example.com` and `reviews.bookinfo.svc.cluster.local` style names.
+    host.chars().all(|c| {
+        c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '*'
+    }) && !host.is_empty()
+}
+
+/// Map Istio `spec.hosts` to HTTPRoute `hostnames`, dropping values the API rejects.
+fn httproute_hostnames_from_spec(spec: &Value) -> (Vec<Value>, Vec<String>) {
+    let mut warnings = Vec::new();
+    let hosts: Vec<&str> = spec
+        .get("hosts")
         .and_then(|h| h.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| json!(s)))
-                .collect()
-        })
-        .unwrap_or_default()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+
+    let mut hostnames = Vec::new();
+    for host in hosts {
+        if is_valid_httproute_hostname(host) {
+            hostnames.push(json!(host));
+        } else {
+            warnings.push(format!(
+                "spec.hosts entry {host:?} is not a valid HTTPRoute hostname; omitted (use empty hostnames for wildcard)"
+            ));
+        }
+    }
+    (hostnames, warnings)
 }
 
 fn http_rules_from_spec(spec: &Value, warnings: &mut Vec<String>) -> Vec<Value> {
@@ -198,5 +225,22 @@ mod tests {
     fn rejects_tcp_only() {
         let vs = json!({ "spec": { "tcp": [{ "route": [] }] } });
         assert!(virtual_service_to_httproute("ns", "svc", &vs).is_err());
+    }
+
+    #[test]
+    fn omits_bare_wildcard_host() {
+        let vs = json!({
+            "spec": {
+                "hosts": ["*"],
+                "http": [{
+                    "route": [{
+                        "destination": { "host": "sidecar-app", "port": { "number": 8080 } }
+                    }]
+                }]
+            }
+        });
+        let result = virtual_service_to_httproute("mesh-sidecar-2", "sidecar-app-vs", &vs).unwrap();
+        assert!(!result.manifest.contains("hostnames:"));
+        assert!(result.warnings.iter().any(|w| w.contains("wildcard")));
     }
 }

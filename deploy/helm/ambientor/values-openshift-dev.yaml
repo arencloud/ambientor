@@ -1,0 +1,21 @@
+# OpenShift cl01 dev loop: unique tags from scripts/dev-build-push.sh + always pull.
+image:
+  pullPolicy: Always
+
+operator:
+  image:
+    repository: quay.io/arencloud/ambientor-operator-dev
+    tag: "" # set via --set operator.image.tag=$(cat .dev-image-tag)
+
+api:
+  image:
+    repository: quay.io/arencloud/ambientor-api-dev
+    tag: ""
+
+web:
+  image:
+    repository: quay.io/arencloud/ambientor-web-dev
+    tag: ""
+
+openshift:
+  apiUrl: "https://ambientor-api-ambientor-system.apps.cl01.arencloud.com"

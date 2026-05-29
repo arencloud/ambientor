@@ -6,7 +6,12 @@ use k8s_openapi::api::core::v1::{Namespace, Pod};
 use kube::api::ListParams;
 use kube::{Api, Client};
 
+use crate::mesh_enrollment::build_mesh_enrollment;
 use crate::version::parse_revision_version;
+
+pub use crate::mesh_enrollment::{
+    enroll_namespace_on_mesh, enrollment_labels_to_apply, read_istiod_discovery_config,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum MeshTargetError {
@@ -20,8 +25,20 @@ pub enum MeshTargetError {
     NotFound,
 }
 
-/// List istiod revisions and infer `istio-discovery` label values from enrolled namespaces.
+/// List istiod revisions and resolve enrollment contracts from istiod mesh config + cluster state.
 pub async fn discover_mesh_instances(client: &Client) -> anyhow::Result<Vec<MeshInstance>> {
+    let flavor_is_ossm = crate::dynamic::list_cluster_cr(
+        client,
+        &crate::dynamic::api_resource(
+            "maistra.io",
+            "v1",
+            "ServiceMeshMemberRoll",
+            "servicemeshmemberrolls",
+        ),
+    )
+    .await
+    .map(|rolls| !rolls.is_empty())
+    .unwrap_or(false);
     let namespaces = list_namespaces(client).await?;
     let discovery_counts = discovery_label_counts(&namespaces);
     let ztunnel_revs = ztunnel_revisions(client).await.unwrap_or_default();
@@ -53,22 +70,31 @@ pub async fn discover_mesh_instances(client: &Client) -> anyhow::Result<Vec<Mesh
         }
     }
 
-    let mut instances: Vec<MeshInstance> = by_revision
-        .into_iter()
-        .map(|(revision, (control_plane_namespace, version, ambient))| {
-            let discovery_label = infer_discovery_label(&revision, &namespaces);
-            let enrolled_namespace_count =
-                discovery_counts.get(&discovery_label).copied().unwrap_or(0);
-            MeshInstance {
-                revision,
-                discovery_label,
-                control_plane_namespace,
-                version,
-                ambient,
-                enrolled_namespace_count,
-            }
-        })
-        .collect();
+    let mut instances: Vec<MeshInstance> = Vec::new();
+    for (revision, (control_plane_namespace, version, ambient)) in by_revision {
+        let discovery_label = infer_discovery_label(&revision, &namespaces);
+        let enrolled_namespace_count = discovery_counts.get(&discovery_label).copied().unwrap_or(0);
+        let enrollment = build_mesh_enrollment(
+            client,
+            &revision,
+            &control_plane_namespace,
+            &discovery_label,
+            flavor_is_ossm,
+        )
+        .await;
+        instances.push(MeshInstance {
+            revision,
+            discovery_label: enrollment
+                .discovery_label_value
+                .clone()
+                .unwrap_or(discovery_label),
+            control_plane_namespace,
+            version,
+            ambient,
+            enrolled_namespace_count,
+            enrollment,
+        });
+    }
 
     instances.sort_by(|a, b| {
         a.discovery_label
@@ -136,19 +162,7 @@ pub fn mesh_target_matches(sel: &MeshTarget, instance: &MeshInstance) -> bool {
     false
 }
 
-/// True when the namespace is enrolled on this mesh instance (discovery selector / revision).
-pub fn namespace_enrolled_on_mesh(
-    labels: &std::collections::BTreeMap<String, String>,
-    mesh: &MeshInstance,
-) -> bool {
-    if labels.get("istio-discovery").map(String::as_str) == Some(mesh.discovery_label.as_str()) {
-        return true;
-    }
-    if labels.get("istio.io/rev").map(String::as_str) == Some(mesh.revision.as_str()) {
-        return true;
-    }
-    false
-}
+pub use crate::mesh_enrollment::namespace_enrolled_on_mesh as namespace_enrolled_on_mesh_with_enrollment;
 
 async fn list_namespaces(client: &Client) -> anyhow::Result<Vec<Namespace>> {
     let api: Api<Namespace> = Api::all(client.clone());
@@ -258,9 +272,76 @@ fn revision_short_name(revision: &str) -> &str {
     revision.split("-v").next().unwrap_or(revision)
 }
 
+/// Whether `ns` hosts istiod / mesh control-plane components (not a user application namespace).
+pub fn is_istiod_control_plane_namespace(ns: &str, mesh_instances: &[MeshInstance]) -> bool {
+    if ns.is_empty() {
+        return false;
+    }
+    if ns == "istio-system" || ns.ends_with("-istio-system") {
+        return true;
+    }
+    mesh_instances
+        .iter()
+        .any(|m| m.control_plane_namespace == ns)
+}
+
+/// User-facing application namespaces eligible for assessment catalog and dashboard rows.
+pub fn is_application_namespace(ns: &str, mesh_instances: &[MeshInstance]) -> bool {
+    !is_istiod_control_plane_namespace(ns, mesh_instances)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ambientor_types::{MeshEnrollment, MeshEnrollmentMode};
+
+    #[test]
+    fn excludes_istiod_control_plane_namespaces() {
+        let meshes = vec![test_instance(
+            "ambient-v1",
+            "mesh-ambient",
+            "ambient-v1-28-6-istio-system",
+            true,
+            1,
+        )];
+        assert!(is_istiod_control_plane_namespace("istio-system", &meshes));
+        assert!(is_istiod_control_plane_namespace(
+            "ambient-v1-28-6-istio-system",
+            &meshes
+        ));
+        assert!(is_istiod_control_plane_namespace(
+            "demo-v1-28-6-istio-system",
+            &meshes
+        ));
+        assert!(!is_istiod_control_plane_namespace("mesh-sidecar-2", &meshes));
+        assert!(!is_istiod_control_plane_namespace("bookinfo", &meshes));
+    }
+
+    fn test_instance(
+        revision: &str,
+        discovery_label: &str,
+        control_plane_namespace: &str,
+        ambient: bool,
+        enrolled_namespace_count: usize,
+    ) -> MeshInstance {
+        let enrollment = MeshEnrollment {
+            mode: MeshEnrollmentMode::RevisionAndDiscovery,
+            revision: revision.into(),
+            discovery_label_key: Some("istio-discovery".into()),
+            discovery_label_value: Some(discovery_label.into()),
+            member_roll_namespace: None,
+            from_istiod_config: false,
+        };
+        MeshInstance {
+            revision: revision.into(),
+            discovery_label: discovery_label.into(),
+            control_plane_namespace: control_plane_namespace.into(),
+            version: None,
+            ambient,
+            enrolled_namespace_count,
+            enrollment,
+        }
+    }
 
     fn ns(labels: Vec<(&str, &str)>) -> Namespace {
         Namespace {
@@ -306,22 +387,14 @@ mod tests {
     #[test]
     fn auto_select_single_ambient() {
         let instances = vec![
-            MeshInstance {
-                revision: "demo-v1-28-6".into(),
-                discovery_label: "mesh-demo".into(),
-                control_plane_namespace: "demo-istio-system".into(),
-                version: Some("1.28.6".into()),
-                ambient: false,
-                enrolled_namespace_count: 3,
-            },
-            MeshInstance {
-                revision: "ambient-v1-28-6".into(),
-                discovery_label: "mesh-ambient".into(),
-                control_plane_namespace: "ambient-istio-system".into(),
-                version: Some("1.28.6".into()),
-                ambient: true,
-                enrolled_namespace_count: 2,
-            },
+            test_instance("demo-v1-28-6", "mesh-demo", "demo-istio-system", false, 3),
+            test_instance(
+                "ambient-v1-28-6",
+                "mesh-ambient",
+                "ambient-istio-system",
+                true,
+                2,
+            ),
         ];
         let picked = resolve_mesh_target(&instances, None).unwrap();
         assert_eq!(picked.discovery_label, "mesh-ambient");
@@ -330,22 +403,8 @@ mod tests {
     #[test]
     fn ambiguous_without_target() {
         let instances = vec![
-            MeshInstance {
-                revision: "ambient-a".into(),
-                discovery_label: "mesh-ambient-a".into(),
-                control_plane_namespace: "a-istio-system".into(),
-                version: None,
-                ambient: true,
-                enrolled_namespace_count: 0,
-            },
-            MeshInstance {
-                revision: "ambient-b".into(),
-                discovery_label: "mesh-ambient-b".into(),
-                control_plane_namespace: "b-istio-system".into(),
-                version: None,
-                ambient: true,
-                enrolled_namespace_count: 0,
-            },
+            test_instance("ambient-a", "mesh-ambient-a", "a-istio-system", true, 0),
+            test_instance("ambient-b", "mesh-ambient-b", "b-istio-system", true, 0),
         ];
         assert!(matches!(
             resolve_mesh_target(&instances, None),
@@ -356,22 +415,14 @@ mod tests {
     #[test]
     fn explicit_discovery_label() {
         let instances = vec![
-            MeshInstance {
-                revision: "ambient-v1-28-6".into(),
-                discovery_label: "mesh-ambient".into(),
-                control_plane_namespace: "ambient-istio-system".into(),
-                version: None,
-                ambient: true,
-                enrolled_namespace_count: 1,
-            },
-            MeshInstance {
-                revision: "demo-v1-28-6".into(),
-                discovery_label: "mesh-demo".into(),
-                control_plane_namespace: "demo-istio-system".into(),
-                version: None,
-                ambient: false,
-                enrolled_namespace_count: 3,
-            },
+            test_instance(
+                "ambient-v1-28-6",
+                "mesh-ambient",
+                "ambient-istio-system",
+                true,
+                1,
+            ),
+            test_instance("demo-v1-28-6", "mesh-demo", "demo-istio-system", false, 3),
         ];
         let sel = MeshTarget {
             discovery_label: Some("mesh-demo".into()),

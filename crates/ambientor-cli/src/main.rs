@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+mod mesh_cmd;
 mod plan_cmd;
 mod rollout_cmd;
 mod sarif;
@@ -56,6 +57,28 @@ enum Commands {
     Openshift {
         #[command(subcommand)]
         action: OpenshiftAction,
+    },
+    /// Istio / OSSM control-plane discovery and namespace enrollment
+    Mesh {
+        #[command(subcommand)]
+        action: MeshAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum MeshAction {
+    /// List mesh instances (istiod revisions + enrollment contracts)
+    Instances,
+    /// Enroll a namespace on a mesh target (labels + OSSM MemberRoll when applicable)
+    Enroll {
+        #[arg(short, long)]
+        namespace: String,
+        #[arg(long)]
+        revision: Option<String>,
+        #[arg(long)]
+        discovery_label: Option<String>,
+        #[arg(long)]
+        control_plane_namespace: Option<String>,
     },
 }
 
@@ -197,6 +220,24 @@ async fn main() -> anyhow::Result<()> {
                     .await?
                 };
                 println!("{}", serde_json::to_string_pretty(&report)?);
+            }
+        },
+        Commands::Mesh { action } => match action {
+            MeshAction::Instances => {
+                mesh_cmd::list_mesh_instances(cli.kubeconfig.as_deref()).await?;
+            }
+            MeshAction::Enroll {
+                namespace,
+                revision,
+                discovery_label,
+                control_plane_namespace,
+            } => {
+                let target = ambientor_types::MeshTarget {
+                    revision,
+                    discovery_label,
+                    control_plane_namespace,
+                };
+                mesh_cmd::enroll_namespace(cli.kubeconfig.as_deref(), &namespace, target).await?;
             }
         },
         Commands::Rollout { action } => match action {

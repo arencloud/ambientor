@@ -10,6 +10,12 @@ namespace: ambientor-system
 
 operator:
   replicas: 1
+  image:
+    # Optional override for dev images:
+    # repository: quay.io/arencloud/ambientor-operator-dev
+    # tag: dev-<git-sha>
+    repository: ""
+    tag: ""
   resources:
     requests:
       cpu: 100m
@@ -20,6 +26,9 @@ operator:
 
 api:
   replicas: 1
+  image:
+    repository: ""
+    tag: ""
   service:
     type: ClusterIP
     port: 8080
@@ -33,6 +42,9 @@ api:
 
 web:
   replicas: 1
+  image:
+    repository: ""
+    tag: ""
   service:
     type: ClusterIP
     port: 3000
