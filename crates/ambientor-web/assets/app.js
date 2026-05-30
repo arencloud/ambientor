@@ -13,10 +13,12 @@
 
   let applicationsPage = { items: [], total: 0, page: 1, pageSize: 50 };
   let appListPage = 1;
-  let appListFilters = { q: '', riskLevel: '', meshRevision: '' };
+  let appListFilters = { q: '', riskLevel: '', meshRevision: '', migrationCandidatesOnly: true };
   let selectedAppNamespace = null;
   let plans = [];
   let selectedPlanKey = null;
+  let meshInstancesForPlan = [];
+  let selectedMigrationNamespaces = new Set();
   let rollouts = [];
   let selectedRolloutKey = null;
   let rolloutDetail = null;
@@ -311,39 +313,168 @@
     select.value = current;
   }
 
-  function renderClusterFindings() {
-    const panel = $('cluster-findings-panel');
-    const list = $('cluster-findings-list');
-    const summaryEl = $('cluster-findings-summary');
-    if (!panel || !list) return;
+  function updateMigrationSelectionUi() {
+    const count = selectedMigrationNamespaces.size;
+    const countEl = $('plan-selection-count');
+    if (countEl) countEl.textContent = `${count.toLocaleString()} selected`;
+    const btn = $('create-migration-plan');
+    if (btn) {
+      btn.disabled = count === 0 || !$('plan-mesh-select')?.value;
+    }
+  }
 
-    const summary = applicationsPage.clusterSummary || applicationsPage.cluster_summary || {};
-    const clusterFindings =
-      applicationsPage.clusterFindings || applicationsPage.cluster_findings || [];
-    const allFindings = [...clusterFindings];
-    const blockers = summary.blockers ?? 0;
-    const warnings = summary.warnings ?? 0;
+  function meshOptionValue(m) {
+    return JSON.stringify({
+      revision: m.revision,
+      discoveryLabel: m.discoveryLabel || m.discovery_label || '',
+      controlPlaneNamespace: m.controlPlaneNamespace || m.control_plane_namespace,
+    });
+  }
 
-    const hasClusterList = allFindings.length > 0;
-    const hasCounts = blockers > 0 || warnings > 0;
-    if (!hasClusterList && !hasCounts) {
-      panel.classList.add('hidden');
+  function renderPlanMeshSelect() {
+    const select = $('plan-mesh-select');
+    if (!select) return;
+    const prev = select.value;
+    const ambient = meshInstancesForPlan.filter((m) => m.ambient);
+    const list = ambient.length ? ambient : meshInstancesForPlan;
+    select.innerHTML = '';
+    if (!list.length) {
+      select.innerHTML = '<option value="">No control planes discovered</option>';
       return;
     }
+    list.forEach((m) => {
+      const opt = document.createElement('option');
+      opt.value = meshOptionValue(m);
+      const disc =
+        m.enrollment?.discoveryLabelKey && m.enrollment?.discoveryLabelValue
+          ? ` · ${m.enrollment.discoveryLabelKey}=${m.enrollment.discoveryLabelValue}`
+          : '';
+      const revTag = m.enrollment?.revisionTag || m.enrollment?.revision_tag;
+      const revLabel = revTag || m.enrollment?.revision || m.revision;
+      const tagHint = revTag ? ` · tag ${revTag}` : '';
+      opt.textContent = `${revLabel} (${m.controlPlaneNamespace || m.control_plane_namespace})${tagHint}${disc}`;
+      if (m.autoSelect || m.auto_select) opt.selected = true;
+      select.appendChild(opt);
+    });
+    if (prev) select.value = prev;
+    updatePlanLabelPreview();
+    updateMigrationSelectionUi();
+  }
 
-    panel.classList.remove('hidden');
-    if (summaryEl) {
-      summaryEl.textContent = `${blockers} blocker(s), ${warnings} warning(s) in latest scan — open an application row for namespace-specific findings`;
+  function updatePlanLabelPreview() {
+    const el = $('plan-label-preview');
+    const select = $('plan-mesh-select');
+    if (!el || !select || !select.value) {
+      if (el) el.textContent = 'Select a mesh to preview enrollment labels.';
+      return;
     }
-    list.innerHTML = '';
-    if (hasClusterList) {
-      allFindings.forEach((f) => list.appendChild(renderFinding(f)));
-    } else {
-      const li = document.createElement('li');
-      li.className = 'hint';
-      li.textContent =
-        'Blockers are attributed to application namespaces below (filter by risk: critical).';
-      list.appendChild(li);
+    let mesh;
+    try {
+      mesh = JSON.parse(select.value);
+    } catch {
+      el.textContent = 'Invalid mesh selection';
+      return;
+    }
+    const instance = meshInstancesForPlan.find(
+      (m) =>
+        m.revision === mesh.revision &&
+        (m.controlPlaneNamespace || m.control_plane_namespace) === mesh.controlPlaneNamespace
+    );
+    const revLabel =
+      instance?.enrollment?.revisionTag ||
+      instance?.enrollment?.revision_tag ||
+      instance?.enrollment?.revision ||
+      mesh.revision;
+    const parts = [`istio.io/rev=${revLabel}`];
+    if (instance?.enrollment?.discoveryLabelKey && instance?.enrollment?.discoveryLabelValue) {
+      parts.push(
+        `${instance.enrollment.discoveryLabelKey}=${instance.enrollment.discoveryLabelValue}`
+      );
+    } else if (mesh.discoveryLabel) {
+      parts.push(`istio-discovery=${mesh.discoveryLabel}`);
+    }
+    parts.push('istio.io/dataplane-mode=ambient');
+    const tagNote =
+      instance?.enrollment?.revisionTag || instance?.enrollment?.revision_tag
+        ? ` (istiod revision ${mesh.revision})`
+        : '';
+    el.textContent = `Rollout will enroll namespaces with: ${parts.join(', ')}${tagNote}`;
+  }
+
+  async function loadMeshInstancesForPlans() {
+    if (!API()) return;
+    try {
+      const res = await fetch(API() + '/api/v1/mesh-instances');
+      if (!res.ok) throw new Error(await res.text());
+      meshInstancesForPlan = await res.json();
+      renderPlanMeshSelect();
+    } catch {
+      meshInstancesForPlan = [];
+      renderPlanMeshSelect();
+    }
+  }
+
+  function toggleMigrationNamespace(ns, checked) {
+    if (checked) selectedMigrationNamespaces.add(ns);
+    else selectedMigrationNamespaces.delete(ns);
+    updateMigrationSelectionUi();
+  }
+
+  function selectEligibleOnPage() {
+    (applicationsPage.items || []).forEach((app) => {
+      const blockers = app.blockerCount ?? app.blocker_count ?? 0;
+      const candidate = app.migrationCandidate ?? app.migration_candidate ?? true;
+      if (!blockers && candidate) selectedMigrationNamespaces.add(app.namespace);
+    });
+    renderApplicationsTable();
+    updateMigrationSelectionUi();
+  }
+
+  function clearMigrationSelection() {
+    selectedMigrationNamespaces.clear();
+    renderApplicationsTable();
+    updateMigrationSelectionUi();
+  }
+
+  async function createMigrationPlan() {
+    const select = $('plan-mesh-select');
+    if (!select?.value || selectedMigrationNamespaces.size === 0) return;
+    let meshTarget;
+    try {
+      meshTarget = JSON.parse(select.value);
+    } catch {
+      setStatus('Invalid mesh selection', true);
+      return;
+    }
+    const body = {
+      displayName: $('plan-display-name')?.value?.trim() || undefined,
+      meshTarget,
+      selectedNamespaces: [...selectedMigrationNamespaces].sort(),
+      clusterRef: applicationsPage.clusterRef || applicationsPage.cluster_ref,
+    };
+    const btn = $('create-migration-plan');
+    if (btn) btn.disabled = true;
+    setStatus('Creating migration plan…');
+    try {
+      const res = await fetch(API() + '/api/v1/plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setStatus(
+        `Created plan ${data.namespace}/${data.name} (${data.selectedCount} namespaces, ${data.waveCount} waves)`
+      );
+      selectedPlanKey = `${data.namespace}/${data.name}`;
+      showPanel('plans');
+      await loadPlans();
+      await selectPlan(selectedPlanKey);
+    } catch (e) {
+      setStatus('Create plan failed: ' + e.message, true);
+    } finally {
+      if (btn) btn.disabled = false;
+      updateMigrationSelectionUi();
     }
   }
 
@@ -353,7 +484,7 @@
     const items = applicationsPage.items || [];
     if (!items.length) {
       tbody.innerHTML =
-        '<tr><td colspan="9" class="hint">No applications match filters. Run assessment to scan the cluster.</td></tr>';
+        '<tr><td colspan="13" class="hint">No migration candidates match filters. Run assessment or enable “Show already on ambient”.</td></tr>';
       return;
     }
     tbody.innerHTML = items
@@ -363,15 +494,30 @@
         const readiness = app.readinessPct ?? app.readiness_pct ?? 0;
         const risk = app.riskLevel || app.risk_level || 'low';
         const blockers = app.blockerCount ?? app.blocker_count ?? 0;
+        const warnings = app.warningCount ?? app.warning_count ?? 0;
         const dp = formatDataplane(app);
-        return `<tr class="app-row${selected}" data-ns="${escapeHtml(ns)}" tabindex="0">
-          <td><strong>${escapeHtml(ns)}</strong></td>
+        const candidate = app.migrationCandidate ?? app.migration_candidate ?? true;
+        const blocked = blockers > 0;
+        const checked = selectedMigrationNamespaces.has(ns);
+        const rowClass =
+          'app-row' + selected + (blocked || !candidate ? ' row-blocked' : '');
+        const checkCell =
+          blocked || !candidate
+            ? `<td class="col-check" title="${blocked ? 'Resolve blockers before migration' : 'Already on ambient dataplane'}">—</td>`
+            : `<td class="col-check"><input type="checkbox" data-ns="${escapeHtml(ns)}" ${checked ? 'checked' : ''} aria-label="Select ${escapeHtml(appDisplayName(app))} for migration" /></td>`;
+        const displayName = appDisplayName(app);
+        return `<tr class="${rowClass}" data-ns="${escapeHtml(ns)}" tabindex="0">
+          ${checkCell}
+          <td><strong>${escapeHtml(displayName)}</strong></td>
+          <td class="mono">${escapeHtml(ns)}</td>
+          <td class="mono">${app.workloadCount ?? app.workload_count ?? '—'}</td>
           <td>${escapeHtml(formatControlPlane(app))}</td>
           <td><span class="badge-dataplane ${dataplaneBadgeClass(dp)}">${escapeHtml(dp)}</span></td>
           <td class="mono">${escapeHtml(formatHostnames(app.hostnames))}</td>
           <td class="mono small">${escapeHtml(formatLabels(app.namespaceLabels || app.namespace_labels))}</td>
           <td>${escapeHtml(formatIngress(app))}</td>
           <td>${blockers ? `<span class="badge-status blocker">${blockers}</span>` : '—'}</td>
+          <td>${warnings ? `<span class="badge-status warning">${warnings}</span>` : '—'}</td>
           <td>
             <div class="readiness-cell">
               <div class="readiness-bar"><span style="width:${readiness}%"></span></div>
@@ -385,7 +531,14 @@
 
     tbody.querySelectorAll('.app-row').forEach((row) => {
       const ns = row.getAttribute('data-ns');
-      row.addEventListener('click', () => openApplicationDetail(ns));
+      row.querySelector('input[type="checkbox"]')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMigrationNamespace(ns, e.target.checked);
+      });
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('input[type="checkbox"]')) return;
+        openApplicationDetail(ns);
+      });
       row.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -393,6 +546,7 @@
         }
       });
     });
+    updateMigrationSelectionUi();
   }
 
   function updatePaginationUi() {
@@ -403,8 +557,8 @@
     const info = $('app-page-info');
     if (info) {
       info.textContent = total
-        ? `Page ${page} of ${pages} · ${total.toLocaleString()} application(s)`
-        : 'No applications';
+        ? `Page ${page} of ${pages} · ${total.toLocaleString()} candidate(s)`
+        : 'No candidates';
     }
     const prev = $('app-page-prev');
     const next = $('app-page-next');
@@ -419,11 +573,19 @@
     if (appListFilters.q) params.set('q', appListFilters.q);
     if (appListFilters.riskLevel) params.set('riskLevel', appListFilters.riskLevel);
     if (appListFilters.meshRevision) params.set('meshRevision', appListFilters.meshRevision);
+    params.set(
+      'migrationCandidatesOnly',
+      appListFilters.migrationCandidatesOnly === false ? 'false' : 'true'
+    );
     return params.toString();
   }
 
+  function appDisplayName(app) {
+    return app.applicationName || app.application_name || app.namespace;
+  }
+
   async function loadApplications() {
-    setStatus('Loading applications…');
+    setStatus('Loading migration candidates…');
     try {
       const res = await fetch(API() + '/api/v1/applications?' + applicationsQueryString());
       if (res.status === 503) {
@@ -435,17 +597,22 @@
       const meta = $('assess-meta');
       if (meta) {
         const when = applicationsPage.lastAssessedAt || applicationsPage.last_assessed_at;
-        meta.textContent = when
-          ? `${applicationsPage.total.toLocaleString()} application(s) · last assessed ${new Date(when).toLocaleString()}`
-          : 'Run assessment to populate the application catalog in the database.';
+        const excluded =
+          applicationsPage.excludedAmbientCount ?? applicationsPage.excluded_ambient_count ?? 0;
+        const base = when
+          ? `${applicationsPage.total.toLocaleString()} migration candidate(s) · last assessed ${new Date(when).toLocaleString()}`
+          : 'Run assessment to populate the migration catalog.';
+        meta.textContent =
+          excluded > 0 && appListFilters.migrationCandidatesOnly !== false
+            ? `${base} · ${excluded.toLocaleString()} already on ambient hidden`
+            : base;
       }
       renderMeshFilterOptions();
-      renderClusterFindings();
       renderApplicationsTable();
       updatePaginationUi();
-      setStatus(`Loaded ${applicationsPage.total.toLocaleString()} application(s)`);
+      setStatus(`Loaded ${applicationsPage.total.toLocaleString()} migration candidate(s)`);
     } catch (e) {
-      setStatus('Failed to load applications: ' + e.message, true);
+      setStatus('Failed to load migration candidates: ' + e.message, true);
     }
   }
 
@@ -477,15 +644,18 @@
       if (!res.ok) throw new Error(await res.text());
       const detail = await res.json();
       const app = detail.list || detail;
+      $('app-detail-title').textContent = appDisplayName(app);
       $('app-detail-meta').innerHTML = `
         <dl class="meta-dl">
+          <dt>Application</dt><dd><strong>${escapeHtml(appDisplayName(app))}</strong></dd>
+          <dt>Namespace</dt><dd class="mono">${escapeHtml(app.namespace)}</dd>
+          <dt>Pods</dt><dd>${app.workloadCount ?? app.workload_count ?? 0}</dd>
           <dt>Control plane</dt><dd>${escapeHtml(formatControlPlane(app))}</dd>
           <dt>Revision NS</dt><dd>${escapeHtml(app.controlPlaneNamespace || app.control_plane_namespace || '—')}</dd>
           <dt>Hostnames</dt><dd class="mono">${escapeHtml((app.hostnames || []).join(', ') || '—')}</dd>
           <dt>Dataplane</dt><dd><span class="badge-dataplane ${dataplaneBadgeClass(formatDataplane(app))}">${escapeHtml(formatDataplane(app))}</span></dd>
           <dt>Istio labels</dt><dd class="mono small">${escapeHtml(formatLabels(app.namespaceLabels || app.namespace_labels))}</dd>
           <dt>Ingress gateway</dt><dd>${escapeHtml(formatIngress(app))}</dd>
-          <dt>Workloads</dt><dd>${app.workloadCount ?? app.workload_count ?? 0}</dd>
         </dl>
       `;
       renderScores(detail.scores, 'detail-');
@@ -545,6 +715,46 @@
     $('sum-not-scanned').textContent = c.notScanned ?? c.not_scanned ?? 0;
   }
 
+  function renderMigrationSavings(savings) {
+    const panel = $('dash-savings-panel');
+    if (!panel) return;
+    const s = savings || {};
+    const workloads =
+      s.migratedWorkloads ?? s.migrated_workloads ?? 0;
+    if (!workloads) {
+      panel.classList.add('hidden');
+      panel.innerHTML = '';
+      return;
+    }
+    const proxies =
+      s.estimatedSidecarProxiesRemoved ?? s.estimated_sidecar_proxies_removed ?? workloads;
+    const mem = s.estimatedMemoryMibSaved ?? s.estimated_memory_mib_saved ?? 0;
+    const cpu = s.estimatedCpuMillicoresSaved ?? s.estimated_cpu_millicores_saved ?? 0;
+    panel.classList.remove('hidden');
+    panel.innerHTML = `
+      <div class="dash-savings-inner">
+        <div>
+          <p class="dash-eyebrow">After migration</p>
+          <h3>Estimated resource savings</h3>
+          <p class="hint">Based on ${workloads} migrated workload(s) with ambient dataplane (sidecar proxies removed).</p>
+        </div>
+        <div class="savings-metrics" role="list">
+          <div class="savings-metric" role="listitem">
+            <span class="savings-value">${proxies}</span>
+            <span class="savings-label">Sidecars removed</span>
+          </div>
+          <div class="savings-metric" role="listitem">
+            <span class="savings-value">~${mem}</span>
+            <span class="savings-label">MiB memory</span>
+          </div>
+          <div class="savings-metric" role="listitem">
+            <span class="savings-value">~${cpu}</span>
+            <span class="savings-label">mCPU</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
   function renderIstiodCard(mesh) {
     const card = document.createElement('article');
     card.className = 'istiod-card ' + (mesh.ambient ? 'ambient' : 'sidecar');
@@ -565,8 +775,9 @@
         const st = app.status || 'notScanned';
         const dp = formatDataplane(app);
         const assess = app.assessmentRef || app.assessment_ref || '—';
+        const appName = app.applicationName || app.application_name || app.namespace;
         return `<tr>
-          <td><strong>${escapeHtml(app.namespace)}</strong></td>
+          <td><strong>${escapeHtml(appName)}</strong><br><span class="mono small">${escapeHtml(app.namespace)}</span></td>
           <td><span class="badge-status ${statusCssClass(st)}">${escapeHtml(statusLabel(st))}</span></td>
           <td><span class="badge-dataplane ${dataplaneBadgeClass(dp)}">${escapeHtml(dp)}</span></td>
           <td>${escapeHtml(assess)}</td>
@@ -575,16 +786,21 @@
       .join('');
 
     const kind = mesh.ambient ? 'ambient' : 'sidecar';
+    const enroll = mesh.enrollment || {};
+    const revTag = enroll.revisionTag || enroll.revision_tag;
+    const revLine = revTag
+      ? `<code>istio.io/rev=${escapeHtml(revTag)}</code> · istiod <code>${escapeHtml(enroll.istioRevision || enroll.istio_revision || mesh.revision)}</code>`
+      : `revision <code>${escapeHtml(mesh.revision)}</code>`;
     card.innerHTML = `
       <div class="istiod-card-head">
         <div>
           <h4>${escapeHtml(mesh.discoveryLabel || mesh.discovery_label)}</h4>
-          <p class="istiod-sub">revision <code>${escapeHtml(mesh.revision)}</code> · ns <code>${escapeHtml(mesh.controlPlaneNamespace || mesh.control_plane_namespace)}</code> · ${kind}</p>
+          <p class="istiod-sub">${revLine} · ns <code>${escapeHtml(mesh.controlPlaneNamespace || mesh.control_plane_namespace)}</code> · ${kind}</p>
         </div>
         <div class="istiod-counts">${pills.join('') || '<span class="pill">No applications</span>'}</div>
       </div>
       <table class="app-table">
-        <thead><tr><th>Application (namespace)</th><th>Status</th><th>Dataplane</th><th>Assessment</th></tr></thead>
+        <thead><tr><th>Application</th><th>Status</th><th>Dataplane</th><th>Assessment</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="4">No enrolled namespaces on this control plane</td></tr>'}</tbody>
       </table>
     `;
@@ -617,6 +833,7 @@
           'Updated ' + new Date(data.lastUpdated || data.last_updated).toLocaleString();
       }
       renderStatusSummary(data.summary);
+      renderMigrationSavings(data.migrationSavings || data.migration_savings);
       if (container) {
         container.innerHTML = '';
         (data.meshInstances || data.mesh_instances || []).forEach((m) => {
@@ -695,11 +912,17 @@
       const li = document.createElement('li');
       const key = planKey(p);
       li.className = 'assessment-item' + (key === selectedPlanKey ? ' selected' : '');
+      const sel = (p.selectedNamespaces || p.selected_namespaces || []).length;
+      const subtitle = sel
+        ? `${sel} app(s)`
+        : p.assessmentRef || p.assessment_ref
+          ? 'assessment'
+          : '';
       li.innerHTML = `
         <button type="button" data-key="${escapeHtml(key)}">
-          <span class="name">${escapeHtml(p.namespace)}/${escapeHtml(p.name)}</span>
+          <span class="name">${escapeHtml(p.displayName || p.display_name || p.name)}</span>
           <span class="phase">${escapeHtml(p.phase)}</span>
-          <span class="score-mini">${p.waveCount ?? p.wave_count ?? 0} wave(s)</span>
+          <span class="score-mini">${p.waveCount ?? p.wave_count ?? 0} wave(s)${subtitle ? ' · ' + escapeHtml(subtitle) : ''}</span>
         </button>
       `;
       li.querySelector('button').addEventListener('click', () => selectPlan(key));
@@ -764,9 +987,27 @@
     $('plan-detail-phase').className =
       'phase-badge ' + (p.phase || '').toLowerCase().replace(/[^a-z]/g, '');
     const ref = p.assessmentRef || p.assessment_ref;
+    const selected = p.selectedNamespaces || p.selected_namespaces || [];
+    const mesh = p.meshTarget || p.mesh_target;
+    const clusterRef = p.clusterRef || p.cluster_ref;
+    const displayName = p.displayName || p.display_name;
+    const meta = $('plan-meta-grid');
+    if (meta) {
+      const meshLine = mesh
+        ? `rev=${mesh.revision || '—'}${mesh.discoveryLabel || mesh.discovery_label ? ', discovery=' + (mesh.discoveryLabel || mesh.discovery_label) : ''}, CP=${mesh.controlPlaneNamespace || mesh.control_plane_namespace || '—'}`
+        : '—';
+      meta.innerHTML = `
+        <div><span class="meta-label">Display name</span><span>${escapeHtml(displayName || '—')}</span></div>
+        <div><span class="meta-label">Cluster</span><span>${escapeHtml(clusterRef || '—')}</span></div>
+        <div><span class="meta-label">Mesh target</span><span class="mono">${escapeHtml(meshLine)}</span></div>
+        <div><span class="meta-label">Selected apps</span><span>${selected.length ? selected.length.toLocaleString() : '—'}</span></div>
+      `;
+    }
     $('plan-assessment-ref').textContent = ref
-      ? `Assessment: ${ref}`
-      : 'No assessment reference';
+      ? `Linked assessment (legacy): ${ref}`
+      : selected.length
+        ? `${selected.length.toLocaleString()} namespace(s) in spec.selectedNamespaces`
+        : 'Assessment-wide plan (legacy)';
     $('export-plan').disabled = false;
     $('start-rollout').disabled = false;
     renderWaves(p.waves);
@@ -1079,7 +1320,10 @@
         const id = a.getAttribute('href').slice(1);
         showPanel(id);
         if (id === 'dashboard') loadDashboard();
-        if (id === 'assessments') loadAssessments();
+        if (id === 'assessments') {
+          loadAssessments();
+          loadMeshInstancesForPlans();
+        }
         if (id === 'plans') loadPlans();
         if (id === 'rollouts') loadRollouts();
       });
@@ -1133,6 +1377,18 @@
       appListPage = 1;
       loadApplications();
     });
+    $('app-show-ambient')?.addEventListener('change', (e) => {
+      appListFilters.migrationCandidatesOnly = !e.target.checked;
+      appListPage = 1;
+      loadApplications();
+    });
+    $('plan-mesh-select')?.addEventListener('change', () => {
+      updatePlanLabelPreview();
+      updateMigrationSelectionUi();
+    });
+    $('app-select-page')?.addEventListener('click', selectEligibleOnPage);
+    $('app-clear-selection')?.addEventListener('click', clearMigrationSelection);
+    $('create-migration-plan')?.addEventListener('click', createMigrationPlan);
     $('refresh-plans')?.addEventListener('click', loadPlans);
     $('export-plan')?.addEventListener('click', downloadPlanExport);
     $('start-rollout')?.addEventListener('click', startRolloutFromPlan);

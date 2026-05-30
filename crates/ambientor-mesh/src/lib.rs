@@ -1,5 +1,7 @@
 #![deny(unsafe_code)]
 
+pub mod application_identity;
+pub mod revision_tags;
 pub mod backend;
 pub mod dynamic;
 pub mod inventory;
@@ -13,6 +15,7 @@ pub mod policy_collect;
 pub mod version;
 pub mod workload_scan;
 
+pub use application_identity::*;
 pub use backend::*;
 pub use inventory::*;
 pub use mesh_enrollment::*;

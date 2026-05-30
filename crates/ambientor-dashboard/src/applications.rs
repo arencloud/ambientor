@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use ambientor_core::rules::RuleContext;
 use ambientor_core::scoring::compute_scores;
+use ambientor_mesh::application_identity::NamespaceApplicationIdentity;
 use ambientor_mesh::istio::collect_istio_policies;
 use ambientor_mesh::is_application_namespace;
 use ambientor_types::{
@@ -15,7 +16,7 @@ use crate::application_types::{
     ApplicationAssessmentRecord, AssessmentSuggestion, ClusterAssessmentRun, RiskLevel,
 };
 use crate::compute::namespace_belongs_to_mesh;
-use crate::dataplane::{derive_dataplane_mode, is_ambient_mesh_scope};
+use crate::dataplane::{derive_dataplane_mode, is_ambient_mesh_scope, is_migration_candidate};
 use crate::deep_analysis::enrich_ambient_application;
 use crate::findings_attribution::partition_findings_by_namespace;
 
@@ -103,6 +104,7 @@ pub fn build_cluster_assessment(
     mesh_instances: &[MeshInstance],
     hostnames_by_ns: &HashMap<String, BTreeSet<String>>,
     ingress_ns: &HashSet<String>,
+    identities: &std::collections::BTreeMap<String, NamespaceApplicationIdentity>,
 ) -> ClusterAssessmentRun {
     let (by_ns, cluster_findings) = partition_findings_by_namespace(all_findings, ctx);
 
@@ -132,7 +134,7 @@ pub fn build_cluster_assessment(
                 &findings,
                 hostnames_by_ns,
                 ingress_ns,
-                workload_count(ctx, &ns_name),
+                identities.get(&ns_name),
             ));
         }
     }
@@ -160,11 +162,15 @@ pub fn build_cluster_assessment(
             findings,
             hostnames_by_ns,
             ingress_ns,
-            workload_count(ctx, ns_name),
+            identities.get(ns_name),
         ));
     }
 
-    applications.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+    applications.sort_by(|a, b| {
+        a.application_name
+            .cmp(&b.application_name)
+            .then(a.namespace.cmp(&b.namespace))
+    });
 
     ClusterAssessmentRun {
         cluster_ref: cluster_ref.to_string(),
@@ -183,8 +189,17 @@ fn build_app_record(
     findings: &[Finding],
     hostnames_by_ns: &HashMap<String, BTreeSet<String>>,
     ingress_ns: &HashSet<String>,
-    workload_count: u32,
+    identity: Option<&NamespaceApplicationIdentity>,
 ) -> ApplicationAssessmentRecord {
+    let app_pod_count = identity.map(|i| i.app_pod_count).unwrap_or_else(|| {
+        workload_count(ctx, ns_name)
+    });
+    let application_name = identity
+        .map(|i| i.application_name.clone())
+        .unwrap_or_else(|| ns_name.to_string());
+    let workload_components = identity
+        .map(|i| i.workload_components.clone())
+        .unwrap_or_default();
     let hostnames: Vec<String> = hostnames_by_ns
         .get(ns_name)
         .map(|s| s.iter().cloned().collect())
@@ -198,7 +213,7 @@ fn build_app_record(
 
     let mut app_findings = findings.to_vec();
     if hostnames_empty
-        && should_warn_missing_hostnames(mesh, labels, workload_count)
+        && should_warn_missing_hostnames(mesh, labels, app_pod_count)
         && !ambient_scope
     {
         app_findings.push(missing_hostname_finding(ns_name, mesh));
@@ -210,7 +225,7 @@ fn build_app_record(
         suggestions_from_findings(&app_findings)
     };
     if hostnames_empty
-        && should_warn_missing_hostnames(mesh, labels, workload_count)
+        && should_warn_missing_hostnames(mesh, labels, app_pod_count)
         && !ambient_scope
     {
         suggestions.push(missing_hostname_suggestion(ns_name));
@@ -225,9 +240,12 @@ fn build_app_record(
             &mut app_findings,
             &mut suggestions,
             hostnames_empty,
-            workload_count,
+            app_pod_count,
         );
     }
+
+    let migration_candidate =
+        is_migration_candidate(dataplane, app_pod_count, &label_map, mesh);
 
     let scores = compute_scores(&app_findings);
     let summary = ambientor_types::FindingSummary::from_findings(&app_findings);
@@ -243,6 +261,9 @@ fn build_app_record(
 
     ApplicationAssessmentRecord {
         namespace: ns_name.to_string(),
+        application_name,
+        workload_components,
+        migration_candidate,
         mesh_revision: mesh.map(|m| m.revision.clone()),
         discovery_label: mesh.map(|m| m.discovery_label.clone()),
         control_plane_namespace: mesh.map(|m| m.control_plane_namespace.clone()),
@@ -251,7 +272,7 @@ fn build_app_record(
         dataplane_mode: dataplane.as_str().to_string(),
         ingress_gateway_namespace,
         ingress_same_namespace,
-        workload_count,
+        workload_count: app_pod_count,
         readiness_pct,
         risk_level,
         blocker_count: summary.blockers,

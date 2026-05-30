@@ -39,7 +39,14 @@ pub enum MeshEnrollmentMode {
 #[serde(rename_all = "camelCase")]
 pub struct MeshEnrollment {
     pub mode: MeshEnrollmentMode,
+    /// Value for namespace `istio.io/rev` (revision tag name when configured, else istiod revision).
     pub revision: String,
+    /// Underlying istiod control-plane revision (deployment label).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub istio_revision: Option<String>,
+    /// Istio `RevisionTag` / `IstioRevisionTag` name when one targets this istiod revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision_tag: Option<String>,
     /// Label key from istiod `discoverySelectors` (e.g. `istio-discovery`); absent when revision-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discovery_label_key: Option<String>,
@@ -74,6 +81,8 @@ pub fn legacy_enrollment_from_mesh_instance(mesh: &MeshInstance) -> MeshEnrollme
     MeshEnrollment {
         mode: MeshEnrollmentMode::RevisionAndDiscovery,
         revision: mesh.revision.clone(),
+        istio_revision: Some(mesh.revision.clone()),
+        revision_tag: None,
         discovery_label_key: Some("istio-discovery".into()),
         discovery_label_value: Some(mesh.discovery_label.clone()),
         member_roll_namespace: None,
@@ -113,6 +122,8 @@ impl<'de> Deserialize<'de> for MeshInstance {
                 enrollment: MeshEnrollment {
                     mode: MeshEnrollmentMode::RevisionOnly,
                     revision: String::new(),
+                    istio_revision: None,
+                    revision_tag: None,
                     discovery_label_key: None,
                     discovery_label_value: None,
                     member_roll_namespace: None,
@@ -318,8 +329,18 @@ pub struct AmbientAssessmentStatus {
 )]
 #[serde(rename_all = "camelCase")]
 pub struct MigrationPlanSpec {
+    /// Optional link to an assessment (policy hints only when `selectedNamespaces` is set).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assessment_ref: Option<String>,
+    /// User-selected namespaces to migrate (preferred over assessment-wide expansion).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_namespaces: Vec<String>,
+    /// Fleet / multicluster identity for this plan (defaults to operator `CLUSTER_REF`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster_ref: Option<String>,
+    /// Human-readable label in UI and exports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     #[serde(default = "default_ambient")]
     pub target_mesh_mode: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -360,6 +381,10 @@ pub struct MigrationPlanStatus {
     pub approved: bool,
     #[serde(default)]
     pub wave_count: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_count: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster_ref: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

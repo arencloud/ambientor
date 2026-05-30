@@ -1,0 +1,21 @@
+# Selection-based migration plan (preferred for large fleets).
+# The operator builds batched waves from spec.selectedNamespaces only.
+apiVersion: ambientor.io/v1alpha1
+kind: MigrationPlan
+metadata:
+  name: bookinfo-migrate
+  namespace: ambientor-system
+spec:
+  displayName: Bookinfo ambient migration
+  clusterRef: local
+  targetMeshMode: ambient
+  meshTarget:
+    revision: default
+    discoveryLabel: istio-discovery
+    controlPlaneNamespace: istio-system
+  selectedNamespaces:
+    - bookinfo
+    - bookinfo-gateway
+  # Optional: link assessment for traffic policy hints on selected namespaces only
+  # assessmentRef: portal-assessment-20250101120000
+  waves: []

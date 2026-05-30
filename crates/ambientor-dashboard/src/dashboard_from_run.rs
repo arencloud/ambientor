@@ -6,8 +6,12 @@ use crate::application_types::{ApplicationAssessmentRecord, ClusterAssessmentRun
 use crate::dataplane::{DataplaneMode, derive_dataplane_mode_from_stored};
 use crate::types::{
     ApplicationMigrationStatus, ApplicationRow, ClusterDashboard, DashboardResponse,
-    MeshInstanceDashboard, StatusCounts,
+    MeshInstanceDashboard, MigrationSavingsSummary, StatusCounts,
 };
+
+/// Per-workload heuristic: one sidecar proxy container removed after ambient cutover.
+const MIB_SAVED_PER_WORKLOAD: u32 = 128;
+const MILLICORES_SAVED_PER_WORKLOAD: u32 = 100;
 
 /// Build dashboard API payload from the same assessment run stored in `application_assessments`.
 pub fn dashboard_from_assessment_run(
@@ -35,7 +39,25 @@ pub fn dashboard_from_assessment_run(
         },
         summary,
         mesh_instances,
+        migration_savings: Some(compute_migration_savings(&run.applications)),
         last_updated: Utc::now().to_rfc3339(),
+    }
+}
+
+pub fn compute_migration_savings(
+    apps: &[ApplicationAssessmentRecord],
+) -> MigrationSavingsSummary {
+    let migrated_workloads: u32 = apps
+        .iter()
+        .filter(|a| resolve_dataplane_mode(a) == DataplaneMode::Ambient)
+        .map(|a| a.workload_count)
+        .sum();
+    MigrationSavingsSummary {
+        migrated_workloads,
+        estimated_sidecar_proxies_removed: migrated_workloads,
+        estimated_memory_mib_saved: migrated_workloads.saturating_mul(MIB_SAVED_PER_WORKLOAD),
+        estimated_cpu_millicores_saved: migrated_workloads
+            .saturating_mul(MILLICORES_SAVED_PER_WORKLOAD),
     }
 }
 
@@ -72,6 +94,7 @@ fn mesh_groups_from_applications(apps: &[ApplicationAssessmentRecord]) -> Vec<Me
         let dataplane = resolve_dataplane_mode(app);
 
         let row = ApplicationRow {
+            application_name: app.application_name.clone(),
             namespace: app.namespace.clone(),
             status,
             mesh_revision: revision.clone(),
@@ -79,6 +102,7 @@ fn mesh_groups_from_applications(apps: &[ApplicationAssessmentRecord]) -> Vec<Me
             dataplane_mode: dataplane.as_str().to_string(),
             ambient_dataplane: dataplane.is_ambient(),
             blocker_count: app.blocker_count as usize,
+            workload_count: app.workload_count,
             rollout_phase: None,
             assessment_ref: Some(format!("assessment/{}", app.namespace)),
         };
@@ -89,7 +113,11 @@ fn mesh_groups_from_applications(apps: &[ApplicationAssessmentRecord]) -> Vec<Me
 
     let mut meshes: Vec<_> = groups.into_values().collect();
     for mesh in &mut meshes {
-        mesh.applications.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+        mesh.applications.sort_by(|a, b| {
+            a.application_name
+                .cmp(&b.application_name)
+                .then(a.namespace.cmp(&b.namespace))
+        });
         mesh.counts.total = mesh.applications.len();
     }
     meshes.sort_by(|a, b| {

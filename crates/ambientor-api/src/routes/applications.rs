@@ -20,6 +20,9 @@ pub struct ApplicationsQuery {
     pub risk_level: Option<String>,
     #[serde(rename = "meshRevision")]
     pub mesh_revision: Option<String>,
+    /// When true (default), hide namespaces already on ambient dataplane.
+    #[serde(rename = "migrationCandidatesOnly", default = "default_migration_candidates_only")]
+    pub migration_candidates_only: bool,
     #[serde(default = "default_page")]
     pub page: u32,
     #[serde(rename = "pageSize", default = "default_page_size")]
@@ -32,6 +35,10 @@ fn default_page() -> u32 {
 
 fn default_page_size() -> u32 {
     50
+}
+
+fn default_migration_candidates_only() -> bool {
+    true
 }
 
 pub async fn list_applications(
@@ -54,6 +61,7 @@ pub async fn list_applications(
             search: query.q,
             risk_level: query.risk_level,
             mesh_revision: query.mesh_revision,
+            migration_candidates_only: query.migration_candidates_only,
             page: query.page,
             page_size: query.page_size,
         })

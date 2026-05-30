@@ -1,7 +1,6 @@
 use ambientor_core::rules::{Rule, RuleContext, RuleId, finding};
+use ambientor_core::migrate_doc::MIGRATE_DOC;
 use ambientor_types::{Finding, FindingCategory, FindingSeverity};
-
-const MIXED_MODE_DOC: &str = "https://preliminary.istio.io/latest/docs/ambient/migrate/";
 
 fn parse_resource_namespace(resource: &str) -> Option<String> {
     let (ns, name) = resource.split_once('/')?;
@@ -29,14 +28,27 @@ impl Rule for VsHttpRouteConflictRule {
         vec![{
             let mut f = finding(
                 self.id(),
-                FindingSeverity::Blocker,
+                FindingSeverity::Warning,
                 self.category(),
-                "VirtualService and HTTPRoute may conflict",
-                "Mixing VirtualService and HTTPRoute for the same workload leads to undefined behavior during migration.",
+                "VirtualService and HTTPRoute must not coexist per workload",
+                "Istio documents this under known limitations (not a hard unsupported feature): \
+                 mixing VirtualService and HTTPRoute for the same workload causes undefined routing \
+                 behavior in ambient mode. The cluster has both resource types present.",
             );
-            f.doc_url = Some(MIXED_MODE_DOC.into());
-            f.remediation =
-                Some("Migrate each workload fully to HTTPRoute before enabling ambient".into());
+            f.doc_url = Some(MIGRATE_DOC.into());
+            f.remediation = Some(
+                "1. Inventory each application namespace: list VirtualServices and HTTPRoutes.\n\
+                 2. For each workload, choose one API — migrate L7 rules to Gateway API HTTPRoute \
+                 (recommended) or complete cutover on VirtualService only (alpha in ambient).\n\
+                 3. Remove or narrow the conflicting resource so only one API governs routing.\n\
+                 4. Re-run assessment before labeling the namespace `istio.io/dataplane-mode=ambient`."
+                    .into(),
+            );
+            f.evidence = Some(format!(
+                "virtualServices: {}\nhttpRoutes: {}",
+                ctx.policies.virtual_services.len(),
+                ctx.policies.http_routes.len()
+            ));
             f
         }]
     }
@@ -58,21 +70,30 @@ impl Rule for L7WaypointRule {
             .l7_authorization_policies
             .iter()
             .map(|name| {
+                let ns = parse_resource_namespace(name.as_str());
                 let mut f = finding(
                     self.id(),
                     FindingSeverity::Warning,
                     self.category(),
-                    "L7 policy requires waypoint",
+                    "L7 AuthorizationPolicy requires a waypoint proxy",
                     format!(
-                        "AuthorizationPolicy '{name}' uses L7 rules; deploy a waypoint proxy in affected namespaces."
+                        "AuthorizationPolicy `{name}` contains L7 match rules (HTTP paths, methods, \
+                         headers). In ambient mode, ztunnel handles L4 only; L7 enforcement happens \
+                         at a waypoint proxy attached via `Gateway`/`GatewayClass` and `targetRefs`."
                     ),
                 );
                 f.resource = Some(name.clone());
-                f.namespace = parse_resource_namespace(name.as_str());
-                f.doc_url = Some(MIXED_MODE_DOC.into());
-                f.remediation = Some("Deploy waypoint before migrating namespaces with L7 AuthZ".into());
+                f.namespace = ns.clone();
+                f.doc_url = Some(MIGRATE_DOC.into());
+                f.remediation = Some(format!(
+                    "1. Confirm the namespace{} needs L7 policy (not L4-only).\n\
+                     2. Deploy an Istio waypoint for the namespace (see \"Do you need waypoint proxies?\" in the migrate guide).\n\
+                     3. Update the AuthorizationPolicy to use `targetRefs` selecting the waypoint.\n\
+                     4. Verify traffic with `istioctl proxy-config` / waypoint status before migrating dataplane mode.",
+                    ns.map(|n| format!(" `{n}`")).unwrap_or_default()
+                ));
                 f.evidence = Some(format!(
-                    "resource: {name}\nspec: L7 AuthorizationPolicy rules present"
+                    "resource: {name}\nspec: L7 rules detected on AuthorizationPolicy"
                 ));
                 f
             })
@@ -100,12 +121,17 @@ impl Rule for MixedModeL7BypassRule {
                     self.id(),
                     FindingSeverity::Warning,
                     self.category(),
-                    "Mixed-mode L7 policy gap",
-                    "Traffic from sidecar workloads to ambient workloads with waypoints bypasses waypoint L7 enforcement until sources migrate.",
+                    "Mixed sidecar and ambient dataplanes weaken L7 enforcement",
+                    "During incremental migration, traffic from a sidecar-injected client to an \
+                     ambient destination with a waypoint bypasses the waypoint. L7 AuthorizationPolicy \
+                     on that waypoint is not enforced for that path until the source is also ambient.",
                 );
-                f.doc_url = Some(MIXED_MODE_DOC.into());
+                f.doc_url = Some(MIGRATE_DOC.into());
                 f.remediation = Some(
-                    "Migrate source namespaces to ambient before or together with destinations"
+                    "1. Identify caller namespaces still on sidecar injection and callees on ambient + waypoint.\n\
+                     2. Plan migration waves so both ends of critical L7 paths share the same dataplane mode.\n\
+                     3. Migrate caller namespaces to ambient (label + rollout) or defer waypoint-dependent policies until callers move.\n\
+                     4. Validate policy with synthetic traffic after each namespace pair is aligned."
                         .into(),
                 );
                 f
@@ -136,16 +162,21 @@ impl Rule for DestinationRuleSubsetsRule {
                     self.id(),
                     FindingSeverity::Warning,
                     self.category(),
-                    "DestinationRule uses subsets",
+                    "DestinationRule subsets need HTTPRoute backendRefs planning",
                     format!(
-                        "DestinationRule '{name}' defines traffic subsets; validate subset load balancing and failover after migrating to ambient."
+                        "DestinationRule `{name}` defines `spec.subsets` used for version routing. \
+                         In ambient mode, subset-based routing with HTTPRoute typically requires \
+                         version-specific Kubernetes Services as `backendRefs` rather than subset labels alone."
                     ),
                 );
                 f.resource = Some(name.clone());
                 f.namespace = parse_resource_namespace(name.as_str());
-                f.doc_url = Some(MIXED_MODE_DOC.into());
+                f.doc_url = Some(MIGRATE_DOC.into());
                 f.remediation = Some(
-                    "Review subset labels and traffic policies; migrate to Gateway API/ServiceEntry patterns where appropriate"
+                    "1. Document each subset label and backing Service/version.\n\
+                     2. Create per-version Services (or use Gateway API backendRefs) matching your traffic split.\n\
+                     3. Migrate VirtualService subset routes to HTTPRoute rules before ambient cutover.\n\
+                     4. Retain DestinationRule traffic policies (connection pool, outlier detection) — waypoints still apply them."
                         .into(),
                 );
                 f.evidence = Some(format!("resource: {name}\nspec.subsets: present"));
@@ -192,6 +223,7 @@ mod tests {
         };
         let findings = MixedModeL7BypassRule.evaluate(&ctx);
         assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, FindingSeverity::Warning);
     }
 
     #[test]
@@ -206,19 +238,20 @@ mod tests {
         let findings = DestinationRuleSubsetsRule.evaluate(&ctx);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, FindingSeverity::Warning);
+        assert!(findings[0].remediation.is_some());
     }
 
     #[test]
-    fn vs_httproute_blocker() {
+    fn vs_httproute_is_warning_not_blocker() {
         let ctx = RuleContext {
             policies: PolicyContext {
-                virtual_services: vec!["vs".into()],
-                http_routes: vec!["hr".into()],
+                virtual_services: vec!["bookinfo/reviews".into()],
+                http_routes: vec!["bookinfo/route".into()],
                 ..Default::default()
             },
             ..Default::default()
         };
         let findings = VsHttpRouteConflictRule.evaluate(&ctx);
-        assert_eq!(findings[0].severity, FindingSeverity::Blocker);
+        assert_eq!(findings[0].severity, FindingSeverity::Warning);
     }
 }

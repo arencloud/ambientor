@@ -52,6 +52,8 @@ pub struct StatusCounts {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplicationRow {
+    /// Display name from pod labels (falls back to namespace).
+    pub application_name: String,
     pub namespace: String,
     pub status: ApplicationMigrationStatus,
     pub mesh_revision: String,
@@ -61,6 +63,8 @@ pub struct ApplicationRow {
     /// Deprecated alias; true only when `dataplane_mode == "ambient"`.
     pub ambient_dataplane: bool,
     pub blocker_count: usize,
+    #[serde(default)]
+    pub workload_count: u32,
     pub rollout_phase: Option<String>,
     pub assessment_ref: Option<String>,
 }
@@ -88,6 +92,16 @@ pub struct ClusterDashboard {
     pub ambient_mesh_count: usize,
 }
 
+/// Estimated resource reduction after sidecar → ambient cutover (heuristic per workload).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationSavingsSummary {
+    pub migrated_workloads: u32,
+    pub estimated_sidecar_proxies_removed: u32,
+    pub estimated_memory_mib_saved: u32,
+    pub estimated_cpu_millicores_saved: u32,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DashboardResponse {
@@ -95,6 +109,8 @@ pub struct DashboardResponse {
     pub cluster: ClusterDashboard,
     pub summary: StatusCounts,
     pub mesh_instances: Vec<MeshInstanceDashboard>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migration_savings: Option<MigrationSavingsSummary>,
     pub last_updated: String,
 }
 

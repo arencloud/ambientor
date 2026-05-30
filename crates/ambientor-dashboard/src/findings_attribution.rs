@@ -119,7 +119,7 @@ mod tests {
     fn fans_out_vs_httproute_blocker_to_policy_namespaces() {
         let f = Finding {
             id: "traffic.vs-httproute-conflict".into(),
-            severity: FindingSeverity::Blocker,
+            severity: FindingSeverity::Warning,
             category: FindingCategory::TrafficCompatibility,
             title: String::new(),
             message: String::new(),

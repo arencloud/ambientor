@@ -1,7 +1,6 @@
+use ambientor_core::migrate_doc::{MIGRATE_DOC, NOT_SUPPORTED_SECTION};
 use ambientor_core::rules::{Rule, RuleContext, RuleId, finding};
 use ambientor_types::{Finding, FindingCategory, FindingSeverity};
-
-const ISTIO_AMBIENT_MIGRATE: &str = "https://preliminary.istio.io/latest/docs/ambient/migrate/";
 
 pub struct GatewayApiRule;
 
@@ -23,11 +22,18 @@ impl Rule for GatewayApiRule {
                 self.id(),
                 FindingSeverity::Warning,
                 self.category(),
-                "Gateway API CRDs missing",
-                "HTTPRoute and related Gateway API CRDs are required for ambient L7 routing.",
+                "Gateway API CRDs are not installed",
+                "Ambient L7 routing and policy migration rely on Gateway API resources (HTTPRoute, Gateway). \
+                 Without the standard-channel CRDs, you cannot migrate VirtualService-based routes cleanly.",
             );
-            f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
-            f.remediation = Some("Install Gateway API standard channel CRDs".into());
+            f.doc_url = Some(MIGRATE_DOC.into());
+            f.remediation = Some(
+                "1. Install Gateway API standard-channel CRDs in the cluster.\n\
+                 2. Confirm `kubectl get crd httproutes.gateway.networking.k8s.io` succeeds.\n\
+                 3. Proceed with policy migration (VirtualService → HTTPRoute) per the migrate guide.\n\
+                 4. Re-run assessment."
+                    .into(),
+            );
             f
         }]
     }
@@ -53,12 +59,18 @@ impl Rule for AmbientComponentsRule {
                 self.id(),
                 FindingSeverity::Warning,
                 self.category(),
-                "Ambient data plane not detected",
-                "ztunnel DaemonSet was not found. Install ambient components before migrating workloads.",
+                "Ambient data plane (ztunnel) not detected",
+                "The cluster does not appear to have ambient components installed. The migrate guide \
+                 requires ztunnel and an ambient-capable CNI before namespaces can join ambient mode.",
             );
-            f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
-            f.remediation =
-                Some("Upgrade Istio with ambient profile and verify ztunnel is Running".into());
+            f.doc_url = Some(MIGRATE_DOC.into());
+            f.remediation = Some(
+                "1. Install or upgrade Istio with the ambient profile for your revision.\n\
+                 2. Verify ztunnel DaemonSet pods are Running in the istio-system (or revision) namespace.\n\
+                 3. Confirm istio-cni supports ambient redirection.\n\
+                 4. Re-run assessment before migrating application namespaces."
+                    .into(),
+            );
             f
         }]
     }
@@ -84,15 +96,23 @@ impl Rule for PeerAuthDisableRule {
                     self.id(),
                     FindingSeverity::Blocker,
                     self.category(),
-                    "PeerAuthentication DISABLE cannot migrate",
+                    "PeerAuthentication with mode DISABLE cannot migrate",
                     format!(
-                        "PeerAuthentication '{name}' uses mode DISABLE; ambient always enforces mTLS."
+                        "PeerAuthentication `{name}` sets `spec.mtls.mode: DISABLE`. Under \
+                         \"What is not supported\", ambient always enforces mTLS between mesh workloads; \
+                         DISABLE policies are ignored and block migration for affected scope."
                     ),
                 );
                 f.resource = Some(name.clone());
-                f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
-                f.remediation =
-                    Some("Remove or change PeerAuthentication to PERMISSIVE or STRICT".into());
+                f.namespace = resource_namespace(name);
+                f.doc_url = Some(NOT_SUPPORTED_SECTION.into());
+                f.remediation = Some(
+                    "1. Identify why DISABLE was configured (legacy plaintext, debug, or tooling).\n\
+                     2. Remove the PeerAuthentication or change mode to PERMISSIVE/STRICT with an explicit migration plan.\n\
+                     3. Validate applications tolerate mTLS (use PERMISSIVE temporarily if needed).\n\
+                     4. Re-run assessment with no DISABLE PeerAuthentication resources."
+                        .into(),
+                );
                 f.evidence = Some(format!(
                     "resource: {name}\nspec.mtls.mode: DISABLE"
                 ));
@@ -122,16 +142,34 @@ impl Rule for VmWorkloadRule {
                     self.id(),
                     FindingSeverity::Blocker,
                     self.category(),
-                    "VM workloads cannot join ambient mesh",
+                    "VM workloads cannot join the ambient mesh",
                     format!(
-                        "Namespace '{}' contains VM workloads which are not ambient-compatible.",
+                        "Namespace '{}' contains VM or bare-metal workloads registered in the mesh. \
+                         Istio documents VM workloads under \"What is not supported\" as a hard blocker — \
+                         they cannot join ambient mode with current guidance.",
                         ns.name
                     ),
                 );
                 f.namespace = Some(ns.name.clone());
-                f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
+                f.doc_url = Some(NOT_SUPPORTED_SECTION.into());
+                f.remediation = Some(
+                    "1. List WorkloadEntry / VM instances in this namespace.\n\
+                     2. Exclude the namespace from ambient migration scope, or retire VM-based mesh participation.\n\
+                     3. If Istio publishes VM ambient onboarding for your version, follow that guide explicitly.\n\
+                     4. Re-run assessment only when no VM workloads remain on the migration path."
+                        .into(),
+                );
+                f.evidence = Some(format!(
+                    "namespace: {}\nworkloadCount: {}",
+                    ns.name, ns.workload_count
+                ));
                 f
             })
             .collect()
     }
+}
+
+fn resource_namespace(resource: &str) -> Option<String> {
+    let (ns, _) = resource.split_once('/')?;
+    Some(ns.to_string())
 }

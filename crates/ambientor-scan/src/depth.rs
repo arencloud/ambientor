@@ -1,7 +1,6 @@
+use ambientor_core::migrate_doc::{MIGRATE_DOC, NOT_SUPPORTED_SECTION};
 use ambientor_core::rules::{Rule, RuleContext, RuleId, finding};
 use ambientor_types::{Finding, FindingCategory, FindingSeverity};
-
-const ISTIO_AMBIENT_MIGRATE: &str = "https://preliminary.istio.io/latest/docs/ambient/migrate/";
 
 /// Minimum Istio version for ambient mesh (see project README).
 const MIN_MAJOR: u32 = 1;
@@ -33,61 +32,62 @@ impl Rule for IstioVersionGateRule {
 
     fn evaluate(&self, ctx: &RuleContext) -> Vec<Finding> {
         let Some(ref version) = ctx.mesh_version else {
-            return vec![{
-                let mut f = finding(
-                    self.id(),
-                    FindingSeverity::Warning,
-                    self.category(),
-                    "Istio control-plane version unknown",
-                    "Could not detect istiod version; confirm Istio is 1.24+ before ambient migration.",
-                );
-                f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
-                f
-            }];
+            return vec![version_unknown_finding(
+                "Could not detect istiod version. Ambient requires Istio 1.24+; confirm the control plane image or `istio.io/rev` labels before migrating workloads.",
+            )];
         };
         if istio_version_sufficient(version) {
             return vec![];
         }
-        // Legacy OSSM placeholder (no longer set); do not treat as semver failure.
         if version.starts_with("ossm-")
             && ctx
                 .mesh_flavor
                 .as_deref()
                 .is_some_and(|f| f.contains("OSSM"))
         {
-            return vec![{
-                let mut f = finding(
-                    self.id(),
-                    FindingSeverity::Warning,
-                    self.category(),
-                    "Istio control-plane version unknown",
-                    format!(
-                        "OpenShift Service Mesh is present but istiod semver was not detected (reported '{version}'); confirm Istio 1.24+ from istiod image or istio.io/rev label."
-                    ),
-                );
-                f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
-                f.evidence = Some(format!("meshVersion: {version}"));
-                f
-            }];
+            return vec![version_unknown_finding(&format!(
+                "OpenShift Service Mesh is present but istiod semver was not detected (reported '{version}'). Confirm Istio 1.24+ from the Sail/istiod deployment before ambient migration."
+            ))];
         }
         vec![{
             let mut f = finding(
                 self.id(),
-                FindingSeverity::Blocker,
+                FindingSeverity::Warning,
                 self.category(),
                 "Istio version below ambient minimum",
                 format!(
-                    "Detected Istio version '{version}'; ambient migration requires Istio {MIN_MAJOR}.{MIN_MINOR} or newer."
+                    "Detected Istio version '{version}'. Ambient mode requires Istio {MIN_MAJOR}.{MIN_MINOR} or newer. \
+                     This is a platform readiness gap (not listed under \"What is not supported\"), but migration should not proceed until upgraded."
                 ),
             );
-            f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
+            f.doc_url = Some(MIGRATE_DOC.into());
             f.remediation = Some(format!(
-                "Upgrade Istio to {MIN_MAJOR}.{MIN_MINOR}+ with the ambient profile before migrating workloads"
+                "1. Upgrade the control plane to Istio {MIN_MAJOR}.{MIN_MINOR}+ with the ambient profile (ztunnel + CNI).\n\
+                 2. Verify `istioctl version` and istiod image tags match the target release.\n\
+                 3. Re-run assessment after upgrade before labeling application namespaces."
             ));
             f.evidence = Some(format!("meshVersion: {version}"));
             f
         }]
     }
+}
+
+fn version_unknown_finding(message: &str) -> Finding {
+    let mut f = finding(
+        "readiness.istio-version",
+        FindingSeverity::Warning,
+        FindingCategory::Readiness,
+        "Istio control-plane version unknown",
+        message,
+    );
+    f.doc_url = Some(MIGRATE_DOC.into());
+    f.remediation = Some(
+        "1. Inspect istiod deployment images and `istio.io/rev` labels on istiod pods.\n\
+         2. Confirm semver is at least 1.24.\n\
+         3. Re-run assessment once version is visible to Ambientor."
+            .into(),
+    );
+    f
 }
 
 pub struct SpireWorkloadRule;
@@ -110,12 +110,17 @@ impl Rule for SpireWorkloadRule {
                 self.id(),
                 FindingSeverity::Blocker,
                 self.category(),
-                "SPIRE / SPIFFE workloads detected",
-                "SPIRE-based workload identity is not supported with Istio ambient mesh; remove SPIRE before migrating.",
+                "SPIRE / SPIFFE identity is not supported in ambient mode",
+                "Istio ambient migration docs list SPIRE as a certificate provider under \
+                 \"What is not supported\" — hard blockers. Workloads using SPIRE-based identity \
+                 cannot join the ambient mesh until SPIRE is removed or replaced.",
             );
-            f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
+            f.doc_url = Some(NOT_SUPPORTED_SECTION.into());
             f.remediation = Some(
-                "Migrate off SPIRE/SPIFFE identity or remain on sidecar mode until supported"
+                "1. Inventory all SPIRE/SPIFFE agents and registrations touching mesh workloads.\n\
+                 2. Choose a path: remain on sidecar mode, or migrate workloads to Istio-managed certificates only.\n\
+                 3. Remove SPIRE integration from enrolled namespaces before ambient enrollment.\n\
+                 4. Re-run assessment with zero SPIRE hits before proceeding."
                     .into(),
             );
             f.evidence = Some(ctx.platform.spire_hits.join("\n"));
@@ -142,17 +147,22 @@ impl Rule for EnvoyFilterWaypointRule {
             .map(|name| {
                 let mut f = finding(
                     self.id(),
-                    FindingSeverity::Blocker,
+                    FindingSeverity::Warning,
                     self.category(),
-                    "EnvoyFilter targets waypoint proxy",
+                    "EnvoyFilter cannot be applied to waypoint proxies",
                     format!(
-                        "EnvoyFilter '{name}' applies to waypoint or gateway proxies; EnvoyFilter is not supported on waypoints in ambient mode."
+                        "EnvoyFilter `{name}` targets waypoint or gateway proxies. The migrate guide \
+                         lists EnvoyFilter on waypoints under known limitations — configurations \
+                         cannot be carried over; use WasmPlugin or other supported extensions instead."
                     ),
                 );
                 f.resource = Some(name.clone());
-                f.doc_url = Some(ISTIO_AMBIENT_MIGRATE.into());
+                f.doc_url = Some(MIGRATE_DOC.into());
                 f.remediation = Some(
-                    "Remove or replace EnvoyFilter with supported extension mechanisms (e.g. WasmPlugin) before migration"
+                    "1. Capture the EnvoyFilter patch intent (Lua, metadata, custom filters).\n\
+                     2. Evaluate WasmPlugin attached to the waypoint via `targetRefs` where supported.\n\
+                     3. Remove the waypoint/gateway-scoped EnvoyFilter before enabling ambient on affected namespaces.\n\
+                     4. Validate L7 behavior in staging after replacement."
                         .into(),
                 );
                 f.evidence = Some(format!(
@@ -201,13 +211,18 @@ impl Rule for OssmMemberRollRule {
                     self.category(),
                     "Namespace not enrolled in ServiceMeshMemberRoll",
                     format!(
-                        "Namespace '{}' has mesh workloads but is not listed in a ServiceMeshMemberRoll member set.",
+                        "Namespace '{}' has mesh workloads but is not listed in a ServiceMeshMemberRoll member set on OpenShift Service Mesh.",
                         ns.name
                     ),
                 );
                 f.namespace = Some(ns.name.clone());
+                f.doc_url = Some(MIGRATE_DOC.into());
                 f.remediation = Some(
-                    "Add namespace to a ServiceMeshMemberRoll or enroll via OSSM console".into(),
+                    "1. Open the ServiceMeshMemberRoll for your control plane revision.\n\
+                     2. Add this namespace to `spec.members` or use the OSSM console enrollment flow.\n\
+                     3. Confirm istiod discovers the namespace before ambient labeling.\n\
+                     4. Re-run assessment."
+                        .into(),
                 );
                 f.evidence = Some(format!(
                     "namespace: {}\nmemberRollNamespaces: {:?}",

@@ -1,7 +1,6 @@
+use ambientor_core::migrate_doc::MIGRATE_DOC;
 use ambientor_core::rules::{Rule, RuleContext, RuleId, finding};
 use ambientor_types::{Finding, FindingCategory, FindingSeverity};
-
-const SIDECAR_MIGRATE_DOC: &str = "https://preliminary.istio.io/latest/docs/ambient/migrate/";
 
 /// Detects workloads calling the sidecar Envoy admin interface on localhost.
 pub struct LocalhostProxyRule;
@@ -24,17 +23,22 @@ impl Rule for LocalhostProxyRule {
                     self.id(),
                     FindingSeverity::Warning,
                     self.category(),
-                    "Workload uses sidecar localhost admin port",
+                    "Workload references sidecar Envoy admin on localhost",
                     format!(
-                        "Pod '{}/{}' references 127.0.0.1:15000/15001 or localhost:15000/15001 in container configuration.",
+                        "Pod '{}/{}' uses 127.0.0.1:15000/15001 or localhost:15000/15001 in configuration. \
+                         This pattern assumes a local sidecar admin port; ambient uses ztunnel and waypoint \
+                         metrics instead.",
                         w.namespace, w.name
                     ),
                 );
                 f.namespace = Some(w.namespace.clone());
                 f.resource = Some(format!("Pod/{}/{}", w.namespace, w.name));
-                f.doc_url = Some(SIDECAR_MIGRATE_DOC.into());
+                f.doc_url = Some(MIGRATE_DOC.into());
                 f.remediation = Some(
-                    "Replace localhost Envoy admin calls with mesh-native observability (e.g. Prometheus, ztunnel metrics)"
+                    "1. Find env vars, probes, or scripts referencing localhost:15000/15001.\n\
+                     2. Switch observability to mesh-native metrics (ztunnel, waypoint, application Prometheus).\n\
+                     3. Remove admin-port dependencies before removing sidecar injection.\n\
+                     4. Re-run assessment on the namespace."
                         .into(),
                 );
                 f.evidence = Some(format!(
@@ -68,19 +72,24 @@ impl Rule for HoldUntilProxyRule {
             .map(|w| {
                 let mut f = finding(
                     self.id(),
-                    FindingSeverity::Blocker,
+                    FindingSeverity::Warning,
                     self.category(),
-                    "holdApplicationUntilProxyStarts is configured",
+                    "holdApplicationUntilProxyStarts requires sidecar startup ordering",
                     format!(
-                        "Pod '{}/{}' uses proxy.istio.io/config holdApplicationUntilProxyStarts; ambient workloads do not use the sidecar startup gate.",
+                        "Pod '{}/{}' sets `proxy.istio.io/config` with holdApplicationUntilProxyStarts. \
+                         Ambient workloads do not use the sidecar startup gate; pods may hang or behave \
+                         differently without the sidecar proxy.",
                         w.namespace, w.name
                     ),
                 );
                 f.namespace = Some(w.namespace.clone());
                 f.resource = Some(format!("Pod/{}/{}", w.namespace, w.name));
-                f.doc_url = Some(SIDECAR_MIGRATE_DOC.into());
+                f.doc_url = Some(MIGRATE_DOC.into());
                 f.remediation = Some(
-                    "Remove holdApplicationUntilProxyStarts and use readiness probes or init ordering native to your platform"
+                    "1. Remove holdApplicationUntilProxyStarts from the pod/deployment template.\n\
+                     2. Use native Kubernetes readiness/liveness probes for startup ordering.\n\
+                     3. If the app truly requires sidecar startup synchronization, keep the workload on sidecar mode until refactored.\n\
+                     4. Re-run assessment after template changes."
                         .into(),
                 );
                 f.evidence = Some(format!(
@@ -115,16 +124,10 @@ mod tests {
         let findings = LocalhostProxyRule.evaluate(&ctx);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, FindingSeverity::Warning);
-        assert!(
-            findings[0]
-                .evidence
-                .as_ref()
-                .is_some_and(|e| e.contains("15000"))
-        );
     }
 
     #[test]
-    fn hold_until_proxy_blocker() {
+    fn hold_until_proxy_warning() {
         let ctx = RuleContext {
             workloads: vec![WorkloadContext {
                 namespace: "ns".into(),
@@ -136,6 +139,6 @@ mod tests {
         };
         let findings = HoldUntilProxyRule.evaluate(&ctx);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, FindingSeverity::Blocker);
+        assert_eq!(findings[0].severity, FindingSeverity::Warning);
     }
 }

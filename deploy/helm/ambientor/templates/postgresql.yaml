@@ -1,4 +1,6 @@
 {{- if and .Values.postgresql.enabled (not .Values.database.url) -}}
+{{- $sts := lookup "apps/v1" "StatefulSet" .Values.namespace (include "ambientor.postgresql.stsName" .) -}}
+{{- $usePvc := eq (include "ambientor.postgresql.useVolumeClaimTemplates" .) "true" -}}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -28,6 +30,11 @@ kind: StatefulSet
 metadata:
   name: {{ include "ambientor.fullname" . }}-postgresql
   namespace: {{ .Values.namespace }}
+  annotations:
+    ambientor.io/helm-notes: >-
+      StatefulSet volumeClaimTemplates are immutable. On upgrade, this chart reuses
+      the cluster's existing PVC template when present. Change storage class or size
+      only with a planned migration (see docs/runbook-lab.md).
 spec:
   serviceName: {{ include "ambientor.fullname" . }}-postgresql
   replicas: 1
@@ -43,6 +50,11 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      {{- if not $usePvc }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
       containers:
         - name: postgresql
           image: {{ printf "%s:%s"
@@ -79,16 +91,21 @@ spec:
                 - pg_isready -U \"$POSTGRESQL_USER\" -d \"$POSTGRESQL_DATABASE\"
             initialDelaySeconds: 30
             periodSeconds: 20
+  {{- if $usePvc }}
   volumeClaimTemplates:
+    {{- if and $sts $sts.spec.volumeClaimTemplates }}
+    {{- toYaml $sts.spec.volumeClaimTemplates | nindent 4 }}
+    {{- else }}
     - metadata:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        {{- if .Values.postgresql.primary.persistence.storageClass }}
-        storageClassName: {{ .Values.postgresql.primary.persistence.storageClass | quote }}
+        {{- with .Values.postgresql.primary.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
         {{- end }}
         resources:
           requests:
             storage: {{ .Values.postgresql.primary.persistence.size | default "8Gi" | quote }}
+    {{- end }}
+  {{- end }}
 {{- end -}}
-

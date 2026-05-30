@@ -11,7 +11,11 @@ use crate::applications::{
     build_cluster_assessment, discover_ingress_gateway_namespaces, hostnames_by_namespace,
     list_namespaces_for_assessment,
 };
+use ambientor_mesh::application_identity::identities_by_namespace;
 use ambientor_mesh::mesh_instances::discover_mesh_instances;
+use k8s_openapi::api::core::v1::Pod;
+use kube::api::ListParams;
+use kube::Api;
 
 pub use crate::dashboard_from_run::dashboard_from_assessment_run;
 
@@ -25,6 +29,9 @@ pub async fn build_cluster_assessment_from_context(
     let mesh_instances = discover_mesh_instances(client).await?;
     let hostnames = hostnames_by_namespace(client).await?;
     let ingress = discover_ingress_gateway_namespaces(client).await?;
+    let pod_api: Api<Pod> = Api::all(client.clone());
+    let pods = pod_api.list(&ListParams::default()).await?.items;
+    let identities = identities_by_namespace(&pods);
     Ok(build_cluster_assessment(
         cluster_ref,
         ctx,
@@ -33,6 +40,7 @@ pub async fn build_cluster_assessment_from_context(
         &mesh_instances,
         &hostnames,
         &ingress,
+        &identities,
     ))
 }
 

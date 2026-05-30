@@ -7,6 +7,7 @@ use kube::{Api, Client};
 
 use crate::dynamic::{api_resource, list_cr_in_namespace};
 use crate::platform_scan::collect_ossm_member_namespaces;
+use crate::revision_tags::preferred_namespace_revision_label;
 
 const DEFAULT_DISCOVERY_KEY: &str = "istio-discovery";
 const REVISION_LABEL: &str = "istio.io/rev";
@@ -109,7 +110,9 @@ pub async fn build_mesh_enrollment(
         (None, None)
     };
 
-    let revision = istiod.revision.unwrap_or_else(|| revision.to_string());
+    let istio_revision = istiod.revision.unwrap_or_else(|| revision.to_string());
+    let (namespace_rev_label, revision_tag) =
+        preferred_namespace_revision_label(client, control_plane_namespace, &istio_revision).await;
 
     let mode = if flavor_is_ossm && member_roll_in_cp {
         MeshEnrollmentMode::OssmMemberRoll
@@ -123,7 +126,9 @@ pub async fn build_mesh_enrollment(
 
     MeshEnrollment {
         mode,
-        revision,
+        revision: namespace_rev_label,
+        istio_revision: Some(istio_revision),
+        revision_tag,
         discovery_label_key: discovery_key,
         discovery_label_value: discovery_value,
         member_roll_namespace: if member_roll_in_cp {
@@ -163,7 +168,14 @@ pub fn namespace_enrolled_on_mesh(labels: &BTreeMap<String, String>, mesh: &Mesh
 }
 
 fn revision_matches(labels: &BTreeMap<String, String>, e: &MeshEnrollment) -> bool {
-    labels.get(REVISION_LABEL).map(String::as_str) == Some(e.revision.as_str())
+    let ns_rev = labels.get(REVISION_LABEL).map(String::as_str);
+    ns_rev == Some(e.revision.as_str())
+        || e.istio_revision
+            .as_ref()
+            .is_some_and(|r| ns_rev == Some(r.as_str()))
+        || e.revision_tag
+            .as_ref()
+            .is_some_and(|t| ns_rev == Some(t.as_str()))
 }
 
 fn discovery_matches(labels: &BTreeMap<String, String>, e: &MeshEnrollment) -> bool {
@@ -345,6 +357,8 @@ mod tests {
         let enrollment = MeshEnrollment {
             mode: MeshEnrollmentMode::RevisionAndDiscovery,
             revision: "ambient-v1-28-6".into(),
+            istio_revision: Some("ambient-v1-28-6".into()),
+            revision_tag: None,
             discovery_label_key: Some("istio-discovery".into()),
             discovery_label_value: Some("mesh-ambient".into()),
             member_roll_namespace: None,
@@ -362,6 +376,8 @@ mod tests {
         let enrollment = MeshEnrollment {
             mode: MeshEnrollmentMode::RevisionAndDiscovery,
             revision: "ambient-v1-28-6".into(),
+            istio_revision: Some("ambient-v1-28-6".into()),
+            revision_tag: None,
             discovery_label_key: Some("istio-discovery".into()),
             discovery_label_value: Some("mesh-ambient".into()),
             member_roll_namespace: None,

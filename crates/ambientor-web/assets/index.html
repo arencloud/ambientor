@@ -17,7 +17,7 @@
     </div>
     <nav>
       <a href="#dashboard" class="active">Dashboard</a>
-      <a href="#assessments">Applications</a>
+      <a href="#assessments">Migration candidates</a>
       <a href="#plans">Migration Plans</a>
       <a href="#rollouts">Rollouts</a>
     </nav>
@@ -51,6 +51,8 @@
         </div>
       </div>
 
+      <section id="dash-savings-panel" class="dash-savings hidden" aria-label="Migration resource savings"></section>
+
       <section class="status-summary" id="dash-status-summary" aria-label="Migration status summary">
         <article class="status-card migrated">
           <span class="status-count" id="sum-migrated">—</span>
@@ -81,7 +83,7 @@
       <section class="mesh-panel">
         <header class="mesh-panel-head">
           <h3>Control planes (istiod)</h3>
-          <span class="hint" id="dash-last-updated">Applications per mesh instance</span>
+          <span class="hint" id="dash-last-updated">Applications per control plane (all migration states)</span>
         </header>
         <div id="dash-mesh-instances"></div>
       </section>
@@ -90,8 +92,8 @@
     <section id="assessments" class="panel hidden app-assessments">
       <header class="panel-toolbar">
         <div>
-          <h2>Applications</h2>
-          <p class="hint" id="assess-meta">Migration readiness per namespace — run assessment to refresh database.</p>
+          <h2>Migration candidates</h2>
+          <p class="hint" id="assess-meta">Sidecar workloads only — same scope as dashboard <strong>Migrated</strong> (excludes <code>istio.io/dataplane-mode=ambient</code>). Application names come from pod labels; use <strong>Pods</strong> for workload count.</p>
         </div>
         <div class="panel-toolbar-actions">
           <button id="refresh-assessments" class="btn">Refresh</button>
@@ -99,13 +101,27 @@
         </div>
       </header>
 
-      <section id="cluster-findings-panel" class="cluster-findings hidden" aria-label="Cluster-wide findings">
-        <header class="cluster-findings-head">
-          <h3>Cluster-wide findings</h3>
-          <p class="hint" id="cluster-findings-summary">—</p>
-        </header>
-        <ul id="cluster-findings-list" class="findings compact"></ul>
-      </section>
+      <div class="migration-compose" id="migration-compose">
+        <div class="migration-compose-head">
+          <h3>Create migration plan</h3>
+          <p class="hint">Select applications (blockers cannot be selected). Plans use only your selection, not the full assessment.</p>
+        </div>
+        <div class="migration-compose-grid">
+          <label class="field-label" for="plan-mesh-select">Target istiod</label>
+          <select id="plan-mesh-select" class="filter-select" aria-label="Target mesh instance">
+            <option value="">Loading…</option>
+          </select>
+          <label class="field-label" for="plan-display-name">Display name</label>
+          <input type="text" id="plan-display-name" class="filter-input" placeholder="Optional label" />
+        </div>
+        <div id="plan-label-preview" class="label-preview hint">Select a mesh to preview enrollment labels.</div>
+        <div class="migration-compose-actions">
+          <span id="plan-selection-count" class="hint">0 selected</span>
+          <button type="button" id="app-select-page" class="btn">Select page</button>
+          <button type="button" id="app-clear-selection" class="btn">Clear</button>
+          <button type="button" id="create-migration-plan" class="btn primary" disabled>Create plan</button>
+        </div>
+      </div>
 
       <div class="app-filters">
         <input type="search" id="app-search" class="filter-input" placeholder="Search namespace or hostname…" />
@@ -119,25 +135,33 @@
         <select id="app-mesh-filter" class="filter-select" aria-label="Istiod revision">
           <option value="">All control planes</option>
         </select>
+        <label class="filter-checkbox">
+          <input type="checkbox" id="app-show-ambient" />
+          Show already on ambient
+        </label>
       </div>
 
       <div class="app-table-wrap">
         <table class="app-assess-table" id="app-assess-table">
           <thead>
             <tr>
+              <th class="col-check" aria-label="Select for migration"></th>
               <th>Application</th>
+              <th>Namespace</th>
+              <th>Pods</th>
               <th>Control plane</th>
               <th>Dataplane</th>
               <th>Hostnames</th>
               <th>Istio labels</th>
               <th>Ingress</th>
               <th>Blockers</th>
+              <th>Warnings</th>
               <th>Readiness</th>
               <th>Risk</th>
             </tr>
           </thead>
           <tbody id="app-assess-tbody">
-            <tr><td colspan="9" class="hint">Run assessment or refresh to load applications.</td></tr>
+            <tr><td colspan="12" class="hint">Run assessment or refresh to load migration candidates.</td></tr>
           </tbody>
         </table>
       </div>
@@ -175,10 +199,17 @@
     </section>
 
     <section id="plans" class="panel hidden">
-      <h2>Migration plans</h2>
+      <header class="panel-toolbar">
+        <div>
+          <h2>Migration plans</h2>
+          <p class="hint">User-scoped plans from selected applications, or legacy plans linked to an assessment CR.</p>
+        </div>
+        <div class="panel-toolbar-actions">
+          <button id="refresh-plans" class="btn">Refresh</button>
+        </div>
+      </header>
       <div class="assessments-layout">
         <aside class="assessment-sidebar">
-          <button id="refresh-plans" class="btn">Refresh list</button>
           <ul id="plan-list" class="assessment-list"></ul>
         </aside>
         <div class="assessment-detail">
@@ -186,6 +217,7 @@
             <h3 id="plan-detail-title">Select a plan</h3>
             <span id="plan-detail-phase" class="phase-badge"></span>
           </header>
+          <div id="plan-meta-grid" class="app-detail-grid"></div>
           <p id="plan-assessment-ref" class="hint"></p>
           <div class="plan-actions">
             <button id="export-plan" class="btn primary" disabled>Download YAML bundle</button>

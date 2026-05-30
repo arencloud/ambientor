@@ -132,7 +132,8 @@ impl DashboardRepository {
         let apps = sqlx::query_as::<_, AppAssessmentRow>(
             r#"
             SELECT
-                aa.namespace, aa.mesh_revision, aa.discovery_label, aa.control_plane_namespace,
+                aa.namespace, aa.application_name, aa.workload_components, aa.migration_candidate,
+                aa.mesh_revision, aa.discovery_label, aa.control_plane_namespace,
                 aa.hostnames, aa.namespace_labels, aa.dataplane_mode, aa.ingress_gateway_namespace,
                 aa.ingress_same_namespace, aa.workload_count, aa.readiness_pct, aa.risk_level,
                 aa.blocker_count, aa.warning_count, aa.scores, aa.summary, aa.findings, aa.suggestions
@@ -262,6 +263,9 @@ impl SnapshotRow {
             .map_err(|e| DbError::Serialize(e.to_string()))?;
         let mesh_instance_count = mesh_instances.len();
         let ambient_mesh_count = mesh_instances.iter().filter(|m| m.ambient).count();
+        let migration_savings = Some(ambientor_dashboard::compute_migration_savings_from_dashboard(
+            &mesh_instances,
+        ));
 
         Ok(DashboardResponse {
             cluster_ref: self.cluster_ref,
@@ -275,6 +279,7 @@ impl SnapshotRow {
             },
             summary,
             mesh_instances,
+            migration_savings,
             last_updated: self.captured_at.to_rfc3339(),
         })
     }
@@ -444,6 +449,9 @@ struct ClusterMetaRow {
 #[derive(sqlx::FromRow)]
 struct AppAssessmentRow {
     namespace: String,
+    application_name: String,
+    workload_components: serde_json::Value,
+    migration_candidate: bool,
     mesh_revision: Option<String>,
     discovery_label: Option<String>,
     control_plane_namespace: Option<String>,
@@ -482,8 +490,35 @@ impl AppAssessmentRow {
                 self.dataplane_mode
             }
         };
+        let workload_components: Vec<String> =
+            serde_json::from_value(self.workload_components)
+                .unwrap_or_default();
+        let application_name = if self.application_name.is_empty() {
+            self.namespace.clone()
+        } else {
+            self.application_name
+        };
+        let dp_mode = match dataplane_mode.as_str() {
+            "ambient" => ambientor_dashboard::DataplaneMode::Ambient,
+            "sidecar" => ambientor_dashboard::DataplaneMode::Sidecar,
+            _ => derive_dataplane_mode_from_stored(
+                &namespace_labels,
+                self.mesh_revision.as_deref(),
+                self.discovery_label.as_deref(),
+            ),
+        };
+        let migration_candidate = ambientor_dashboard::is_migration_candidate(
+            dp_mode,
+            self.workload_count as u32,
+            &namespace_labels,
+            None,
+        );
+
         Ok(ApplicationAssessmentRecord {
             namespace: self.namespace,
+            application_name,
+            workload_components,
+            migration_candidate,
             mesh_revision: self.mesh_revision,
             discovery_label: self.discovery_label,
             control_plane_namespace: self.control_plane_namespace,

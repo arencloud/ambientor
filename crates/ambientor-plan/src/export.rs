@@ -19,6 +19,8 @@ pub fn migration_plan_cr(name: &str, namespace: &str, spec: MigrationPlanSpec) -
             phase: "Ready".into(),
             approved: false,
             wave_count,
+            selected_count: None,
+            cluster_ref: None,
         }),
     }
 }
@@ -97,6 +99,9 @@ mod tests {
         let plan = MigrationPlan {
             spec: MigrationPlanSpec {
                 assessment_ref: Some("lab-assessment".into()),
+                selected_namespaces: vec![],
+                cluster_ref: None,
+                display_name: None,
                 target_mesh_mode: "ambient".into(),
                 mesh_target: None,
                 waves: vec![MigrationWave {

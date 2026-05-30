@@ -3,10 +3,22 @@ use std::collections::BTreeMap;
 use ambientor_types::{AssessmentScores, Finding, FindingSummary};
 use serde::{Deserialize, Serialize};
 
+fn default_migration_candidate() -> bool {
+    true
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplicationAssessmentRecord {
     pub namespace: String,
+    /// Logical application name from pod labels (`app.kubernetes.io/name`, `app`, …).
+    pub application_name: String,
+    /// Distinct workload components observed in the namespace.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workload_components: Vec<String>,
+    /// True when this namespace still needs sidecar→ambient migration.
+    #[serde(default = "default_migration_candidate")]
+    pub migration_candidate: bool,
     pub mesh_revision: Option<String>,
     pub discovery_label: Option<String>,
     pub control_plane_namespace: Option<String>,
@@ -72,7 +84,6 @@ pub struct ClusterAssessmentRun {
     pub applications: Vec<ApplicationAssessmentRecord>,
     pub cluster_scores: AssessmentScores,
     pub cluster_summary: FindingSummary,
-    /// Findings that could not be mapped to a single namespace (shown cluster-wide in UI).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cluster_findings: Vec<Finding>,
 }
@@ -81,6 +92,11 @@ pub struct ClusterAssessmentRun {
 #[serde(rename_all = "camelCase")]
 pub struct ApplicationListItem {
     pub namespace: String,
+    pub application_name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workload_components: Vec<String>,
+    #[serde(default = "default_migration_candidate")]
+    pub migration_candidate: bool,
     pub cluster_ref: String,
     pub mesh_revision: Option<String>,
     pub discovery_label: Option<String>,
@@ -102,6 +118,9 @@ pub struct ApplicationListItem {
 pub struct ApplicationListPage {
     pub items: Vec<ApplicationListItem>,
     pub total: u64,
+    /// Namespaces already on ambient dataplane excluded from default list.
+    #[serde(default)]
+    pub excluded_ambient_count: u64,
     pub page: u32,
     pub page_size: u32,
     pub cluster_ref: String,

@@ -196,7 +196,7 @@ fn append_workload_investigation(
         if w.hold_until_proxy {
             findings.push(Finding {
                 id: "sidecar.hold-until-proxy".into(),
-                severity: FindingSeverity::Blocker,
+                severity: FindingSeverity::Warning,
                 category: FindingCategory::SidecarDependency,
                 title: "holdUntilProxyActive blocks ambient cutover".into(),
                 message: format!(
@@ -216,7 +216,7 @@ fn append_workload_investigation(
             });
             suggestions.push(deep_suggestion(
                 "sidecar.hold-until-proxy",
-                "blocker",
+                "warning",
                 "Resolve holdUntilProxyActive before ambient-only operation",
                 &format!(
                     "Pod `{}/{}` must be refactored or excluded from ambient-only posture.",
@@ -393,6 +393,8 @@ mod tests {
             enrollment: MeshEnrollment {
                 mode: MeshEnrollmentMode::DiscoveryLabel,
                 revision: "ambient-v1".into(),
+                istio_revision: Some("ambient-v1".into()),
+                revision_tag: None,
                 discovery_label_key: Some("istio-discovery".into()),
                 discovery_label_value: Some("mesh-ambient".into()),
                 member_roll_namespace: None,

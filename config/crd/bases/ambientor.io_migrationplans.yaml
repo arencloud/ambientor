@@ -23,6 +23,14 @@ spec:
               properties:
                 assessmentRef:
                   type: string
+                selectedNamespaces:
+                  type: array
+                  items:
+                    type: string
+                clusterRef:
+                  type: string
+                displayName:
+                  type: string
                 targetMeshMode:
                   type: string
                   enum: [ambient]
@@ -72,5 +80,9 @@ spec:
                   type: boolean
                 waveCount:
                   type: integer
+                selectedCount:
+                  type: integer
+                clusterRef:
+                  type: string
       subresources:
         status: {}

@@ -271,6 +271,8 @@ mod tests {
         let enrollment = MeshEnrollment {
             mode: MeshEnrollmentMode::RevisionAndDiscovery,
             revision: "ambient-v1-28-6".into(),
+            istio_revision: Some("ambient-v1-28-6".into()),
+            revision_tag: None,
             discovery_label_key: Some("istio-discovery".into()),
             discovery_label_value: Some("mesh-ambient".into()),
             member_roll_namespace: None,

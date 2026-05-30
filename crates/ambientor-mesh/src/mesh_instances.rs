@@ -326,7 +326,9 @@ mod tests {
     ) -> MeshInstance {
         let enrollment = MeshEnrollment {
             mode: MeshEnrollmentMode::RevisionAndDiscovery,
-            revision: revision.into(),
+            revision: revision.to_string(),
+            istio_revision: Some(revision.to_string()),
+            revision_tag: None,
             discovery_label_key: Some("istio-discovery".into()),
             discovery_label_value: Some(discovery_label.into()),
             member_roll_namespace: None,

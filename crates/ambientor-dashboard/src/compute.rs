@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use ambientor_mesh::application_identity::identities_by_namespace;
 use ambientor_mesh::mesh_instances::discover_mesh_instances;
 use ambientor_mesh::{is_application_namespace, namespace_enrolled_on_mesh};
+use k8s_openapi::api::core::v1::Pod;
 
 use crate::dataplane::derive_dataplane_mode;
 use ambientor_mesh::version::detect_istio_version;
@@ -13,7 +15,7 @@ use kube::{Api, Client, api::ListParams};
 
 use crate::types::{
     ApplicationMigrationStatus, ApplicationRow, ClusterDashboard, DashboardResponse,
-    MeshInstanceDashboard, StatusCounts,
+    MeshInstanceDashboard, MigrationSavingsSummary, StatusCounts,
 };
 
 pub async fn build_dashboard(client: &Client, cluster_ref: &str) -> anyhow::Result<DashboardResponse> {
@@ -27,6 +29,9 @@ pub async fn build_dashboard(client: &Client, cluster_ref: &str) -> anyhow::Resu
     let assessments = list_assessments_map(client).await?;
     let rollouts = list_rollout_ns_status(client).await?;
     let inventories = list_mesh_inventories(client).await?;
+    let pod_api: Api<Pod> = Api::all(client.clone());
+    let pods = pod_api.list(&ListParams::default()).await?.items;
+    let identities = identities_by_namespace(&pods);
 
     let mut summary = StatusCounts::default();
     let mut mesh_dashboards = Vec::new();
@@ -68,7 +73,18 @@ pub async fn build_dashboard(client: &Client, cluster_ref: &str) -> anyhow::Resu
                 })
                 .unwrap_or(0);
 
+            let application_name = identities
+                .get(&ns_name)
+                .map(|i| i.application_name.clone())
+                .unwrap_or_else(|| ns_name.clone());
+
+            let workload_count = identities
+                .get(&ns_name)
+                .map(|i| i.app_pod_count)
+                .unwrap_or(0);
+
             let row = ApplicationRow {
+                application_name,
                 namespace: ns_name.clone(),
                 status,
                 mesh_revision: mesh.revision.clone(),
@@ -76,6 +92,7 @@ pub async fn build_dashboard(client: &Client, cluster_ref: &str) -> anyhow::Resu
                 dataplane_mode: dataplane.as_str().to_string(),
                 ambient_dataplane: dataplane.is_ambient(),
                 blocker_count,
+                workload_count,
                 rollout_phase: rollouts.get(&ns_name).cloned(),
                 assessment_ref: assessments.get(&ns_name).map(|a| a.name.clone()),
             };
@@ -84,7 +101,11 @@ pub async fn build_dashboard(client: &Client, cluster_ref: &str) -> anyhow::Resu
             apps.push(row);
         }
 
-        apps.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+        apps.sort_by(|a, b| {
+            a.application_name
+                .cmp(&b.application_name)
+                .then(a.namespace.cmp(&b.namespace))
+        });
         counts.total = apps.len();
         aggregate_counts(&mut summary, &counts);
 
@@ -111,6 +132,8 @@ pub async fn build_dashboard(client: &Client, cluster_ref: &str) -> anyhow::Resu
         + summary.scanned
         + summary.not_scanned;
 
+    let migration_savings = Some(compute_migration_savings_from_dashboard(&mesh_dashboards));
+
     Ok(DashboardResponse {
         cluster_ref: cluster_ref.to_string(),
         cluster: ClusterDashboard {
@@ -127,8 +150,27 @@ pub async fn build_dashboard(client: &Client, cluster_ref: &str) -> anyhow::Resu
         },
         summary,
         mesh_instances: mesh_dashboards,
+        migration_savings,
         last_updated: chrono::Utc::now().to_rfc3339(),
     })
+}
+
+/// Estimated resource savings from workloads on ambient dataplane (dashboard **Migrated**).
+pub fn compute_migration_savings_from_dashboard(
+    meshes: &[MeshInstanceDashboard],
+) -> MigrationSavingsSummary {
+    let migrated_workloads: u32 = meshes
+        .iter()
+        .flat_map(|m| m.applications.iter())
+        .filter(|a| a.status == ApplicationMigrationStatus::Migrated)
+        .map(|a| a.workload_count.max(1))
+        .sum();
+    MigrationSavingsSummary {
+        migrated_workloads,
+        estimated_sidecar_proxies_removed: migrated_workloads,
+        estimated_memory_mib_saved: migrated_workloads.saturating_mul(128),
+        estimated_cpu_millicores_saved: migrated_workloads.saturating_mul(100),
+    }
 }
 
 pub fn namespace_belongs_to_mesh(

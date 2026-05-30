@@ -5,6 +5,4 @@ pub mod readiness;
 pub mod registry;
 pub mod sidecar;
 
-pub use readiness::*;
-pub use registry::*;
-pub use sidecar::*;
+pub use registry::default_registry;

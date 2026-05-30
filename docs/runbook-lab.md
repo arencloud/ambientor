@@ -127,6 +127,40 @@ kubectl logs -n ambientor-system -l app=ambientor-operator --tail=50 --context k
 
 **Expect:** operator, api, web, postgresql pods Running.
 
+### Helm upgrade: Postgres StatefulSet “Forbidden” spec patch
+
+Kubernetes does not allow changing StatefulSet `volumeClaimTemplates` (storage class, size, or adding/removing PVCs) on upgrade. If `helm upgrade` fails with:
+
+```text
+cannot patch "…-postgresql" with kind StatefulSet: … updates to statefulset spec for fields other than … are forbidden
+```
+
+**Fix (chart v0.1.5+):** The chart reuses the cluster’s existing `volumeClaimTemplates` when the StatefulSet already exists. Pull the latest chart and upgrade again:
+
+```bash
+helm upgrade --install ambientor deploy/helm/ambientor/ \
+  -n ambientor-system \
+  -f deploy/helm/ambientor/values-lab.yaml \
+  --wait --timeout 10m
+```
+
+**Image-only upgrade** (no chart change to PVC spec):
+
+```bash
+STS=ambientor-ambientor-postgresql   # or: kubectl get sts -n ambientor-system
+kubectl set image "statefulset/${STS}" -n ambientor-system \
+  postgresql=registry.redhat.io/rhel9/postgresql-16:latest
+kubectl rollout status "statefulset/${STS}" -n ambientor-system
+```
+
+**Changing storage class or size** requires backup, delete StatefulSet with orphaned PVCs, then reinstall — do not change `postgresql.primary.persistence` on a live release without that plan.
+
+### Helm / kubectl: kubeconfig permission warnings
+
+```bash
+chmod 600 ~/.kube/config
+```
+
 ---
 
 ## 7. Register in-cluster cluster (optional)

@@ -91,6 +91,28 @@ pub fn is_ambient_mesh_scope(dataplane: DataplaneMode, mesh: Option<&MeshInstanc
     dataplane == DataplaneMode::Ambient || mesh.is_some_and(|m| m.ambient)
 }
 
+/// True when the namespace has completed ambient dataplane cutover (dashboard **Migrated**).
+pub fn namespace_is_migrated(labels: &BTreeMap<String, String>) -> bool {
+    labels
+        .get("istio.io/dataplane-mode")
+        .is_some_and(|v| v == "ambient")
+}
+
+/// Whether the namespace should appear in the default migration-candidates catalog.
+///
+/// Aligns with dashboard **Migrated** status: sidecar dataplane only, not ambient-labeled.
+pub fn is_migration_candidate(
+    dataplane: DataplaneMode,
+    app_pod_count: u32,
+    namespace_labels: &BTreeMap<String, String>,
+    _mesh: Option<&MeshInstance>,
+) -> bool {
+    if app_pod_count == 0 || namespace_is_migrated(namespace_labels) {
+        return false;
+    }
+    matches!(dataplane, DataplaneMode::Sidecar)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,6 +129,8 @@ mod tests {
             enrollment: MeshEnrollment {
                 mode: MeshEnrollmentMode::DiscoveryLabel,
                 revision: "ambient-v1".into(),
+                istio_revision: Some("ambient-v1".into()),
+                revision_tag: None,
                 discovery_label_key: Some("istio-discovery".into()),
                 discovery_label_value: Some("mesh-ambient".into()),
                 member_roll_namespace: None,
@@ -123,6 +147,41 @@ mod tests {
             derive_dataplane_mode(&labels, None),
             DataplaneMode::Ambient
         );
+    }
+
+    #[test]
+    fn migration_candidate_excludes_ambient_dataplane() {
+        let ambient_labels = BTreeMap::from([("istio.io/dataplane-mode".into(), "ambient".into())]);
+        assert!(!is_migration_candidate(
+            DataplaneMode::Ambient,
+            3,
+            &ambient_labels,
+            None
+        ));
+        assert!(is_migration_candidate(
+            DataplaneMode::Sidecar,
+            3,
+            &BTreeMap::new(),
+            None
+        ));
+        assert!(!is_migration_candidate(
+            DataplaneMode::Sidecar,
+            0,
+            &BTreeMap::new(),
+            None
+        ));
+        assert!(!is_migration_candidate(
+            DataplaneMode::NotEnrolled,
+            3,
+            &BTreeMap::new(),
+            None
+        ));
+        assert!(!is_migration_candidate(
+            DataplaneMode::Sidecar,
+            3,
+            &ambient_labels,
+            None
+        ));
     }
 
     #[test]

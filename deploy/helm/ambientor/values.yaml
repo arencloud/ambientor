@@ -71,10 +71,12 @@ postgresql:
     database: ambientor
   primary:
     persistence:
+      # When false, new installs use emptyDir (lab only). Existing PVC-backed StatefulSets
+      # keep their volumeClaimTemplates on helm upgrade (immutable field).
       enabled: true
       size: 8Gi
-      # On OpenShift, prefer an RWO block storage class for Postgres.
-      # Example: truenas-iscsi
+      # Set before first install. Cannot be changed on an existing StatefulSet without migration.
+      # On OpenShift, prefer an RWO block storage class. Example: truenas-iscsi
       storageClass: ""
 
 database:

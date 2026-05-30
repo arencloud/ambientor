@@ -53,7 +53,7 @@ pub fn api_router() -> Router<Arc<AppState>> {
             post(mesh_instances::enroll_namespace),
         )
         .route("/api/v1/scans", get(scans::list_scans))
-        .route("/api/v1/plans", get(plans::list_plans))
+        .route("/api/v1/plans", get(plans::list_plans).post(plans::create_plan))
         .route("/api/v1/plans/{namespace}/{name}", get(plans::get_plan))
         .route(
             "/api/v1/plans/{namespace}/{name}/export",
