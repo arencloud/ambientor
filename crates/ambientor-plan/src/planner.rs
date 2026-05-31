@@ -209,13 +209,13 @@ fn policy_tasks_for_namespaces(
 
 pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
     let mut stages = vec![RolloutStage {
-        name: "preflight-dry-run".into(),
+        name: "approve-and-preflight".into(),
         r#type: RolloutStageType::DryRun,
         namespaces: vec![],
-        requires_approval: false,
+        requires_approval: true,
     }];
 
-    for (i, wave) in plan.waves.iter().enumerate() {
+    for wave in plan.waves.iter() {
         if wave.name == "wave-blocked" {
             continue;
         }
@@ -223,43 +223,43 @@ pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
             name: format!("{}-enroll", wave.name),
             r#type: RolloutStageType::EnrollNamespace,
             namespaces: wave.namespaces.clone(),
-            requires_approval: true,
+            requires_approval: false,
         });
         stages.push(RolloutStage {
             name: format!("{}-remove-injection", wave.name),
             r#type: RolloutStageType::RemoveInjection,
             namespaces: wave.namespaces.clone(),
-            requires_approval: true,
+            requires_approval: false,
         });
         stages.push(RolloutStage {
             name: format!("{}-restart-sidecars", wave.name),
             r#type: RolloutStageType::RollingRestart,
             namespaces: wave.namespaces.clone(),
-            requires_approval: true,
+            requires_approval: false,
         });
         stages.push(RolloutStage {
             name: format!("{}-label", wave.name),
             r#type: RolloutStageType::LabelNamespace,
             namespaces: wave.namespaces.clone(),
-            requires_approval: true,
+            requires_approval: false,
         });
         stages.push(RolloutStage {
             name: format!("{}-waypoint", wave.name),
             r#type: RolloutStageType::DeployWaypoint,
             namespaces: wave.namespaces.clone(),
-            requires_approval: i > 0,
+            requires_approval: false,
         });
         stages.push(RolloutStage {
             name: format!("{}-translate", wave.name),
             r#type: RolloutStageType::TranslatePolicy,
             namespaces: wave.namespaces.clone(),
-            requires_approval: true,
+            requires_approval: false,
         });
         stages.push(RolloutStage {
             name: format!("{}-restart", wave.name),
             r#type: RolloutStageType::RollingRestart,
             namespaces: wave.namespaces.clone(),
-            requires_approval: true,
+            requires_approval: false,
         });
         stages.push(RolloutStage {
             name: format!("{}-verify", wave.name),
@@ -271,6 +271,7 @@ pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
 
     RolloutSpec {
         plan_ref: None,
+        cluster_ref: plan.cluster_ref.clone(),
         auto_rollback: true,
         mesh_target: plan.mesh_target.clone(),
         stages,

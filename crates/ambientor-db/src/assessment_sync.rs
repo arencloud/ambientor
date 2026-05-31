@@ -1,7 +1,10 @@
 use ambientor_core::rules::RuleContext;
 use ambientor_dashboard::{
-    build_cluster_assessment_from_context, cluster_dashboard_meta, dashboard_from_assessment_run,
+    build_cluster_assessment_from_context, build_cluster_assessment_from_inventory,
+    cluster_dashboard_meta_with_meshes, dashboard_from_assessment_run,
 };
+use ambientor_mesh::inventory::CollectedInventory;
+use ambientor_mesh::mesh_instances::discover_mesh_instances;
 use ambientor_types::Finding;
 use kube::Client;
 
@@ -10,6 +13,41 @@ use crate::traits::{ApplicationAssessmentStore, DashboardStore};
 
 /// Persist application rows and dashboard snapshot from one assessment pass.
 pub async fn persist_full_assessment(
+    applications: &dyn ApplicationAssessmentStore,
+    dashboard: &dyn DashboardStore,
+    client: &Client,
+    cluster_ref: &str,
+    inventory: &CollectedInventory,
+    findings: &[Finding],
+) -> Result<usize, DbError> {
+    let mesh_instances = discover_mesh_instances(client)
+        .await
+        .map_err(|e| DbError::Serialize(e.to_string()))?;
+
+    let run = build_cluster_assessment_from_inventory(
+        cluster_ref,
+        &inventory.ctx,
+        findings,
+        &inventory.pods,
+        &inventory.namespaces,
+        &mesh_instances,
+        &inventory.istio_objects,
+    );
+
+    let count = run.applications.len();
+    applications.replace_run(&run).await?;
+
+    let cluster_meta = cluster_dashboard_meta_with_meshes(client, &mesh_instances)
+        .await
+        .map_err(|e| DbError::Serialize(e.to_string()))?;
+    let snapshot = dashboard_from_assessment_run(&run, cluster_meta);
+    dashboard.sync_snapshot(&snapshot).await?;
+
+    Ok(count)
+}
+
+/// Legacy path when only `RuleContext` is available (extra API calls).
+pub async fn persist_full_assessment_from_context(
     applications: &dyn ApplicationAssessmentStore,
     dashboard: &dyn DashboardStore,
     client: &Client,
@@ -24,7 +62,7 @@ pub async fn persist_full_assessment(
     let count = run.applications.len();
     applications.replace_run(&run).await?;
 
-    let cluster_meta = cluster_dashboard_meta(client)
+    let cluster_meta = ambientor_dashboard::cluster_dashboard_meta(client)
         .await
         .map_err(|e| DbError::Serialize(e.to_string()))?;
     let snapshot = dashboard_from_assessment_run(&run, cluster_meta);

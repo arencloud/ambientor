@@ -156,6 +156,7 @@ version = "0.1.4"
 dependencies = [
  "ambientor-core",
  "ambientor-dashboard",
+ "ambientor-mesh",
  "ambientor-types",
  "async-trait",
  "chrono",

@@ -13,7 +13,7 @@
 
   let applicationsPage = { items: [], total: 0, page: 1, pageSize: 50 };
   let appListPage = 1;
-  let appListFilters = { q: '', riskLevel: '', meshRevision: '', migrationCandidatesOnly: true };
+  let appListFilters = { q: '', riskLevel: '', meshRevision: '' };
   let selectedAppNamespace = null;
   let plans = [];
   let selectedPlanKey = null;
@@ -22,13 +22,17 @@
   let rollouts = [];
   let selectedRolloutKey = null;
   let rolloutDetail = null;
+  let rolloutPollTimer = null;
+  let activeClusterRef = '';
+  let fleetClusters = [];
 
   function showPanel(id) {
-    document.querySelectorAll('main .panel').forEach((p) => p.classList.add('hidden'));
+    document.querySelectorAll('main .view-panel, main .panel').forEach((p) => p.classList.add('hidden'));
     const panel = document.getElementById(id);
     if (panel) panel.classList.remove('hidden');
-    document.querySelectorAll('nav a').forEach((a) => {
-      a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+    document.querySelectorAll('.nav-link, nav a').forEach((a) => {
+      const href = a.getAttribute('href') || '';
+      a.classList.toggle('active', href === '#' + id);
     });
   }
 
@@ -483,8 +487,8 @@
     if (!tbody) return;
     const items = applicationsPage.items || [];
     if (!items.length) {
-      tbody.innerHTML =
-        '<tr><td colspan="13" class="hint">No migration candidates match filters. Run assessment or enable “Show already on ambient”.</td></tr>';
+        tbody.innerHTML =
+        '<tr><td colspan="10" class="empty-cell">No migration candidates on this cluster. Run assessment to scan sidecar workloads.</td></tr>';
       return;
     }
     tbody.innerHTML = items
@@ -513,11 +517,8 @@
           <td class="mono">${app.workloadCount ?? app.workload_count ?? '—'}</td>
           <td>${escapeHtml(formatControlPlane(app))}</td>
           <td><span class="badge-dataplane ${dataplaneBadgeClass(dp)}">${escapeHtml(dp)}</span></td>
-          <td class="mono">${escapeHtml(formatHostnames(app.hostnames))}</td>
-          <td class="mono small">${escapeHtml(formatLabels(app.namespaceLabels || app.namespace_labels))}</td>
-          <td>${escapeHtml(formatIngress(app))}</td>
+          <td class="mono small">${escapeHtml(formatHostnames(app.hostnames))}</td>
           <td>${blockers ? `<span class="badge-status blocker">${blockers}</span>` : '—'}</td>
-          <td>${warnings ? `<span class="badge-status warning">${warnings}</span>` : '—'}</td>
           <td>
             <div class="readiness-cell">
               <div class="readiness-bar"><span style="width:${readiness}%"></span></div>
@@ -566,17 +567,58 @@
     if (next) next.disabled = page >= pages;
   }
 
+  function clusterQuerySuffix() {
+    return activeClusterRef ? '&clusterRef=' + encodeURIComponent(activeClusterRef) : '';
+  }
+
+  function clusterQueryPrefix() {
+    return activeClusterRef ? '?clusterRef=' + encodeURIComponent(activeClusterRef) : '';
+  }
+
+  async function loadFleetClusters() {
+    const select = $('cluster-select');
+    if (!select || !API()) return;
+    try {
+      const res = await fetch(API() + '/api/v1/dashboard/fleet');
+      if (!res.ok) return;
+      const fleet = await res.json();
+      fleetClusters = fleet.clusters || fleet.Clusters || [];
+      const prev = select.value;
+      select.innerHTML = '<option value="">Hub (default)</option>';
+      fleetClusters.forEach((c) => {
+        const ref = c.clusterRef || c.cluster_ref;
+        if (!ref) return;
+        const opt = document.createElement('option');
+        opt.value = ref;
+        const name = c.cluster?.name || ref;
+        opt.textContent = name + (ref !== name ? ` (${ref})` : '');
+        select.appendChild(opt);
+      });
+      if (prev) select.value = prev;
+      else if (activeClusterRef) select.value = activeClusterRef;
+    } catch {
+      /* fleet API optional */
+    }
+  }
+
+  function onClusterChange(ref) {
+    activeClusterRef = ref || '';
+    const bar = $('cluster-bar');
+    if (bar) bar.classList.toggle('cluster-active', !!activeClusterRef);
+    loadDashboard();
+    if (!$('assessments')?.classList.contains('hidden')) loadApplications();
+    if (!$('rollouts')?.classList.contains('hidden')) loadRollouts();
+  }
+
   function applicationsQueryString() {
     const params = new URLSearchParams();
     params.set('page', String(appListPage));
     params.set('pageSize', '50');
+    if (activeClusterRef) params.set('clusterRef', activeClusterRef);
     if (appListFilters.q) params.set('q', appListFilters.q);
     if (appListFilters.riskLevel) params.set('riskLevel', appListFilters.riskLevel);
     if (appListFilters.meshRevision) params.set('meshRevision', appListFilters.meshRevision);
-    params.set(
-      'migrationCandidatesOnly',
-      appListFilters.migrationCandidatesOnly === false ? 'false' : 'true'
-    );
+    params.set('migrationCandidatesOnly', 'true');
     return params.toString();
   }
 
@@ -597,15 +639,11 @@
       const meta = $('assess-meta');
       if (meta) {
         const when = applicationsPage.lastAssessedAt || applicationsPage.last_assessed_at;
-        const excluded =
-          applicationsPage.excludedAmbientCount ?? applicationsPage.excluded_ambient_count ?? 0;
-        const base = when
-          ? `${applicationsPage.total.toLocaleString()} migration candidate(s) · last assessed ${new Date(when).toLocaleString()}`
-          : 'Run assessment to populate the migration catalog.';
-        meta.textContent =
-          excluded > 0 && appListFilters.migrationCandidatesOnly !== false
-            ? `${base} · ${excluded.toLocaleString()} already on ambient hidden`
-            : base;
+        meta.textContent = when
+          ? `${applicationsPage.total.toLocaleString()} sidecar migration candidate(s) · assessed ${new Date(when).toLocaleString()}`
+          : applicationsPage.total
+            ? `${applicationsPage.total.toLocaleString()} candidate(s) — run assessment again to refresh`
+            : 'No migration candidates yet. Run assessment on this cluster to discover sidecar workloads.';
       }
       renderMeshFilterOptions();
       renderApplicationsTable();
@@ -639,7 +677,10 @@
     setStatus('Loading application detail…');
     try {
       const res = await fetch(
-        API() + '/api/v1/applications/' + encodeURIComponent(namespace)
+        API() +
+          '/api/v1/applications/' +
+          encodeURIComponent(namespace) +
+          (activeClusterRef ? '?clusterRef=' + encodeURIComponent(activeClusterRef) : '')
       );
       if (!res.ok) throw new Error(await res.text());
       const detail = await res.json();
@@ -811,7 +852,9 @@
     setStatus('Loading dashboard…');
     const container = $('dash-mesh-instances');
     try {
-      const res = await fetch(API() + '/api/v1/dashboard?fresh=true');
+      const res = await fetch(
+        API() + '/api/v1/dashboard?fresh=true' + clusterQuerySuffix()
+      );
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       const cluster = data.cluster || {};
@@ -878,6 +921,11 @@
       showPanel('assessments');
       appListPage = 1;
       closeApplicationDetail();
+      const clusterSelect = $('cluster-select');
+      if (clusterSelect) {
+        clusterSelect.value = '';
+        activeClusterRef = '';
+      }
       await loadApplications();
       await loadDashboard();
     } catch (e) {
@@ -911,7 +959,7 @@
     plans.forEach((p) => {
       const li = document.createElement('li');
       const key = planKey(p);
-      li.className = 'assessment-item' + (key === selectedPlanKey ? ' selected' : '');
+      li.className = key === selectedPlanKey ? 'selected' : '';
       const sel = (p.selectedNamespaces || p.selected_namespaces || []).length;
       const subtitle = sel
         ? `${sel} app(s)`
@@ -1051,21 +1099,68 @@
     return r.namespace + '/' + r.name;
   }
 
+  function rolloutIsActive(phase) {
+    const p = (phase || '').toLowerCase();
+    return (
+      p === 'running' ||
+      p === 'awaitingapproval' ||
+      p === 'pending' ||
+      p === 'processing'
+    );
+  }
+
+  function stopRolloutPolling() {
+    if (rolloutPollTimer) {
+      clearInterval(rolloutPollTimer);
+      rolloutPollTimer = null;
+    }
+  }
+
+  function startRolloutPolling() {
+    stopRolloutPolling();
+    if (!$('rollout-auto-refresh')?.checked) return;
+    const active = rollouts.some((r) => rolloutIsActive(r.phase));
+    if (!active && !rolloutIsActive(rolloutDetail?.rollout?.phase)) return;
+    rolloutPollTimer = setInterval(async () => {
+      if ($('rollouts')?.classList.contains('hidden')) {
+        stopRolloutPolling();
+        return;
+      }
+      await loadRollouts(true);
+      if (selectedRolloutKey) {
+        const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
+        if (r) await refreshRolloutDetail(r, true);
+      }
+    }, 5000);
+  }
+
   function renderRolloutList() {
     const ul = $('rollout-list');
     if (!ul) return;
+    const filter = ($('rollout-filter')?.value || '').toLowerCase();
     ul.innerHTML = '';
-    rollouts.forEach((r) => {
+    const list = rollouts.filter((r) => {
+      if (!filter) return true;
+      const hay = `${r.namespace}/${r.name} ${r.phase} ${r.planRef || r.plan_ref || ''}`.toLowerCase();
+      return hay.includes(filter);
+    });
+    if (!list.length) {
+      ul.innerHTML = '<li class="hint">No rollouts match</li>';
+      return;
+    }
+    list.forEach((r) => {
       const li = document.createElement('li');
       const key = rolloutKey(r);
-      li.className = 'assessment-item' + (key === selectedRolloutKey ? ' selected' : '');
+      li.className =
+        'rollout-list-item' + (key === selectedRolloutKey ? ' selected' : '');
       const awaiting = r.awaitingApproval || r.awaiting_approval;
+      const phaseClass = (r.phase || 'unknown').toLowerCase().replace(/[^a-z]/g, '');
       li.innerHTML = `
         <button type="button" data-key="${escapeHtml(key)}">
-          <span class="name">${escapeHtml(r.namespace)}/${escapeHtml(r.name)}</span>
-          <span class="phase">${escapeHtml(r.phase)}</span>
-          <span class="score-mini">stage ${r.currentStage ?? r.current_stage ?? 0}</span>
-          ${awaiting ? '<span class="badge warn">approve</span>' : ''}
+          <span class="rollout-list-name">${escapeHtml(r.namespace)}/${escapeHtml(r.name)}</span>
+          <span class="phase-badge small ${phaseClass}">${escapeHtml(r.phase)}</span>
+          <span class="rollout-list-meta">Stage ${(r.currentStage ?? r.current_stage ?? 0) + 1} / ${r.stageCount ?? r.stage_count ?? '?'}</span>
+          ${awaiting ? '<span class="badge-status warning">Approve</span>' : ''}
         </button>
       `;
       li.querySelector('button').addEventListener('click', () => selectRollout(key));
@@ -1119,27 +1214,160 @@
     }
   }
 
+  function renderRolloutMeshTarget(detail) {
+    const el = $('rollout-mesh-target');
+    if (!el) return;
+    const mesh =
+      detail.resolvedMeshTarget ||
+      detail.resolved_mesh_target ||
+      detail.rollout?.resolvedMeshTarget;
+    if (!mesh) {
+      el.classList.add('hidden');
+      el.textContent = '';
+      return;
+    }
+    el.classList.remove('hidden');
+    const enroll = mesh.enrollment || {};
+    const rev =
+      enroll.revisionTag ||
+      enroll.revision_tag ||
+      enroll.revision ||
+      mesh.revision;
+    const parts = [`istio.io/rev=${rev}`, 'istio.io/dataplane-mode=ambient'];
+    if (enroll.discoveryLabelKey && enroll.discoveryLabelValue) {
+      parts.push(`${enroll.discoveryLabelKey}=${enroll.discoveryLabelValue}`);
+    }
+    el.textContent = `Resolved mesh: ${mesh.discoveryLabel || mesh.discovery_label} · labels: ${parts.join(', ')}`;
+  }
+
+  function renderRolloutConditions(detail) {
+    const el = $('rollout-conditions');
+    if (!el) return;
+    const conditions = detail.conditions || [];
+    if (!conditions.length) {
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = conditions
+      .map(
+        (c) =>
+          `<span class="condition-pill ${escapeHtml((c.status || '').toLowerCase())}">${escapeHtml(c.type)}: ${escapeHtml(c.status)}${c.reason ? ' · ' + escapeHtml(c.reason) : ''}</span>`
+      )
+      .join('');
+  }
+
+  function renderRolloutTimeline(detail) {
+    const el = $('rollout-stage-timeline');
+    if (!el) return;
+    const current =
+      detail.rollout?.currentStage ??
+      detail.rollout?.current_stage ??
+      0;
+    const stages = detail.stages || [];
+    el.innerHTML = stages
+      .map((s) => {
+        let cls = 'timeline-step';
+        if (s.index < current) cls += ' done';
+        else if (s.index === current) cls += ' active';
+        const result = s.resultPhase || s.result_phase;
+        if (result === 'Failed') cls += ' failed';
+        return `<div class="${cls}" title="${escapeHtml(s.name)}"><span class="timeline-dot"></span><span class="timeline-label">${escapeHtml(s.name)}</span></div>`;
+      })
+      .join('');
+  }
+
   function renderRolloutStages(detail) {
     const tbody = $('rollout-stages')?.querySelector('tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
-    const current = detail.rollout?.currentStage ?? detail.rollout?.current_stage ?? detail.currentStage ?? detail.current_stage ?? 0;
-    const awaiting = detail.rollout?.awaitingApproval ?? detail.rollout?.awaiting_approval ?? detail.awaitingApproval ?? detail.awaiting_approval;
+    const current =
+      detail.rollout?.currentStage ??
+      detail.rollout?.current_stage ??
+      0;
+    const awaiting =
+      detail.rollout?.awaitingApproval ?? detail.rollout?.awaiting_approval;
+    const total = detail.stages?.length || detail.rollout?.stageCount || detail.rollout?.stage_count || 1;
+    const fill = $('rollout-progress-fill');
+    if (fill) {
+      const pct = Math.min(100, Math.round(((current + 1) / total) * 100));
+      fill.style.width = pct + '%';
+    }
     (detail.stages || []).forEach((s) => {
       const tr = document.createElement('tr');
       if (s.index === current) tr.classList.add('current');
       if (s.index === current && awaiting) tr.classList.add('awaiting');
-      const approval = s.requiresApproval || s.requires_approval ? 'required' : 'auto';
+      if ((s.resultPhase || s.result_phase) === 'Completed') tr.classList.add('done');
+      if ((s.resultPhase || s.result_phase) === 'Failed') tr.classList.add('failed');
+      const approval = s.requiresApproval || s.requires_approval ? 'Manual' : 'Auto';
       const result = s.resultPhase || s.result_phase || '—';
+      const ns = (s.namespaces || []).join(', ') || '—';
       tr.innerHTML = `
-        <td>${s.index}</td>
-        <td>${escapeHtml(s.name)}</td>
+        <td>${s.index + 1}</td>
+        <td><strong>${escapeHtml(s.name)}</strong></td>
         <td>${escapeHtml(s.stageType || s.stage_type || '')}</td>
-        <td>${approval}</td>
-        <td>${escapeHtml(result)}${s.resultMessage || s.result_message ? ': ' + escapeHtml(s.resultMessage || s.result_message) : ''}</td>
+        <td class="mono small">${escapeHtml(ns)}</td>
+        <td>${escapeHtml(result)}${s.resultMessage || s.result_message ? '<br><span class="hint">' + escapeHtml(s.resultMessage || s.result_message) + '</span>' : ''}</td>
       `;
       tbody.appendChild(tr);
     });
+    renderRolloutTimeline(detail);
+    renderRolloutMeshTarget(detail);
+    renderRolloutConditions(detail);
+  }
+
+  async function refreshRolloutDetail(r, quiet) {
+    try {
+      const res = await fetch(
+        API() +
+          `/api/v1/rollouts/${encodeURIComponent(r.namespace)}/${encodeURIComponent(r.name)}`
+      );
+      if (!res.ok) throw new Error(await res.text());
+      rolloutDetail = await res.json();
+      renderRolloutDetailHeader(r, rolloutDetail);
+      renderRolloutStages(rolloutDetail);
+      const awaitingDetail =
+        rolloutDetail.rollout?.awaitingApproval ?? rolloutDetail.rollout?.awaiting_approval;
+      $('approve-rollout').disabled = !canApproveRollout(awaitingDetail);
+      updateApproveAuthHint();
+      await loadRolloutAudit(r.namespace, r.name);
+      if (!quiet) setStatus(`Rollout ${r.namespace}/${r.name} loaded`);
+      startRolloutPolling();
+    } catch (e) {
+      if (!quiet) setStatus('Failed to load rollout: ' + e.message, true);
+      renderRolloutStages({ stages: [] });
+    }
+  }
+
+  function renderRolloutDetailHeader(r, detail) {
+    $('rollout-detail-title').textContent = `${r.namespace}/${r.name}`;
+    const phase = r.phase || detail?.rollout?.phase || '—';
+    const phaseEl = $('rollout-detail-phase');
+    if (phaseEl) {
+      phaseEl.textContent = phase;
+      phaseEl.className =
+        'phase-badge large ' + phase.toLowerCase().replace(/[^a-z]/g, '');
+    }
+    const current = r.currentStage ?? r.current_stage ?? 0;
+    const total = r.stageCount ?? r.stage_count ?? '?';
+    $('rollout-stage-progress').textContent =
+      `Stage ${current + 1} of ${total} · approved through stage ${(r.approvedStage ?? r.approved_stage ?? 0) + 1}`;
+    const cr = r.clusterRef || r.cluster_ref || detail?.rollout?.clusterRef || detail?.rollout?.cluster_ref;
+    const crEl = $('rollout-cluster-ref');
+    if (crEl) crEl.textContent = cr ? `Cluster: ${cr}` : '';
+    const planRef = r.planRef || r.plan_ref;
+    const planEl = $('rollout-plan-ref');
+    if (planEl) planEl.textContent = planRef ? `Plan: ${planRef}` : 'No linked plan';
+    const planLink = $('rollout-plan-link');
+    if (planLink) {
+      if (planRef) {
+        planLink.classList.remove('hidden');
+        planLink.textContent = `Open plan ${planRef}`;
+      } else planLink.classList.add('hidden');
+    }
+    const autoRb = detail?.autoRollback ?? detail?.auto_rollback;
+    if (autoRb !== undefined && $('rollout-stage-progress')) {
+      $('rollout-stage-progress').textContent += autoRb ? ' · auto-rollback on' : ' · auto-rollback off';
+    }
   }
 
   async function selectRollout(key) {
@@ -1147,33 +1375,12 @@
     const r = rollouts.find((x) => rolloutKey(x) === key);
     if (!r) return;
     renderRolloutList();
-    $('rollout-detail-title').textContent = `${r.namespace}/${r.name}`;
-    $('rollout-detail-phase').textContent = r.phase;
-    $('rollout-detail-phase').className =
-      'phase-badge ' + (r.phase || '').toLowerCase().replace(/[^a-z]/g, '');
-    const current = r.currentStage ?? r.current_stage ?? 0;
-    const total = r.stageCount ?? r.stage_count ?? '?';
-    $('rollout-stage-progress').textContent = `Stage ${current} of ${total} · approved through ${r.approvedStage ?? r.approved_stage ?? 0}`;
+    renderRolloutDetailHeader(r, rolloutDetail);
     const awaiting = r.awaitingApproval || r.awaiting_approval;
     $('approve-rollout').disabled = !canApproveRollout(awaiting);
     updateApproveAuthHint();
     setStatus('Loading rollout detail…');
-    try {
-      const res = await fetch(
-        API() + `/api/v1/rollouts/${encodeURIComponent(r.namespace)}/${encodeURIComponent(r.name)}`
-      );
-      if (!res.ok) throw new Error(await res.text());
-      rolloutDetail = await res.json();
-      renderRolloutStages(rolloutDetail);
-      const awaitingDetail = rolloutDetail.rollout?.awaitingApproval ?? rolloutDetail.rollout?.awaiting_approval;
-      $('approve-rollout').disabled = !canApproveRollout(awaitingDetail);
-      updateApproveAuthHint();
-      await loadRolloutAudit(r.namespace, r.name);
-      setStatus(`Rollout ${r.namespace}/${r.name} loaded`);
-    } catch (e) {
-      setStatus('Failed to load rollout: ' + e.message, true);
-      renderRolloutStages({ stages: [] });
-    }
+    await refreshRolloutDetail(r, false);
     showPanel('rollouts');
   }
 
@@ -1209,24 +1416,28 @@
     }
   }
 
-  async function loadRollouts() {
-    setStatus('Loading rollouts…');
+  async function loadRollouts(quiet) {
+    if (!quiet) setStatus('Loading rollouts…');
     loadMeshInstances();
     try {
-      const res = await fetch(API() + '/api/v1/rollouts');
+      const res = await fetch(API() + '/api/v1/rollouts' + clusterQueryPrefix());
       if (!res.ok) throw new Error(await res.text());
       rollouts = await res.json();
       renderRolloutList();
-      setStatus(
-        rollouts.length
-          ? `Loaded ${rollouts.length} rollout(s)`
-          : 'No rollouts in cluster (start one from a migration plan)'
-      );
+      if (!quiet) {
+        setStatus(
+          rollouts.length
+            ? `Loaded ${rollouts.length} rollout(s)${activeClusterRef ? ' · ' + activeClusterRef : ''}`
+            : 'No rollouts in cluster (start one from a migration plan)'
+        );
+      }
       if (rollouts.length && !selectedRolloutKey) {
-        selectRollout(rolloutKey(rollouts[0]));
+        await selectRollout(rolloutKey(rollouts[0]));
+      } else {
+        startRolloutPolling();
       }
     } catch (e) {
-      setStatus('Failed to load rollouts: ' + e.message, true);
+      if (!quiet) setStatus('Failed to load rollouts: ' + e.message, true);
     }
   }
 
@@ -1343,6 +1554,10 @@
     loadAuthConfig().then(() => {
       if (getToken()) setStatus('Signed in as ' + (parseJwtUsername(getToken()) || 'user'));
     });
+    loadFleetClusters();
+    $('cluster-select')?.addEventListener('change', (e) => onClusterChange(e.target.value));
+    $('rollout-filter')?.addEventListener('input', renderRolloutList);
+    $('rollout-auto-refresh')?.addEventListener('change', startRolloutPolling);
     $('auth-login-btn')?.addEventListener('click', loginLocal);
     $('auth-logout-btn')?.addEventListener('click', logout);
     $('auth-oidc-login')?.addEventListener('click', startOidcLogin);
@@ -1374,11 +1589,6 @@
     });
     $('app-mesh-filter')?.addEventListener('change', (e) => {
       appListFilters.meshRevision = e.target.value;
-      appListPage = 1;
-      loadApplications();
-    });
-    $('app-show-ambient')?.addEventListener('change', (e) => {
-      appListFilters.migrationCandidatesOnly = !e.target.checked;
       appListPage = 1;
       loadApplications();
     });

@@ -23,6 +23,9 @@ spec:
               properties:
                 planRef:
                   type: string
+                clusterRef:
+                  type: string
+                  description: Fleet cluster identity (from MigrationPlan when created via API).
                 autoRollback:
                   type: boolean
                   default: true

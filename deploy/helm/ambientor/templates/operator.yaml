@@ -25,5 +25,9 @@ spec:
             - name: DATABASE_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- range $k, $v := .Values.operator.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.operator.resources | nindent 12 }}

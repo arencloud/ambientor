@@ -6,23 +6,41 @@ use kube::{Api, Client};
 
 use crate::istio::collect_istio_policies;
 use crate::platform_scan::scan_platform;
-use crate::policy_collect::build_policy_context;
+use crate::policy_collect::{IstioPolicyObjects, build_policy_context};
 use crate::version::detect_istio_version;
 use crate::workload_scan::scan_workloads;
 
 /// Optional pre-loaded core resources (e.g. from operator informer cache).
 pub type CoreSnapshot = (Vec<Pod>, Vec<Namespace>);
 
+/// Full cluster inventory from one pass (avoids duplicate pod/namespace/Istio lists).
+pub struct CollectedInventory {
+    pub ctx: RuleContext,
+    pub pods: Vec<Pod>,
+    pub namespaces: Vec<Namespace>,
+    pub istio_objects: IstioPolicyObjects,
+}
+
 pub async fn collect_inventory(
     client: &Client,
     flavor: MeshFlavor,
     core: Option<CoreSnapshot>,
 ) -> anyhow::Result<RuleContext> {
+    Ok(collect_inventory_full(client, flavor, core)
+        .await?
+        .ctx)
+}
+
+pub async fn collect_inventory_full(
+    client: &Client,
+    flavor: MeshFlavor,
+    core: Option<CoreSnapshot>,
+) -> anyhow::Result<CollectedInventory> {
     let (pods, namespaces) = match core {
         Some((pods, namespaces)) => (pods, namespaces),
         None => fetch_core_resources(client).await?,
     };
-    build_rule_context(client, flavor, pods, namespaces).await
+    build_collected_inventory(client, flavor, pods, namespaces).await
 }
 
 async fn fetch_core_resources(client: &Client) -> anyhow::Result<CoreSnapshot> {
@@ -36,9 +54,25 @@ async fn fetch_core_resources(client: &Client) -> anyhow::Result<CoreSnapshot> {
 pub async fn build_rule_context(
     client: &Client,
     flavor: MeshFlavor,
+    pods: &[Pod],
+    namespaces: &[Namespace],
+) -> anyhow::Result<RuleContext> {
+    Ok(build_collected_inventory(
+        client,
+        flavor,
+        pods.to_vec(),
+        namespaces.to_vec(),
+    )
+    .await?
+    .ctx)
+}
+
+async fn build_collected_inventory(
+    client: &Client,
+    flavor: MeshFlavor,
     pods: Vec<Pod>,
     namespaces: Vec<Namespace>,
-) -> anyhow::Result<RuleContext> {
+) -> anyhow::Result<CollectedInventory> {
     let crd_api: Api<CustomResourceDefinition> = Api::all(client.clone());
     let crds = crd_api.list(&Default::default()).await?;
 
@@ -98,7 +132,7 @@ pub async fn build_rule_context(
     let mesh_version = detect_istio_version(client).await;
     let platform = scan_platform(client, flavor, Some(&pods)).await;
 
-    Ok(RuleContext {
+    let ctx = RuleContext {
         mesh_version,
         mesh_flavor: Some(format!("{flavor:?}")),
         ambient_installed,
@@ -107,6 +141,12 @@ pub async fn build_rule_context(
         workloads,
         policies,
         platform,
+    };
+    Ok(CollectedInventory {
+        ctx,
+        pods,
+        namespaces,
+        istio_objects,
     })
 }
 

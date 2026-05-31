@@ -414,6 +414,9 @@ pub enum RolloutStageType {
 pub struct RolloutSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_ref: Option<String>,
+    /// Fleet cluster identity (from MigrationPlan when created via API).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster_ref: Option<String>,
     #[serde(default = "default_true")]
     pub auto_rollback: bool,
     /// When omitted and exactly one ambient control plane exists, it is selected automatically.

@@ -134,6 +134,94 @@ async fn verify_no_pending_virtual_services(
     Ok(())
 }
 
+/// Confirm application workloads are reachable: Deployments ready, pods running, sidecars removed.
+pub async fn verify_application_reachability(
+    client: &Client,
+    namespace: &str,
+) -> Result<(), RolloutError> {
+    use k8s_openapi::api::apps::v1::Deployment;
+    use k8s_openapi::api::core::v1::Pod;
+    use kube::api::ListParams;
+    use kube::Api;
+
+    let dep_api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    let deps = dep_api.list(&ListParams::default()).await?;
+    if deps.items.is_empty() {
+        return Ok(());
+    }
+
+    for dep in &deps.items {
+        let name = dep
+            .metadata
+            .name
+            .as_deref()
+            .unwrap_or("unknown");
+        let desired = dep
+            .spec
+            .as_ref()
+            .and_then(|s| s.replicas)
+            .unwrap_or(1);
+        let ready = dep
+            .status
+            .as_ref()
+            .and_then(|s| s.ready_replicas)
+            .unwrap_or(0);
+        if ready < desired {
+            return Err(RolloutError::ExecutionFailed(format!(
+                "Deployment {namespace}/{name} not ready ({ready}/{desired} replicas)"
+            )));
+        }
+    }
+
+    let pod_api: Api<Pod> = Api::namespaced(client.clone(), namespace);
+    let pods = pod_api.list(&ListParams::default()).await?;
+    for pod in &pods.items {
+        if is_system_pod(pod) {
+            continue;
+        }
+        let name = pod.metadata.name.as_deref().unwrap_or("unknown");
+        let phase = pod.status.as_ref().and_then(|s| s.phase.as_deref());
+        if phase != Some("Running") {
+            return Err(RolloutError::ExecutionFailed(format!(
+                "Pod {namespace}/{name} not Running (phase={phase:?})"
+            )));
+        }
+        let ready = pod
+            .status
+            .as_ref()
+            .and_then(|s| s.conditions.as_ref())
+            .is_some_and(|conds| {
+                conds
+                    .iter()
+                    .any(|c| c.type_ == "Ready" && c.status == "True")
+            });
+        if !ready {
+            return Err(RolloutError::ExecutionFailed(format!(
+                "Pod {namespace}/{name} not Ready"
+            )));
+        }
+        if pod
+            .spec
+            .as_ref()
+            .is_some_and(|s| s.containers.iter().any(|c| c.name == "istio-proxy"))
+        {
+            return Err(RolloutError::ExecutionFailed(format!(
+                "Pod {namespace}/{name} still has istio-proxy sidecar after migration"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn is_system_pod(pod: &k8s_openapi::api::core::v1::Pod) -> bool {
+    pod.metadata.labels.as_ref().is_some_and(|l| {
+        l.get("app")
+            .is_some_and(|v| v == "ztunnel" || v.contains("istio"))
+            || l.get("istio.io/dataplane-mode") == Some(&"none".into())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -11,7 +11,7 @@ use crate::dashboard::upsert_cluster;
 use crate::pool::DbError;
 use crate::traits::ApplicationAssessmentStore;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ApplicationListQuery {
     pub cluster_ref: String,
     pub search: Option<String>,
@@ -21,6 +21,20 @@ pub struct ApplicationListQuery {
     pub migration_candidates_only: bool,
     pub page: u32,
     pub page_size: u32,
+}
+
+impl Default for ApplicationListQuery {
+    fn default() -> Self {
+        Self {
+            cluster_ref: String::new(),
+            search: None,
+            risk_level: None,
+            mesh_revision: None,
+            migration_candidates_only: true,
+            page: 1,
+            page_size: 50,
+        }
+    }
 }
 
 pub struct ApplicationAssessmentRepository {

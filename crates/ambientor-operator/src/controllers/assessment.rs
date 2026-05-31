@@ -6,7 +6,7 @@ use ambientor_db::{
     assessment_sync::persist_full_assessment, cluster_ref_from_env,
 };
 use ambientor_k8s::{ClusterResourceCache, detect_platform};
-use ambientor_mesh::inventory::{self, CoreSnapshot};
+use ambientor_mesh::inventory;
 use ambientor_scan::default_registry;
 use ambientor_types::{AmbientAssessment, FindingSummary};
 use futures::StreamExt;
@@ -57,7 +57,7 @@ struct AssessmentContext {
 }
 
 impl AssessmentContext {
-    fn core_snapshot(&self) -> Option<CoreSnapshot> {
+    fn core_snapshot(&self) -> Option<inventory::CoreSnapshot> {
         let cache = self.cache.as_ref()?;
         if !cache.is_populated() {
             return None;
@@ -83,11 +83,13 @@ async fn reconcile_inner(
 ) -> anyhow::Result<()> {
     let client = &assess_ctx.client;
     let platform = detect_platform(client).await.unwrap_or_default();
-    let rule_ctx =
-        inventory::collect_inventory(client, platform.mesh_flavor, assess_ctx.core_snapshot())
-            .await
-            .unwrap_or_default();
-    let findings = default_registry().evaluate_all(&rule_ctx);
+    let inventory = inventory::collect_inventory_full(
+        client,
+        platform.mesh_flavor,
+        assess_ctx.core_snapshot(),
+    )
+    .await?;
+    let findings = default_registry().evaluate_all(&inventory.ctx);
     let scores = compute_scores(&findings);
     let summary = FindingSummary::from_findings(&findings);
 
@@ -98,6 +100,31 @@ async fn reconcile_inner(
         .unwrap_or_else(|| "default".into());
     let api: Api<AmbientAssessment> = Api::namespaced(client.clone(), &ns);
     if let Some(name) = &obj.metadata.name {
+        let cluster_ref = cluster_ref_from_env();
+        let application_count = if let (Some(apps), Some(dash)) = (
+            &assess_ctx.applications_repo,
+            &assess_ctx.dashboard_repo,
+        ) {
+            match persist_full_assessment(
+                apps.as_ref(),
+                dash.as_ref(),
+                client,
+                &cluster_ref,
+                &inventory,
+                &findings,
+            )
+            .await
+            {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to persist assessment and dashboard");
+                    0
+                }
+            }
+        } else {
+            0
+        };
+
         let payload = StoredAssessment {
             findings: findings.clone(),
             scores: scores.clone(),
@@ -105,6 +132,8 @@ async fn reconcile_inner(
             source: Some("operator".into()),
             assessment_name: Some(name.clone()),
         };
+
+        // Mark Completed only after DB/catalog persist so the portal sees candidates immediately.
         let status = serde_json::json!({
             "status": {
                 "phase": "Completed",
@@ -112,7 +141,6 @@ async fn reconcile_inner(
                 "sidecarDependencyScore": scores.sidecar_dependency,
                 "trafficCompatibilityScore": scores.traffic_compatibility,
                 "overallScore": scores.overall,
-                "findings": findings,
                 "summary": summary,
             }
         });
@@ -121,7 +149,7 @@ async fn reconcile_inner(
 
         if let Some(repo) = &assess_ctx.scan_repo
             && let Err(e) = repo
-                .record_completed(&cluster_ref_from_env(), Some(ns.as_str()), &payload)
+                .record_completed(&cluster_ref, Some(ns.as_str()), &payload)
                 .await
         {
             tracing::warn!(error = %e, assessment = %name, "failed to persist scan run");
@@ -131,24 +159,12 @@ async fn reconcile_inner(
             tracing::warn!(error = %e, assessment = %name, "failed to ensure MigrationPlan");
         }
 
-        if let (Some(apps), Some(dash)) = (
-            &assess_ctx.applications_repo,
-            &assess_ctx.dashboard_repo,
-        ) {
-            let cluster_ref = cluster_ref_from_env();
-            if let Err(e) = persist_full_assessment(
-                apps.as_ref(),
-                dash.as_ref(),
-                client,
-                &cluster_ref,
-                &rule_ctx,
-                &findings,
-            )
-            .await
-            {
-                tracing::warn!(error = %e, "failed to persist assessment and dashboard");
-            }
-        }
+        tracing::info!(
+            assessment = %name,
+            application_count,
+            migration_candidates = application_count,
+            "assessment completed"
+        );
     }
     Ok(())
 }

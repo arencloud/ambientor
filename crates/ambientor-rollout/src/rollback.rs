@@ -92,6 +92,7 @@ mod tests {
     fn revert_order_is_reverse_of_completed() {
         let spec = RolloutSpec {
             plan_ref: None,
+            cluster_ref: None,
             auto_rollback: true,
             mesh_target: None,
             stages: vec![

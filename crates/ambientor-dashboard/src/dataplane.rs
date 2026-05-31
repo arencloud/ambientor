@@ -100,7 +100,7 @@ pub fn namespace_is_migrated(labels: &BTreeMap<String, String>) -> bool {
 
 /// Whether the namespace should appear in the default migration-candidates catalog.
 ///
-/// Aligns with dashboard **Migrated** status: sidecar dataplane only, not ambient-labeled.
+/// Sidecar mesh members with running app pods that are not yet ambient-labeled.
 pub fn is_migration_candidate(
     dataplane: DataplaneMode,
     app_pod_count: u32,
@@ -110,7 +110,12 @@ pub fn is_migration_candidate(
     if app_pod_count == 0 || namespace_is_migrated(namespace_labels) {
         return false;
     }
+    if dataplane == DataplaneMode::Ambient {
+        return false;
+    }
     matches!(dataplane, DataplaneMode::Sidecar)
+        || (dataplane == DataplaneMode::NotEnrolled
+            && labels_indicate_mesh_membership(namespace_labels))
 }
 
 #[cfg(test)]
@@ -174,6 +179,13 @@ mod tests {
             DataplaneMode::NotEnrolled,
             3,
             &BTreeMap::new(),
+            None
+        ));
+        let injected = BTreeMap::from([("istio-injection".into(), "enabled".into())]);
+        assert!(is_migration_candidate(
+            DataplaneMode::NotEnrolled,
+            3,
+            &injected,
             None
         ));
         assert!(!is_migration_candidate(

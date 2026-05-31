@@ -3,10 +3,11 @@ use std::sync::Arc;
 use ambientor_k8s::K8sClient;
 use ambientor_plan::plan_to_rollout;
 use ambientor_rollout::audit::audit_rollout_approve;
-use ambientor_types::{Rollout, RolloutStage, RolloutStatus};
+use ambientor_types::{MeshInstance, Rollout, RolloutStage, RolloutStageType, RolloutStatus};
+use ambientor_db::cluster_ref_from_env;
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use kube::{
@@ -19,6 +20,12 @@ use crate::state::AppState;
 
 use super::plans::{fetch_plan, internal, k8s_client};
 
+#[derive(Debug, Deserialize)]
+pub struct RolloutsQuery {
+    #[serde(rename = "clusterRef")]
+    pub cluster_ref: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RolloutListItem {
@@ -29,6 +36,7 @@ pub struct RolloutListItem {
     pub approved_stage: i32,
     pub stage_count: usize,
     pub plan_ref: Option<String>,
+    pub cluster_ref: Option<String>,
     pub awaiting_approval: bool,
 }
 
@@ -46,11 +54,22 @@ pub struct RolloutStageView {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RolloutConditionView {
+    pub r#type: String,
+    pub status: String,
+    pub reason: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RolloutDetail {
     #[serde(flatten)]
     pub rollout: RolloutListItem,
     pub stages: Vec<RolloutStageView>,
     pub auto_rollback: bool,
+    pub resolved_mesh_target: Option<MeshInstance>,
+    pub conditions: Vec<RolloutConditionView>,
 }
 
 #[derive(Deserialize)]
@@ -81,14 +100,20 @@ pub struct CreateRolloutResponse {
 
 pub async fn list_rollouts(
     State(_state): State<Arc<AppState>>,
+    Query(query): Query<RolloutsQuery>,
 ) -> Result<Json<Vec<RolloutListItem>>, (StatusCode, String)> {
     let k8s = k8s_client().await?;
+    let filter_cluster = query
+        .cluster_ref
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(cluster_ref_from_env);
     let api: Api<Rollout> = Api::all(k8s.client);
     let list = api.list(&ListParams::default()).await.map_err(internal)?;
     let mut items: Vec<RolloutListItem> = list
         .items
         .into_iter()
         .filter_map(|r| rollout_to_list_item(&r))
+        .filter(|item| rollout_matches_cluster(item, &filter_cluster))
         .collect();
     items.sort_by(|a, b| a.namespace.cmp(&b.namespace).then(a.name.cmp(&b.name)));
     Ok(Json(items))
@@ -102,9 +127,24 @@ pub async fn get_rollout(
     let rollout = fetch_rollout(&k8s, &namespace, &name).await?;
     let item = rollout_to_list_item(&rollout)
         .ok_or((StatusCode::NOT_FOUND, "rollout has no status yet".into()))?;
+    let status = rollout.status.as_ref();
     Ok(Json(RolloutDetail {
-        stages: stages_with_results(&rollout.spec.stages, rollout.status.as_ref()),
+        stages: stages_with_results(&rollout.spec.stages, status),
         auto_rollback: rollout.spec.auto_rollback,
+        resolved_mesh_target: status.and_then(|s| s.resolved_mesh_target.clone()),
+        conditions: status
+            .map(|s| {
+                s.conditions
+                    .iter()
+                    .map(|c| RolloutConditionView {
+                        r#type: c.r#type.clone(),
+                        status: c.status.clone(),
+                        reason: c.reason.clone(),
+                        message: c.message.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         rollout: item,
     }))
 }
@@ -195,6 +235,19 @@ pub async fn create_rollout_from_plan(
         .await
         .map_err(internal)?;
 
+    let status_patch = serde_json::json!({
+        "status": {
+            "phase": "AwaitingApproval",
+            "currentStage": 0,
+            "approvedStage": -1,
+            "stageResults": []
+        }
+    });
+    existing
+        .patch_status(&rollout_name, &Default::default(), &Patch::Merge(&status_patch))
+        .await
+        .map_err(internal)?;
+
     Ok(Json(CreateRolloutResponse {
         name: rollout_name,
         namespace,
@@ -275,8 +328,30 @@ fn rollout_to_list_item(rollout: &Rollout) -> Option<RolloutListItem> {
         approved_stage: status.approved_stage,
         stage_count: rollout.spec.stages.len(),
         plan_ref: rollout.spec.plan_ref.clone(),
+        cluster_ref: rollout.spec.cluster_ref.clone(),
         awaiting_approval,
     })
+}
+
+fn rollout_matches_cluster(item: &RolloutListItem, cluster_ref: &str) -> bool {
+    match &item.cluster_ref {
+        Some(cr) => cr == cluster_ref,
+        None => true,
+    }
+}
+
+fn stage_type_label(t: &RolloutStageType) -> &'static str {
+    match t {
+        RolloutStageType::InstallAmbientComponents => "Install ambient components",
+        RolloutStageType::EnrollNamespace => "Enroll namespace",
+        RolloutStageType::DeployWaypoint => "Deploy waypoint",
+        RolloutStageType::LabelNamespace => "Label namespace",
+        RolloutStageType::TranslatePolicy => "Translate policy",
+        RolloutStageType::RollingRestart => "Rolling restart",
+        RolloutStageType::RemoveInjection => "Remove injection",
+        RolloutStageType::VerifyTraffic => "Verify traffic",
+        RolloutStageType::DryRun => "Dry run",
+    }
 }
 
 fn stages_with_results(
@@ -291,7 +366,7 @@ fn stages_with_results(
             RolloutStageView {
                 index: idx as i32,
                 name: stage.name.clone(),
-                stage_type: format!("{:?}", stage.r#type),
+                stage_type: stage_type_label(&stage.r#type).to_string(),
                 namespaces: stage.namespaces.clone(),
                 requires_approval: stage.requires_approval,
                 result_phase: result.map(|r| r.phase.clone()),

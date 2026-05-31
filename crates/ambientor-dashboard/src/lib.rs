@@ -13,7 +13,8 @@ mod types;
 pub use application_types::*;
 pub use applications::{derive_risk_level, discover_ingress_gateway_namespaces, hostnames_by_namespace};
 pub use assess_run::{
-    build_cluster_assessment_from_context, cluster_dashboard_meta, dashboard_from_assessment_run,
+    build_cluster_assessment_from_context, build_cluster_assessment_from_inventory,
+    cluster_dashboard_meta, cluster_dashboard_meta_with_meshes, dashboard_from_assessment_run,
 };
 pub use compute::{
     aggregate_fleet_summary, build_dashboard, compute_migration_savings_from_dashboard,

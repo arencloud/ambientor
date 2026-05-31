@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use ambientor_core::rules::RuleContext;
 use ambientor_core::scoring::compute_scores;
 use ambientor_mesh::application_identity::NamespaceApplicationIdentity;
-use ambientor_mesh::istio::collect_istio_policies;
+use ambientor_mesh::policy_collect::IstioPolicyObjects;
 use ambientor_mesh::is_application_namespace;
 use ambientor_types::{
     Finding, FindingCategory, FindingSeverity, MeshInstance,
@@ -33,9 +33,7 @@ pub async fn list_namespaces_for_assessment(client: &Client) -> anyhow::Result<V
     Ok(api.list(&ListParams::default()).await?.items)
 }
 
-pub async fn discover_ingress_gateway_namespaces(client: &Client) -> anyhow::Result<HashSet<String>> {
-    let api: Api<Pod> = Api::all(client.clone());
-    let pods = api.list(&ListParams::default()).await?.items;
+pub fn ingress_gateway_namespaces_from_pods(pods: &[Pod]) -> HashSet<String> {
     let mut set = HashSet::new();
     for pod in pods {
         let labels = pod.metadata.labels.as_ref();
@@ -46,18 +44,25 @@ pub async fn discover_ingress_gateway_namespaces(client: &Client) -> anyhow::Res
                     .is_some_and(|v| v == "ingressgateway" || v.contains("ingress"))
         });
         if is_gateway
-            && let Some(ns) = pod.metadata.namespace
+            && let Some(ns) = pod.metadata.namespace.as_deref()
         {
-            set.insert(ns);
+            set.insert(ns.to_string());
         }
     }
-    Ok(set)
+    set
 }
 
-pub async fn hostnames_by_namespace(client: &Client) -> anyhow::Result<HashMap<String, BTreeSet<String>>> {
-    let objects = collect_istio_policies(client).await?;
+pub async fn discover_ingress_gateway_namespaces(client: &Client) -> anyhow::Result<HashSet<String>> {
+    let api: Api<Pod> = Api::all(client.clone());
+    let pods = api.list(&ListParams::default()).await?.items;
+    Ok(ingress_gateway_namespaces_from_pods(&pods))
+}
+
+pub fn hostnames_from_istio_objects(
+    objects: &IstioPolicyObjects,
+) -> HashMap<String, BTreeSet<String>> {
     let mut by_namespace: HashMap<String, BTreeSet<String>> = HashMap::new();
-    for vs in &objects.virtual_services {
+    for vs in objects.virtual_services.iter() {
         let ns = vs.metadata.namespace.clone().unwrap_or_default();
         if let Some(hosts) = vs
             .data
@@ -75,7 +80,7 @@ pub async fn hostnames_by_namespace(client: &Client) -> anyhow::Result<HashMap<S
             }
         }
     }
-    for hr in &objects.http_routes {
+    for hr in objects.http_routes.iter() {
         let ns = hr.metadata.namespace.clone().unwrap_or_default();
         if let Some(hosts) = hr
             .data
@@ -93,7 +98,13 @@ pub async fn hostnames_by_namespace(client: &Client) -> anyhow::Result<HashMap<S
             }
         }
     }
-    Ok(by_namespace)
+    by_namespace
+}
+
+pub async fn hostnames_by_namespace(client: &Client) -> anyhow::Result<HashMap<String, BTreeSet<String>>> {
+    use ambientor_mesh::istio::collect_istio_policies;
+    let objects = collect_istio_policies(client).await?;
+    Ok(hostnames_from_istio_objects(&objects))
 }
 
 pub fn build_cluster_assessment(
@@ -163,6 +174,42 @@ pub fn build_cluster_assessment(
             hostnames_by_ns,
             ingress_ns,
             identities.get(ns_name),
+        ));
+    }
+
+    // Namespaces with sidecar workloads that may lack mesh labels but still need migration.
+    for ns in namespaces {
+        let Some(ns_name) = ns.metadata.name.clone() else {
+            continue;
+        };
+        if !is_application_namespace(&ns_name, mesh_instances) || seen.contains(&ns_name) {
+            continue;
+        }
+        let identity = identities.get(&ns_name);
+        let app_pods = identity.map(|i| i.app_pod_count).unwrap_or(0);
+        if app_pods == 0 {
+            continue;
+        }
+        let has_sidecar = ctx.workloads.iter().any(|w| {
+            w.namespace == ns_name && w.has_istio_sidecar
+        });
+        if !has_sidecar {
+            continue;
+        }
+        seen.insert(ns_name.clone());
+        let findings = by_ns.get(&ns_name).cloned().unwrap_or_default();
+        let mesh = mesh_instances
+            .iter()
+            .find(|m| namespace_belongs_to_mesh(ns.metadata.labels.as_ref(), m));
+        applications.push(build_app_record(
+            ctx,
+            &ns_name,
+            ns.metadata.labels.as_ref(),
+            mesh,
+            &findings,
+            hostnames_by_ns,
+            ingress_ns,
+            identity,
         ));
     }
 

@@ -19,10 +19,13 @@ operator:
   resources:
     requests:
       cpu: 100m
-      memory: 128Mi
+      memory: 256Mi
     limits:
-      cpu: 500m
-      memory: 512Mi
+      cpu: "1"
+      memory: 1536Mi
+  env:
+    # Live dashboard sync interval (seconds). Assessment persists snapshots; increase on large clusters.
+    AMBIENTOR_DASHBOARD_SYNC_SECS: "120"
 
 api:
   replicas: 1

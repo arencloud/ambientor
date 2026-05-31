@@ -507,12 +507,8 @@ impl AppAssessmentRow {
                 self.discovery_label.as_deref(),
             ),
         };
-        let migration_candidate = ambientor_dashboard::is_migration_candidate(
-            dp_mode,
-            self.workload_count as u32,
-            &namespace_labels,
-            None,
-        );
+        let migration_candidate = self.migration_candidate
+            && dp_mode != ambientor_dashboard::DataplaneMode::Ambient;
 
         Ok(ApplicationAssessmentRecord {
             namespace: self.namespace,

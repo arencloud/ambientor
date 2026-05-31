@@ -12,7 +12,7 @@ use crate::preflight::{
 };
 use crate::restart::rolling_restart_namespace;
 use crate::rollback::revert_completed_stages;
-use crate::verify::verify_namespace_traffic;
+use crate::verify::{verify_application_reachability, verify_namespace_traffic};
 use crate::waypoint::deploy_waypoint;
 use ambientor_mesh::enroll_namespace_on_mesh;
 
@@ -48,89 +48,107 @@ impl RolloutEngine {
         if status.phase.is_empty() {
             status.phase = "Pending".into();
         }
-
-        let stage_idx = status.current_stage as usize;
-        if stage_idx >= spec.stages.len() {
-            status.phase = "Completed".into();
-            events.push(RolloutEvent {
-                rollout_id: String::new(),
-                stage_index: status.current_stage,
-                stage_name: "done".into(),
-                event_type: RolloutEventType::RolloutCompleted,
-                message: "All stages completed".into(),
-                timestamp: Utc::now(),
-            });
-            return Ok(events);
+        if status.approved_stage == 0
+            && status.current_stage == 0
+            && status.stage_results.is_empty()
+            && status.phase != "Completed"
+            && status.phase != "AwaitingApproval"
+        {
+            status.approved_stage = -1;
         }
 
-        let stage = &spec.stages[stage_idx];
-        if stage.requires_approval && status.approved_stage < status.current_stage {
-            status.phase = "AwaitingApproval".into();
-            events.push(RolloutEvent {
-                rollout_id: String::new(),
-                stage_index: status.current_stage,
-                stage_name: stage.name.clone(),
-                event_type: RolloutEventType::ApprovalRequired,
-                message: format!("Approve stage {} to continue", stage.name),
-                timestamp: Utc::now(),
-            });
-            return Ok(events);
-        }
-
-        status.phase = "Running".into();
-        let started = Utc::now();
-        events.push(RolloutEvent {
-            rollout_id: String::new(),
-            stage_index: status.current_stage,
-            stage_name: stage.name.clone(),
-            event_type: RolloutEventType::StageStarted,
-            message: format!("Executing stage {:?}", stage.r#type),
-            timestamp: started,
-        });
-
-        let result = self.execute_stage(spec, stage, mesh).await;
-        let finished = Utc::now();
-
-        match result {
-            Ok(msg) => {
-                status.stage_results.push(StageResult {
-                    name: stage.name.clone(),
-                    phase: "Succeeded".into(),
-                    message: Some(msg),
-                    started_at: Some(started),
-                    finished_at: Some(finished),
-                });
-                status.current_stage += 1;
+        const MAX_STAGES_PER_RECONCILE: usize = 32;
+        for _ in 0..MAX_STAGES_PER_RECONCILE {
+            let stage_idx = status.current_stage as usize;
+            if stage_idx >= spec.stages.len() {
+                status.phase = "Completed".into();
                 events.push(RolloutEvent {
                     rollout_id: String::new(),
-                    stage_index: status.current_stage - 1,
-                    stage_name: stage.name.clone(),
-                    event_type: RolloutEventType::StageCompleted,
-                    message: "Stage succeeded".into(),
-                    timestamp: finished,
+                    stage_index: status.current_stage,
+                    stage_name: "done".into(),
+                    event_type: RolloutEventType::RolloutCompleted,
+                    message: "All stages completed — applications verified reachable on ambient".into(),
+                    timestamp: Utc::now(),
                 });
+                break;
             }
-            Err(e) => {
-                warn!(error = %e, stage = %stage.name, "stage failed");
-                status.phase = "Failed".into();
-                status.stage_results.push(StageResult {
-                    name: stage.name.clone(),
-                    phase: "Failed".into(),
-                    message: Some(e.to_string()),
-                    started_at: Some(started),
-                    finished_at: Some(finished),
-                });
+
+            let stage = &spec.stages[stage_idx];
+            if stage.requires_approval && status.approved_stage < status.current_stage {
+                status.phase = "AwaitingApproval".into();
                 events.push(RolloutEvent {
                     rollout_id: String::new(),
                     stage_index: status.current_stage,
                     stage_name: stage.name.clone(),
-                    event_type: RolloutEventType::StageFailed,
-                    message: e.to_string(),
-                    timestamp: finished,
+                    event_type: RolloutEventType::ApprovalRequired,
+                    message: format!(
+                        "Approve to start migration (stage: {})",
+                        stage.name
+                    ),
+                    timestamp: Utc::now(),
                 });
-                if spec.auto_rollback && status.current_stage > 0 {
-                    self.rollback(spec, status, status.current_stage as usize, &mut events)
-                        .await?;
+                break;
+            }
+
+            status.phase = "Running".into();
+            let started = Utc::now();
+            events.push(RolloutEvent {
+                rollout_id: String::new(),
+                stage_index: status.current_stage,
+                stage_name: stage.name.clone(),
+                event_type: RolloutEventType::StageStarted,
+                message: format!("Executing stage {:?}", stage.r#type),
+                timestamp: started,
+            });
+
+            let stage = spec.stages[stage_idx].clone();
+            let result = self.execute_stage(spec, &stage, mesh).await;
+            let finished = Utc::now();
+
+            match result {
+                Ok(msg) => {
+                    status.stage_results.push(StageResult {
+                        name: stage.name.clone(),
+                        phase: "Succeeded".into(),
+                        message: Some(msg),
+                        started_at: Some(started),
+                        finished_at: Some(finished),
+                    });
+                    status.current_stage += 1;
+                    events.push(RolloutEvent {
+                        rollout_id: String::new(),
+                        stage_index: status.current_stage - 1,
+                        stage_name: stage.name.clone(),
+                        event_type: RolloutEventType::StageCompleted,
+                        message: "Stage succeeded".into(),
+                        timestamp: finished,
+                    });
+                    // Continue same reconcile for auto stages (post-approval pipeline).
+                    continue;
+                }
+                Err(e) => {
+                    warn!(error = %e, stage = %stage.name, "stage failed");
+                    status.phase = "Failed".into();
+                    status.stage_results.push(StageResult {
+                        name: stage.name.clone(),
+                        phase: "Failed".into(),
+                        message: Some(e.to_string()),
+                        started_at: Some(started),
+                        finished_at: Some(finished),
+                    });
+                    events.push(RolloutEvent {
+                        rollout_id: String::new(),
+                        stage_index: status.current_stage,
+                        stage_name: stage.name.clone(),
+                        event_type: RolloutEventType::StageFailed,
+                        message: e.to_string(),
+                        timestamp: finished,
+                    });
+                    if spec.auto_rollback && status.current_stage > 0 {
+                        self.rollback(spec, status, status.current_stage as usize, &mut events)
+                            .await?;
+                    }
+                    break;
                 }
             }
         }
@@ -216,9 +234,10 @@ impl RolloutEngine {
             RolloutStageType::VerifyTraffic => {
                 for ns in &stage.namespaces {
                     verify_namespace_traffic(&self.client, ns, mesh).await?;
+                    verify_application_reachability(&self.client, ns).await?;
                 }
                 Ok(format!(
-                    "Verified ambient labels, waypoint, and policy for {} namespace(s)",
+                    "Verified ambient enrollment, waypoint, policy, and workload reachability for {} namespace(s)",
                     stage.namespaces.len()
                 ))
             }
@@ -247,7 +266,7 @@ impl RolloutEngine {
         let revert_messages = revert_completed_stages(&self.client, spec, failed_at).await?;
         let summary = revert_messages.join("; ");
         status.current_stage = 0;
-        status.approved_stage = 0;
+        status.approved_stage = -1;
         status.phase = "RolledBack".into();
 
         events.push(RolloutEvent {

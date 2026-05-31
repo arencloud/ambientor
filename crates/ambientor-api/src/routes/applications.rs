@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use ambientor_db::{ApplicationListQuery, assessment_sync::persist_full_assessment, cluster_ref_from_env};
+use ambientor_db::{
+    ApplicationListQuery, assessment_sync::persist_full_assessment_from_context, cluster_ref_from_env,
+};
 use ambientor_dashboard::ApplicationListPage;
 use axum::{
     Json,
@@ -115,7 +117,7 @@ pub async fn persist_assessment_from_findings(
         .dashboard_store()
         .ok_or_else(|| "DATABASE_URL not configured".to_string())?;
 
-    persist_full_assessment(apps.as_ref(), dash.as_ref(), client, cluster_ref, ctx, findings)
+    persist_full_assessment_from_context(apps.as_ref(), dash.as_ref(), client, cluster_ref, ctx, findings)
         .await
         .map_err(|e| e.to_string())
 }

@@ -159,14 +159,22 @@ async fn application_count_for_cluster(state: &AppState, cluster_ref: &str) -> u
     let Some(store) = state.applications_store() else {
         return 0;
     };
-    store
-        .list_applications(ApplicationListQuery {
-            cluster_ref: cluster_ref.to_string(),
-            ..ApplicationListQuery::default()
-        })
-        .await
-        .map(|p| p.total as usize)
-        .unwrap_or(0)
+    for attempt in 0..5 {
+        if let Ok(page) = store
+            .list_applications(ApplicationListQuery {
+                cluster_ref: cluster_ref.to_string(),
+                migration_candidates_only: true,
+                ..ApplicationListQuery::default()
+            })
+            .await
+        {
+            if page.total > 0 || attempt == 4 {
+                return page.total as usize;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    }
+    0
 }
 
 async fn k8s_client() -> Result<K8sClient, (axum::http::StatusCode, String)> {

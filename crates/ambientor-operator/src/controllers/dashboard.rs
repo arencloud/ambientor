@@ -12,7 +12,14 @@ pub async fn run(client: Client, store: Option<Arc<dyn DashboardStore>>) {
         return;
     };
 
-    info!("dashboard sync loop started (interval 30s)");
+    let interval_secs = std::env::var("AMBIENTOR_DASHBOARD_SYNC_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(120);
+    info!(
+        interval_secs,
+        "dashboard sync loop started"
+    );
     let store = store.clone();
     loop {
         let cluster_ref = cluster_ref_from_env();
@@ -34,6 +41,6 @@ pub async fn run(client: Client, store: Option<Arc<dyn DashboardStore>>) {
                 );
             }
         }
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        tokio::time::sleep(Duration::from_secs(interval_secs)).await;
     }
 }
