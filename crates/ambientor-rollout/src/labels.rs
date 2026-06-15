@@ -35,6 +35,19 @@ pub async fn unlabel_namespace_ambient(client: &Client, name: &str) -> Result<()
     Ok(())
 }
 
+pub async fn restore_namespace_injection(client: &Client, name: &str) -> Result<(), RolloutError> {
+    patch_namespace_labels(
+        client,
+        name,
+        json!({
+            "istio-injection": "enabled"
+        }),
+    )
+    .await?;
+    info!(namespace = %name, "restored sidecar injection label");
+    Ok(())
+}
+
 pub async fn remove_namespace_injection(client: &Client, name: &str) -> Result<(), RolloutError> {
     let api: Api<Namespace> = Api::all(client.clone());
     let patch = json!({

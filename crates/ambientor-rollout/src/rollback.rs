@@ -3,9 +3,11 @@ use kube::Client;
 use tracing::warn;
 
 use crate::engine::RolloutError;
-use crate::labels::unlabel_namespace_ambient;
+use crate::labels::{restore_namespace_injection, unlabel_namespace_ambient};
 use crate::policy::revert_translations_in_namespace;
 use crate::waypoint::revert_waypoint;
+use ambientor_mesh::unenroll_namespace_from_mesh;
+use ambientor_types::MeshInstance;
 
 /// Stages to revert when execution fails at `failed_at` (exclusive): indices `0..failed_at`, newest first.
 pub fn stages_to_revert(
@@ -20,16 +22,21 @@ pub async fn revert_completed_stages(
     client: &Client,
     spec: &RolloutSpec,
     failed_at: usize,
+    mesh: Option<&MeshInstance>,
 ) -> Result<Vec<String>, RolloutError> {
     let mut messages = Vec::new();
     for stage in stages_to_revert(spec, failed_at) {
-        let msg = revert_stage(client, stage).await?;
+        let msg = revert_stage(client, stage, mesh).await?;
         messages.push(msg);
     }
     Ok(messages)
 }
 
-async fn revert_stage(client: &Client, stage: &RolloutStage) -> Result<String, RolloutError> {
+async fn revert_stage(
+    client: &Client,
+    stage: &RolloutStage,
+    mesh: Option<&MeshInstance>,
+) -> Result<String, RolloutError> {
     match stage.r#type {
         RolloutStageType::LabelNamespace => {
             for ns in &stage.namespaces {
@@ -66,10 +73,32 @@ async fn revert_stage(client: &Client, stage: &RolloutStage) -> Result<String, R
         RolloutStageType::VerifyTraffic | RolloutStageType::DryRun => {
             Ok(format!("No resources to revert for {:?}", stage.r#type))
         }
-        RolloutStageType::EnrollNamespace
-        | RolloutStageType::RemoveInjection
-        | RolloutStageType::InstallAmbientComponents => {
-            Ok(format!("No rollback implemented for {:?}", stage.r#type))
+        RolloutStageType::EnrollNamespace => {
+            let Some(mesh) = mesh else {
+                return Err(RolloutError::ExecutionFailed(
+                    "rollback for EnrollNamespace requires resolved mesh target".into(),
+                ));
+            };
+            let mut notes = Vec::new();
+            for ns in &stage.namespaces {
+                let steps = unenroll_namespace_from_mesh(client, ns, mesh)
+                    .await
+                    .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+                notes.extend(steps);
+            }
+            Ok(notes.join("; "))
+        }
+        RolloutStageType::RemoveInjection => {
+            for ns in &stage.namespaces {
+                restore_namespace_injection(client, ns).await?;
+            }
+            Ok(format!(
+                "Restored sidecar injection label on {} namespace(s)",
+                stage.namespaces.len()
+            ))
+        }
+        RolloutStageType::InstallAmbientComponents => {
+            Ok("InstallAmbientComponents is a no-op; nothing to revert".into())
         }
     }
 }

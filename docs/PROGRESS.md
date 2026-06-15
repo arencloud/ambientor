@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Tier 2 multicluster — hub spoke dashboard sync + fleet registry metadata.
+**Current focus:** Tier 3 rollout safety — enroll/injection rollback complete; rollback failure e2e pending.
 
-**Next up:** Complete P2 pilot sign-off on a spoke (plan approve + export); then Tier 3 rollout rollback for enroll/injection stages.
+**Next up:** Extend `e2e-kind-ambient.sh` with rollback failure injection, then P2 pilot sign-off on a spoke.
 
 **Last updated:** 2026-05-28
 

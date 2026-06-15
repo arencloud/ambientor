@@ -248,6 +248,109 @@ pub async fn enroll_namespace_on_mesh(
     Ok(actions)
 }
 
+/// JSON merge patch removing enrollment labels applied by [`enroll_namespace_on_mesh`].
+pub fn enrollment_labels_remove_patch(mesh: &MeshInstance) -> serde_json::Value {
+    let mut labels = serde_json::Map::new();
+    labels.insert(REVISION_LABEL.into(), serde_json::Value::Null);
+    if let Some(k) = mesh.enrollment.discovery_label_key.as_ref() {
+        labels.insert(k.clone(), serde_json::Value::Null);
+    }
+    serde_json::json!({ "metadata": { "labels": labels } })
+}
+
+/// Roll back [`enroll_namespace_on_mesh`]: remove enrollment labels and OSSM MemberRoll entry.
+pub async fn unenroll_namespace_from_mesh(
+    client: &Client,
+    namespace: &str,
+    mesh: &MeshInstance,
+) -> anyhow::Result<Vec<String>> {
+    let mut actions = Vec::new();
+    if mesh.enrollment.mode == MeshEnrollmentMode::OssmMemberRoll {
+        let cp_ns = mesh
+            .enrollment
+            .member_roll_namespace
+            .as_deref()
+            .unwrap_or(mesh.control_plane_namespace.as_str());
+        if unenroll_ossm_member_roll(client, cp_ns, namespace).await? {
+            actions.push(format!(
+                "removed {namespace} from ServiceMeshMemberRoll in {cp_ns}"
+            ));
+        }
+    }
+    patch_namespace_enrollment_labels_remove(client, namespace, mesh).await?;
+    actions.push(format!(
+        "removed enrollment labels for mesh {} ({})",
+        mesh.discovery_label, mesh.enrollment.revision
+    ));
+    Ok(actions)
+}
+
+async fn unenroll_ossm_member_roll(
+    client: &Client,
+    control_plane_namespace: &str,
+    namespace: &str,
+) -> anyhow::Result<bool> {
+    let ar = api_resource(
+        "maistra.io",
+        "v1",
+        "ServiceMeshMemberRoll",
+        "servicemeshmemberrolls",
+    );
+    let rolls = list_cr_in_namespace(client, &ar, control_plane_namespace).await?;
+    let Some(roll) = rolls.into_iter().next() else {
+        return Ok(false);
+    };
+    let name = roll
+        .metadata
+        .name
+        .as_deref()
+        .unwrap_or("default")
+        .to_string();
+
+    let mut member_list: Vec<String> = roll
+        .data
+        .get("spec")
+        .and_then(|s| s.get("members"))
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let before = member_list.len();
+    member_list.retain(|m| m != namespace);
+    if member_list.len() == before {
+        return Ok(false);
+    }
+
+    let api = Api::<kube::api::DynamicObject>::namespaced_with(
+        client.clone(),
+        control_plane_namespace,
+        &ar,
+    );
+    let patch = serde_json::json!({
+        "spec": { "members": member_list }
+    });
+    api.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await?;
+    Ok(true)
+}
+
+async fn patch_namespace_enrollment_labels_remove(
+    client: &Client,
+    namespace: &str,
+    mesh: &MeshInstance,
+) -> anyhow::Result<()> {
+    use k8s_openapi::api::core::v1::Namespace;
+
+    let api: Api<Namespace> = Api::all(client.clone());
+    let patch = enrollment_labels_remove_patch(mesh);
+    api.patch(namespace, &PatchParams::default(), &Patch::Merge(&patch))
+        .await?;
+    Ok(())
+}
+
 async fn enroll_ossm_member_roll(
     client: &Client,
     control_plane_namespace: &str,
@@ -389,6 +492,25 @@ mod tests {
         labels.insert("istio-discovery".into(), "mesh-demo".into());
         let msg = namespace_conflicts_with_mesh(&labels, &mesh).unwrap();
         assert!(msg.contains("demo"));
+    }
+
+    #[test]
+    fn enrollment_remove_patch_clears_rev_and_discovery() {
+        let enrollment = MeshEnrollment {
+            mode: MeshEnrollmentMode::RevisionAndDiscovery,
+            revision: "ambient-v1-28-6".into(),
+            istio_revision: Some("ambient-v1-28-6".into()),
+            revision_tag: None,
+            discovery_label_key: Some("istio-discovery".into()),
+            discovery_label_value: Some("mesh-ambient".into()),
+            member_roll_namespace: None,
+            from_istiod_config: true,
+        };
+        let mesh = mesh_with_enrollment(enrollment);
+        let patch = enrollment_labels_remove_patch(&mesh);
+        let labels = patch["metadata"]["labels"].as_object().unwrap();
+        assert!(labels["istio.io/rev"].is_null());
+        assert!(labels["istio-discovery"].is_null());
     }
 
     #[test]

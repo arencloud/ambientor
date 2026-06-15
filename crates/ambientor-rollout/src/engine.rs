@@ -145,8 +145,14 @@ impl RolloutEngine {
                         timestamp: finished,
                     });
                     if spec.auto_rollback && status.current_stage > 0 {
-                        self.rollback(spec, status, status.current_stage as usize, &mut events)
-                            .await?;
+                        self.rollback(
+                            spec,
+                            status,
+                            status.current_stage as usize,
+                            mesh,
+                            &mut events,
+                        )
+                        .await?;
                     }
                     break;
                 }
@@ -252,6 +258,7 @@ impl RolloutEngine {
         spec: &RolloutSpec,
         status: &mut RolloutStatus,
         failed_at: usize,
+        mesh: &MeshInstance,
         events: &mut Vec<RolloutEvent>,
     ) -> Result<(), RolloutError> {
         events.push(RolloutEvent {
@@ -263,7 +270,8 @@ impl RolloutEngine {
             timestamp: Utc::now(),
         });
 
-        let revert_messages = revert_completed_stages(&self.client, spec, failed_at).await?;
+        let revert_messages =
+            revert_completed_stages(&self.client, spec, failed_at, Some(mesh)).await?;
         let summary = revert_messages.join("; ");
         status.current_stage = 0;
         status.approved_stage = -1;
