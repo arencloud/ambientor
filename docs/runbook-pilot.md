@@ -128,8 +128,8 @@ helm upgrade --install ambientor deploy/helm/ambientor/ \
 ```
 
 2. Register a user or use IdP login; assign Casbin role with `rollout:approve` on the rollout namespace.
-4. Open portal → sign in (local or **Sign in with SSO**) → **Rollouts** → **Approve current stage** with a stage awaiting approval.
-5. Confirm audit row shows JWT username (not `portal`) when `DATABASE_URL` is set.
+3. Open portal → sign in (local or **Sign in with SSO**) → **Rollouts** → **Approve current stage** with a stage awaiting approval.
+4. Confirm audit row shows JWT username (not `portal`) when `DATABASE_URL` is set.
 
 ---
 
