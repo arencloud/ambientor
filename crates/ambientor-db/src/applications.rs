@@ -281,6 +281,10 @@ async fn ensure_cluster_for_assessment(
         mesh_instances: vec![],
         migration_savings: None,
         last_updated: Utc::now().to_rfc3339(),
+        connection_namespace: None,
+        connection_name: None,
+        reachable: None,
+        is_hub: None,
     };
     upsert_cluster(tx, &response).await
 }

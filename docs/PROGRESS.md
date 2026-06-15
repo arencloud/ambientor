@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Production pilot P2 (MigrationPlan + export) — portal multicluster assess + Postgres-backed findings.
+**Current focus:** Tier 2 multicluster — hub spoke dashboard sync + fleet registry metadata.
 
-**Next up:** On a pilot spoke, run portal assess via `ClusterConnection`, create a selection-based `MigrationPlan`, approve, and export YAML; update P2 row in checklist below.
+**Next up:** Complete P2 pilot sign-off on a spoke (plan approve + export); then Tier 3 rollout rollback for enroll/injection stages.
 
 **Last updated:** 2026-05-28
 

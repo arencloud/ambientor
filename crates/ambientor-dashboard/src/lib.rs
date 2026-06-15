@@ -18,7 +18,7 @@ pub use assess_run::{
 };
 pub use compute::{
     aggregate_fleet_summary, build_dashboard, compute_migration_savings_from_dashboard,
-    namespace_belongs_to_mesh,
+    namespace_belongs_to_mesh, AssessmentFindingsOverrides,
 };
 pub use dashboard_from_run::compute_migration_savings;
 pub use dataplane::{

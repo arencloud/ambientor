@@ -32,6 +32,19 @@ pub fn connection_cluster_ref(namespace: &str, name: &str) -> String {
     format!("{namespace}/{name}")
 }
 
+/// Parse `{namespace}/{name}` connection refs; returns `None` for hub-local refs like `in-cluster`.
+pub fn parse_connection_cluster_ref(cluster_ref: &str) -> Option<(&str, &str)> {
+    if cluster_ref == "in-cluster" || !cluster_ref.contains('/') {
+        return None;
+    }
+    let (ns, name) = cluster_ref.split_once('/')?;
+    if ns.is_empty() || name.is_empty() {
+        None
+    } else {
+        Some((ns, name))
+    }
+}
+
 /// Build a remote API client from a credentials Secret (`kubeconfig` or bearer token).
 pub async fn client_from_secret(
     secret: &Secret,
@@ -163,5 +176,14 @@ mod tests {
             client_from_secret(&secret, None).await,
             Err(RemoteClientError::MissingKey(_))
         ));
+    }
+
+    #[test]
+    fn parse_connection_ref_roundtrip() {
+        assert_eq!(
+            parse_connection_cluster_ref("ambientor-system/cl02"),
+            Some(("ambientor-system", "cl02"))
+        );
+        assert_eq!(parse_connection_cluster_ref("in-cluster"), None);
     }
 }

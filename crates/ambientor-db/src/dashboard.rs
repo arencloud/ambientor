@@ -281,8 +281,30 @@ impl SnapshotRow {
             mesh_instances,
             migration_savings,
             last_updated: self.captured_at.to_rfc3339(),
+            connection_namespace: None,
+            connection_name: None,
+            reachable: None,
+            is_hub: None,
         })
     }
+}
+
+fn connection_parts_from_response(response: &DashboardResponse) -> (Option<String>, Option<String>) {
+    if let (Some(ns), Some(name)) = (
+        &response.connection_namespace,
+        &response.connection_name,
+    ) {
+        return (Some(ns.clone()), Some(name.clone()));
+    }
+    if response.cluster_ref == "in-cluster" || !response.cluster_ref.contains('/') {
+        return (None, None);
+    }
+    if let Some((ns, name)) = response.cluster_ref.split_once('/') {
+        if !ns.is_empty() && !name.is_empty() {
+            return (Some(ns.into()), Some(name.into()));
+        }
+    }
+    (None, None)
 }
 
 pub(crate) async fn upsert_cluster(
@@ -290,18 +312,26 @@ pub(crate) async fn upsert_cluster(
     response: &DashboardResponse,
 ) -> Result<Uuid, DbError> {
     let id = Uuid::new_v4();
+    let (connection_namespace, connection_name) = connection_parts_from_response(response);
+    let is_hub = response.is_hub.unwrap_or(connection_namespace.is_none());
+    let reachable = response.reachable.unwrap_or(true);
     let row: (Uuid,) = sqlx::query_as(
         r#"
         INSERT INTO clusters (
             id, cluster_ref, display_name, platform, mesh_flavor, istio_version,
-            is_hub, last_seen_at, updated_at
+            is_hub, connection_namespace, connection_name, reachable,
+            last_seen_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, false, NOW(), NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
         ON CONFLICT (cluster_ref) DO UPDATE SET
             display_name = EXCLUDED.display_name,
             platform = EXCLUDED.platform,
             mesh_flavor = EXCLUDED.mesh_flavor,
             istio_version = EXCLUDED.istio_version,
+            is_hub = EXCLUDED.is_hub,
+            connection_namespace = EXCLUDED.connection_namespace,
+            connection_name = EXCLUDED.connection_name,
+            reachable = EXCLUDED.reachable,
             last_seen_at = NOW(),
             updated_at = NOW()
         RETURNING id
@@ -313,6 +343,10 @@ pub(crate) async fn upsert_cluster(
     .bind(&response.cluster.platform)
     .bind(&response.cluster.mesh_flavor)
     .bind(&response.cluster.istio_version)
+    .bind(is_hub)
+    .bind(connection_namespace)
+    .bind(connection_name)
+    .bind(reachable)
     .fetch_one(&mut **tx)
     .await?;
     Ok(row.0)

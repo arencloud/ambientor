@@ -18,7 +18,14 @@ use crate::types::{
     MeshInstanceDashboard, MigrationSavingsSummary, StatusCounts,
 };
 
-pub async fn build_dashboard(client: &Client, cluster_ref: &str) -> anyhow::Result<DashboardResponse> {
+/// Findings keyed by `AmbientAssessment` name when CR status omits them (Postgres canonical).
+pub type AssessmentFindingsOverrides = HashMap<String, Vec<ambientor_types::Finding>>;
+
+pub async fn build_dashboard(
+    client: &Client,
+    cluster_ref: &str,
+    findings_overrides: Option<&AssessmentFindingsOverrides>,
+) -> anyhow::Result<DashboardResponse> {
     let platform = ambientor_k8s::detect_platform(client).await?;
     let istio_version = detect_istio_version(client).await;
     let cluster_name = load_cluster_display_name(client).await;
@@ -26,7 +33,7 @@ pub async fn build_dashboard(client: &Client, cluster_ref: &str) -> anyhow::Resu
     let namespaces = list_namespaces(client).await?;
     let mesh_instances = discover_mesh_instances(client).await?;
 
-    let assessments = list_assessments_map(client).await?;
+    let assessments = list_assessments_map(client, findings_overrides).await?;
     let rollouts = list_rollout_ns_status(client).await?;
     let inventories = list_mesh_inventories(client).await?;
     let pod_api: Api<Pod> = Api::all(client.clone());
@@ -152,6 +159,10 @@ pub async fn build_dashboard(client: &Client, cluster_ref: &str) -> anyhow::Resu
         mesh_instances: mesh_dashboards,
         migration_savings,
         last_updated: chrono::Utc::now().to_rfc3339(),
+        connection_namespace: None,
+        connection_name: None,
+        reachable: None,
+        is_hub: None,
     })
 }
 
@@ -248,7 +259,10 @@ struct AssessmentNsInfo {
     scanned: bool,
 }
 
-async fn list_assessments_map(client: &Client) -> anyhow::Result<HashMap<String, AssessmentNsInfo>> {
+async fn list_assessments_map(
+    client: &Client,
+    findings_overrides: Option<&AssessmentFindingsOverrides>,
+) -> anyhow::Result<HashMap<String, AssessmentNsInfo>> {
     let api: Api<AmbientAssessment> = Api::all(client.clone());
     let list = api.list(&ListParams::default()).await?;
     let mut map = HashMap::new();
@@ -264,8 +278,17 @@ async fn list_assessments_map(client: &Client) -> anyhow::Result<HashMap<String,
             .unwrap_or_else(|| "unknown".into());
         let scanned = status.phase == "Completed" || status.phase == "Ready";
 
+        let findings = if status.findings.is_empty() {
+            findings_overrides
+                .and_then(|o| o.get(&name))
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            status.findings.clone()
+        };
+
         let mut ns_set: BTreeSet<String> = BTreeSet::new();
-        for f in &status.findings {
+        for f in &findings {
             if let Some(ns) = &f.namespace {
                 ns_set.insert(ns.clone());
             }
@@ -276,8 +299,7 @@ async fn list_assessments_map(client: &Client) -> anyhow::Result<HashMap<String,
             ns_set.insert(ns);
         }
 
-        let has_blocker = status
-            .findings
+        let has_blocker = findings
             .iter()
             .any(|f| matches!(f.severity, FindingSeverity::Blocker));
 
@@ -286,7 +308,7 @@ async fn list_assessments_map(client: &Client) -> anyhow::Result<HashMap<String,
                 ns,
                 AssessmentNsInfo {
                     name: name.clone(),
-                    findings: status.findings.clone(),
+                    findings: findings.clone(),
                     has_blocker,
                     scanned,
                 },

@@ -41,6 +41,10 @@ pub fn dashboard_from_assessment_run(
         mesh_instances,
         migration_savings: Some(compute_migration_savings(&run.applications)),
         last_updated: Utc::now().to_rfc3339(),
+        connection_namespace: None,
+        connection_name: None,
+        reachable: None,
+        is_hub: None,
     }
 }
 

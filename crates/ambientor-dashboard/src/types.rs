@@ -112,6 +112,15 @@ pub struct DashboardResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub migration_savings: Option<MigrationSavingsSummary>,
     pub last_updated: String,
+    /// Populated when `cluster_ref` is a hub `ClusterConnection` (`{namespace}/{name}`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_namespace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reachable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_hub: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

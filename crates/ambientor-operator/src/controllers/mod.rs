@@ -33,6 +33,7 @@ pub async fn run_all(
     let dashboard_client = client.clone();
     let dashboard_store = dashboard_repo.clone();
     let scan_for_plans = scan_repo.clone();
+    let scan_for_dashboard = scan_repo.clone();
     tokio::join!(
         inventory::run(client.clone()),
         assessment::run(
@@ -47,6 +48,6 @@ pub async fn run_all(
         rollout::run(op_ctx),
         cluster::run(client.clone()),
         hub::run(client.clone()),
-        dashboard::run(dashboard_client, dashboard_store),
+        dashboard::run(dashboard_client, dashboard_store, scan_for_dashboard),
     );
 }

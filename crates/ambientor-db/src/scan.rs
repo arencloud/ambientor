@@ -138,6 +138,23 @@ impl ScanStore for ScanRepository {
     }
 }
 
+/// Load Postgres findings for assessments whose CR status omits them.
+pub async fn load_assessment_findings_overrides(
+    scan_repo: &dyn ScanStore,
+    cluster_ref: &str,
+    assessment_names: &[String],
+) -> Result<std::collections::HashMap<String, Vec<Finding>>, DbError> {
+    let mut out = std::collections::HashMap::new();
+    for name in assessment_names {
+        if let Some(stored) = scan_repo.latest_for_assessment(cluster_ref, name).await? {
+            if !stored.findings.is_empty() {
+                out.insert(name.clone(), stored.findings);
+            }
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use ambientor_types::FindingSeverity;
