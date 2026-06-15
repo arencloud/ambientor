@@ -118,6 +118,20 @@ enum PlanAction {
         #[arg(short, long)]
         out: Option<std::path::PathBuf>,
     },
+    /// Mark plan approved (`status.approved=true`) — same as GitOps patch
+    Approve {
+        #[arg(short, long, default_value = "default")]
+        namespace: String,
+        #[arg(short, long)]
+        name: String,
+    },
+    /// One approval: approve plan, create rollout, approve stage 0
+    Execute {
+        #[arg(short, long, default_value = "default")]
+        namespace: String,
+        #[arg(short, long)]
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -194,6 +208,14 @@ async fn main() -> anyhow::Result<()> {
                     out,
                 )
                 .await?;
+            }
+            PlanAction::Approve { namespace, name } => {
+                plan_cmd::plan_approve(cli.api_url.as_deref(), cli.kubeconfig.as_deref(), &namespace, &name)
+                    .await?;
+            }
+            PlanAction::Execute { namespace, name } => {
+                plan_cmd::plan_execute(cli.api_url.as_deref(), cli.kubeconfig.as_deref(), &namespace, &name)
+                    .await?;
             }
         },
         Commands::Openshift { action } => match action {

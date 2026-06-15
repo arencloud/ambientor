@@ -9,7 +9,7 @@ use ambientor_plan::{
     translation_name_for_vs,
 };
 use ambientor_types::{
-    MigrationPlan, PolicyTranslation, PolicyTranslationSpec, PolicyTranslationStatus,
+    MigrationPlan, PolicyTranslation, PolicyTranslationSpec, PolicyTranslationStatus, Rollout,
 };
 use anyhow::Context;
 use kube::Api;
@@ -78,6 +78,98 @@ pub async fn plan_create(
     } else {
         println!("{bundle}");
     }
+    Ok(())
+}
+
+pub async fn plan_approve(
+    api_url: Option<&str>,
+    kubeconfig: Option<&str>,
+    namespace: &str,
+    name: &str,
+) -> anyhow::Result<()> {
+    if let Some(base) = api_url {
+        let client = reqwest::Client::new();
+        let url = format!("{base}/api/v1/plans/{namespace}/{name}/approve");
+        let resp: serde_json::Value = client
+            .post(&url)
+            .json(&serde_json::json!({ "actor": "cli" }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        println!("{}", serde_json::to_string_pretty(&resp)?);
+        return Ok(());
+    }
+    let k8s = open_k8s(kubeconfig).await?;
+    let api: Api<MigrationPlan> = Api::namespaced(k8s.client.clone(), namespace);
+    let patch = serde_json::json!({ "status": { "approved": true } });
+    api.patch_status(name, &Default::default(), &kube::api::Patch::Merge(&patch))
+        .await?;
+    println!("approved plan {namespace}/{name} (status.approved=true)");
+    Ok(())
+}
+
+pub async fn plan_execute(
+    api_url: Option<&str>,
+    kubeconfig: Option<&str>,
+    namespace: &str,
+    name: &str,
+) -> anyhow::Result<()> {
+    if let Some(base) = api_url {
+        let client = reqwest::Client::new();
+        let url = format!("{base}/api/v1/plans/{namespace}/{name}/execute");
+        let resp: serde_json::Value = client
+            .post(&url)
+            .json(&serde_json::json!({ "actor": "cli" }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        println!("{}", serde_json::to_string_pretty(&resp)?);
+        return Ok(());
+    }
+    plan_approve(None, kubeconfig, namespace, name).await?;
+    let k8s = open_k8s(kubeconfig).await?;
+    let plan_api: Api<MigrationPlan> = Api::namespaced(k8s.client.clone(), namespace);
+    let plan = plan_api.get(name).await?;
+    let rollout_name = format!("{name}-rollout");
+    let rollout_api: Api<Rollout> = Api::namespaced(k8s.client.clone(), namespace);
+    if rollout_api.get(&rollout_name).await.is_err() {
+        let mut spec = plan_to_rollout(&plan.spec);
+        spec.plan_ref = Some(name.to_string());
+        spec.mesh_target = plan.spec.mesh_target.clone();
+        let cr = Rollout::new(&rollout_name, spec);
+        let pp = kube::api::PatchParams::apply("ambientor-cli").force();
+        rollout_api
+            .patch(&rollout_name, &pp, &kube::api::Patch::Apply(&cr))
+            .await?;
+        let status_patch = serde_json::json!({
+            "status": {
+                "phase": "AwaitingApproval",
+                "currentStage": 0,
+                "approvedStage": -1,
+                "stageResults": []
+            }
+        });
+        rollout_api
+            .patch_status(
+                &rollout_name,
+                &Default::default(),
+                &kube::api::Patch::Merge(&status_patch),
+            )
+            .await?;
+    }
+    super::rollout_cmd::rollout_approve(
+        None,
+        kubeconfig,
+        namespace,
+        &rollout_name,
+        Some(0),
+    )
+    .await?;
+    println!("executed migration for {namespace}/{name} via kube (approve plan + rollout stage 0)");
     Ok(())
 }
 

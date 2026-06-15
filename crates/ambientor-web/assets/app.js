@@ -1038,10 +1038,12 @@
         : p.assessmentRef || p.assessment_ref
           ? 'assessment'
           : '';
+      const approved = p.approved ? '<span class="badge-status success">Approved</span>' : '';
       li.innerHTML = `
         <button type="button" data-key="${escapeHtml(key)}">
           <span class="name">${escapeHtml(p.displayName || p.display_name || p.name)}</span>
           <span class="phase">${escapeHtml(p.phase)}</span>
+          ${approved}
           <span class="score-mini">${p.waveCount ?? p.wave_count ?? 0} wave(s)${subtitle ? ' · ' + escapeHtml(subtitle) : ''}</span>
         </button>
       `;
@@ -1097,6 +1099,51 @@
     });
   }
 
+  function renderPlanSync(sync) {
+    const panel = $('plan-sync-panel');
+    if (!panel) return;
+    if (!sync) {
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+    const rollout = sync.rolloutPhase || sync.rollout_phase;
+    const action = sync.nextAction || sync.next_action || 'execute';
+    const lines = [];
+    if (sync.rolloutName || sync.rollout_name) {
+      lines.push(`Rollout: ${sync.rolloutName || sync.rollout_name} · ${rollout || '—'}`);
+    } else {
+      lines.push('Rollout: not created yet');
+    }
+    const actionText = {
+      execute: 'Ready — one approval starts the full pipeline',
+      approve_rollout: 'Rollout waiting for approval (use button below or GitOps patch)',
+      running: 'Migration running automatically',
+      completed: 'Migration completed',
+      failed: 'Rollout failed — check stages or rollback',
+      wait_plan: 'Plan not Ready yet',
+    };
+    lines.push(actionText[action] || action);
+    $('plan-sync-summary').textContent = lines.join(' · ');
+    const ch = sync.channels || {};
+    $('plan-sync-cli').textContent = ch.cli || '';
+    $('plan-sync-gitops-plan').textContent = ch.gitopsPlanPatch || ch.gitops_plan_patch || '';
+    $('plan-sync-gitops-rollout').textContent =
+      ch.gitopsRolloutPatch || ch.gitops_rollout_patch || '';
+    const execBtn = $('execute-migration');
+    if (execBtn) {
+      const canExecute =
+        action === 'execute' || action === 'approve_rollout';
+      execBtn.disabled = !canExecute;
+      execBtn.textContent =
+        action === 'completed'
+          ? 'Completed'
+          : action === 'running'
+            ? 'Running…'
+            : 'Approve & run migration';
+    }
+  }
+
   async function selectPlan(key) {
     selectedPlanKey = key;
     const p = plans.find((x) => planKey(x) === key);
@@ -1129,7 +1176,7 @@
         ? `${selected.length.toLocaleString()} namespace(s) in spec.selectedNamespaces`
         : 'Assessment-wide plan (legacy)';
     $('export-plan').disabled = false;
-    $('start-rollout').disabled = false;
+    $('start-rollout').disabled = p.phase !== 'Ready';
     renderWaves(p.waves);
     setStatus('Loading plan detail…');
     try {
@@ -1139,10 +1186,12 @@
       if (!res.ok) throw new Error(await res.text());
       const detail = await res.json();
       renderTranslations(detail.translations);
+      renderPlanSync(detail.sync);
       setStatus(`Plan ${p.namespace}/${p.name} loaded`);
     } catch (e) {
       setStatus('Failed to load plan detail: ' + e.message, true);
       renderTranslations([]);
+      renderPlanSync(null);
     }
     showPanel('plans');
   }
@@ -1548,6 +1597,41 @@
     }
   }
 
+  async function executeMigrationFromPlan() {
+    const p = plans.find((x) => planKey(x) === selectedPlanKey);
+    if (!p) return;
+    const btn = $('execute-migration');
+    if (btn) btn.disabled = true;
+    setStatus('Approving plan and starting migration…');
+    try {
+      const res = await fetch(
+        API() +
+          `/api/v1/plans/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}/execute`,
+        {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: getToken() ? '{}' : JSON.stringify({ actor: 'portal' }),
+        }
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setStatus(data.message || `Migration started: ${data.rolloutName || data.rollout_name}`);
+      p.approved = true;
+      selectedRolloutKey =
+        (data.rolloutNamespace || data.rollout_namespace) +
+        '/' +
+        (data.rolloutName || data.rollout_name);
+      await loadPlans();
+      await selectPlan(planKey(p));
+      showPanel('rollouts');
+      await loadRollouts();
+      if (selectedRolloutKey) await selectRollout(selectedRolloutKey);
+    } catch (e) {
+      setStatus('Execute failed: ' + e.message, true);
+      if (btn) btn.disabled = false;
+    }
+  }
+
   async function startRolloutFromPlan() {
     const p = plans.find((x) => planKey(x) === selectedPlanKey);
     if (!p) return;
@@ -1673,6 +1757,7 @@
     $('create-migration-plan')?.addEventListener('click', createMigrationPlan);
     $('refresh-plans')?.addEventListener('click', loadPlans);
     $('export-plan')?.addEventListener('click', downloadPlanExport);
+    $('execute-migration')?.addEventListener('click', executeMigrationFromPlan);
     $('start-rollout')?.addEventListener('click', startRolloutFromPlan);
     $('refresh-rollouts')?.addEventListener('click', loadRollouts);
     $('approve-rollout')?.addEventListener('click', approveCurrentRolloutStage);

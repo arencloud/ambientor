@@ -163,49 +163,17 @@ pub async fn approve_rollout(
         None
     };
     let k8s = k8s_client().await?;
-    let rollout = fetch_rollout(&k8s, &namespace, &name).await?;
-    let status = rollout
-        .status
-        .as_ref()
-        .ok_or((StatusCode::CONFLICT, "rollout has no status yet".into()))?;
-
-    let stage_to_approve = body.stage.unwrap_or(status.current_stage);
-    validate_approval(status, stage_to_approve, rollout.spec.stages.len())?;
-
-    let api: Api<Rollout> = Api::namespaced(k8s.client.clone(), &namespace);
-    let phase = if status.phase == "RolledBack" {
-        "Pending".to_string()
-    } else {
-        status.phase.clone()
-    };
-    let patch = serde_json::json!({
-        "status": {
-            "approvedStage": stage_to_approve,
-            "phase": phase,
-        }
-    });
-    api.patch_status(&name, &Default::default(), &Patch::Merge(&patch))
-        .await
-        .map_err(internal)?;
-
     let actor = body.actor.or(jwt_actor).unwrap_or_else(|| "api".into());
-    if let Some(repo) = state.audit_store() {
-        let event = audit_rollout_approve(&namespace, &name, &actor, stage_to_approve);
-        if let Err(e) = repo.append(&event).await {
-            tracing::warn!(error = %e, rollout = %name, "failed to append rollout approve audit");
-        }
-    }
-
-    let updated = fetch_rollout(&k8s, &namespace, &name).await?;
-    let new_status = updated.status.as_ref().unwrap();
-
-    Ok(Json(ApproveRolloutResponse {
-        name,
-        namespace,
-        approved_stage: new_status.approved_stage,
-        current_stage: new_status.current_stage,
-        phase: new_status.phase.clone(),
-    }))
+    let resp = approve_rollout_stage(
+        &state,
+        &k8s,
+        &namespace,
+        &name,
+        body.stage,
+        &actor,
+    )
+    .await?;
+    Ok(Json(resp))
 }
 
 /// Create a `Rollout` CR from an existing `MigrationPlan` (`{plan-name}-rollout`).
@@ -215,23 +183,40 @@ pub async fn create_rollout_from_plan(
 ) -> Result<Json<CreateRolloutResponse>, (StatusCode, String)> {
     let k8s = k8s_client().await?;
     let plan = fetch_plan(&k8s, &namespace, &plan_name).await?;
-    let rollout_name = rollout_name_for_plan(&plan_name);
+    let rollout_name = ensure_rollout_for_plan(&k8s, &plan).await?;
+    Ok(Json(CreateRolloutResponse {
+        name: rollout_name,
+        namespace,
+    }))
+}
 
-    let existing: Api<Rollout> = Api::namespaced(k8s.client.clone(), &namespace);
-    if existing.get(&rollout_name).await.is_ok() {
-        return Err((
-            StatusCode::CONFLICT,
-            format!("Rollout {namespace}/{rollout_name} already exists"),
-        ));
+/// Idempotent rollout create for execute/sync flows.
+pub(super) async fn ensure_rollout_for_plan(
+    k8s: &K8sClient,
+    plan: &ambientor_types::MigrationPlan,
+) -> Result<String, (StatusCode, String)> {
+    let namespace = plan
+        .metadata
+        .namespace
+        .clone()
+        .unwrap_or_else(|| "default".into());
+    let plan_name = plan
+        .metadata
+        .name
+        .clone()
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "plan missing name".into()))?;
+    let rollout_name = rollout_name_for_plan(&plan_name);
+    let api: Api<Rollout> = Api::namespaced(k8s.client.clone(), &namespace);
+    if api.get(&rollout_name).await.is_ok() {
+        return Ok(rollout_name);
     }
 
     let mut spec = plan_to_rollout(&plan.spec);
-    spec.plan_ref = Some(plan_name.clone());
+    spec.plan_ref = Some(plan_name);
     spec.mesh_target = plan.spec.mesh_target.clone();
     let cr = Rollout::new(&rollout_name, spec);
     let pp = PatchParams::apply("ambientor.io").force();
-    existing
-        .patch(&rollout_name, &pp, &Patch::Apply(&cr))
+    api.patch(&rollout_name, &pp, &Patch::Apply(&cr))
         .await
         .map_err(internal)?;
 
@@ -243,15 +228,61 @@ pub async fn create_rollout_from_plan(
             "stageResults": []
         }
     });
-    existing
-        .patch_status(&rollout_name, &Default::default(), &Patch::Merge(&status_patch))
+    api.patch_status(&rollout_name, &Default::default(), &Patch::Merge(&status_patch))
+        .await
+        .map_err(internal)?;
+    Ok(rollout_name)
+}
+
+/// Approve the current rollout stage (shared by HTTP handler and plan execute).
+pub(super) async fn approve_rollout_stage(
+    state: &AppState,
+    k8s: &K8sClient,
+    namespace: &str,
+    name: &str,
+    stage: Option<i32>,
+    actor: &str,
+) -> Result<ApproveRolloutResponse, (StatusCode, String)> {
+    let rollout = fetch_rollout(k8s, namespace, name).await?;
+    let status = rollout
+        .status
+        .as_ref()
+        .ok_or((StatusCode::CONFLICT, "rollout has no status yet".into()))?;
+    let stage_to_approve = stage.unwrap_or(status.current_stage);
+    validate_approval(status, stage_to_approve, rollout.spec.stages.len())?;
+
+    let api: Api<Rollout> = Api::namespaced(k8s.client.clone(), namespace);
+    let phase = if status.phase == "RolledBack" {
+        "Pending".to_string()
+    } else {
+        status.phase.clone()
+    };
+    let patch = serde_json::json!({
+        "status": {
+            "approvedStage": stage_to_approve,
+            "phase": phase,
+        }
+    });
+    api.patch_status(name, &Default::default(), &Patch::Merge(&patch))
         .await
         .map_err(internal)?;
 
-    Ok(Json(CreateRolloutResponse {
-        name: rollout_name,
-        namespace,
-    }))
+    if let Some(repo) = state.audit_store() {
+        let event = audit_rollout_approve(namespace, name, actor, stage_to_approve);
+        if let Err(e) = repo.append(&event).await {
+            tracing::warn!(error = %e, rollout = %name, "failed to append rollout approve audit");
+        }
+    }
+
+    let updated = fetch_rollout(k8s, namespace, name).await?;
+    let new_status = updated.status.as_ref().unwrap();
+    Ok(ApproveRolloutResponse {
+        name: name.into(),
+        namespace: namespace.into(),
+        approved_stage: new_status.approved_stage,
+        current_stage: new_status.current_stage,
+        phase: new_status.phase.clone(),
+    })
 }
 
 pub fn rollout_name_for_plan(plan_name: &str) -> String {
@@ -299,7 +330,7 @@ pub fn validate_approval(
     Ok(())
 }
 
-async fn fetch_rollout(
+pub(super) async fn fetch_rollout(
     k8s: &K8sClient,
     namespace: &str,
     name: &str,
@@ -311,7 +342,7 @@ async fn fetch_rollout(
     })
 }
 
-fn rollout_to_list_item(rollout: &Rollout) -> Option<RolloutListItem> {
+pub(super) fn rollout_to_list_item(rollout: &Rollout) -> Option<RolloutListItem> {
     let name = rollout.metadata.name.clone()?;
     let namespace = rollout
         .metadata

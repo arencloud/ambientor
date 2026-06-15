@@ -8,16 +8,23 @@ use ambientor_types::{MigrationPlan, PolicyTranslation};
 use axum::{
     Json,
     extract::{Path, State},
-    http::{StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
+use chrono::Utc;
 use kube::{
     Api,
     api::{Patch, PatchParams, ListParams},
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::state::AppState;
+
+use super::rollouts::{
+    approve_rollout_stage, ensure_rollout_for_plan, fetch_rollout, rollout_name_for_plan,
+    rollout_to_list_item,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +58,46 @@ pub struct PlanDetail {
     #[serde(flatten)]
     pub plan: PlanListItem,
     pub translations: Vec<TranslationSummary>,
+    pub sync: PlanSyncStatus,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanSyncStatus {
+    pub rollout_name: Option<String>,
+    pub rollout_phase: Option<String>,
+    pub rollout_awaiting_approval: bool,
+    /// `execute` | `approve_rollout` | `running` | `completed` | `wait_plan` | `failed`
+    pub next_action: String,
+    pub channels: PlanChannelHints,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanChannelHints {
+    pub portal: String,
+    pub cli: String,
+    pub gitops_plan_patch: String,
+    pub gitops_rollout_patch: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanActorRequest {
+    pub actor: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutePlanResponse {
+    pub plan_namespace: String,
+    pub plan_name: String,
+    pub plan_approved: bool,
+    pub rollout_namespace: String,
+    pub rollout_name: String,
+    pub rollout_phase: String,
+    pub message: String,
+    pub sync: PlanSyncStatus,
 }
 
 #[derive(Deserialize)]
@@ -283,9 +330,11 @@ pub async fn get_plan(
     let plan_item =
         plan_to_list_item(&plan).ok_or((StatusCode::NOT_FOUND, "plan has no status yet".into()))?;
     let translations = list_translations_in_namespace(&k8s, &namespace).await?;
+    let sync = build_plan_sync(&k8s, &namespace, &name, &plan_item).await;
     Ok(Json(PlanDetail {
         plan: plan_item,
         translations,
+        sync,
     }))
 }
 
@@ -303,6 +352,130 @@ pub async fn export_plan(
     let rollout = plan_to_rollout(&plan.spec);
     let yaml = build_export_yaml(&plan, &pt_list.items, &rollout).map_err(internal)?;
     Ok(([(header::CONTENT_TYPE, "application/x-yaml")], yaml).into_response())
+}
+
+/// Record human approval on the plan (P2). Same field used by GitOps `kubectl patch`.
+pub async fn approve_plan(
+    State(state): State<Arc<AppState>>,
+    Path((namespace, name)): Path<(String, String)>,
+    Json(body): Json<PlanActorRequest>,
+) -> Result<Json<PlanListItem>, (StatusCode, String)> {
+    let k8s = k8s_client().await?;
+    let plan = fetch_plan(&k8s, &namespace, &name).await?;
+    let status = plan
+        .status
+        .as_ref()
+        .ok_or((StatusCode::CONFLICT, "plan has no status yet".into()))?;
+    if status.phase != "Ready" {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("plan phase is {}; must be Ready", status.phase),
+        ));
+    }
+    if !status.approved {
+        patch_plan_approved(&k8s, &namespace, &name).await?;
+        let actor = body.actor.as_deref().unwrap_or("api");
+        if let Some(repo) = state.audit_store() {
+            let event = audit_plan_approve(&namespace, &name, actor);
+            if let Err(e) = repo.append(&event).await {
+                tracing::warn!(error = %e, plan = %name, "failed to append plan approve audit");
+            }
+        }
+    }
+    let updated = fetch_plan(&k8s, &namespace, &name).await?;
+    plan_to_list_item(&updated).ok_or((StatusCode::NOT_FOUND, "plan has no status".into()))
+        .map(Json)
+}
+
+/// One-time approve: mark plan approved, ensure rollout exists, approve stage 0.
+pub async fn execute_plan(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((namespace, name)): Path<(String, String)>,
+    Json(body): Json<PlanActorRequest>,
+) -> Result<Json<ExecutePlanResponse>, (StatusCode, String)> {
+    let jwt_actor = if state.auth.is_some() {
+        let rollout_name = rollout_name_for_plan(&name);
+        let claims = crate::authz::require_rollout_approve(
+            &state,
+            &headers,
+            &namespace,
+            &rollout_name,
+        )
+        .await?;
+        Some(claims.username)
+    } else {
+        None
+    };
+    let actor = body
+        .actor
+        .or(jwt_actor)
+        .unwrap_or_else(|| "portal".into());
+
+    let k8s = k8s_client().await?;
+    let plan = fetch_plan(&k8s, &namespace, &name).await?;
+    let status = plan
+        .status
+        .as_ref()
+        .ok_or((StatusCode::CONFLICT, "plan has no status yet".into()))?;
+    if status.phase != "Ready" {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("plan phase is {}; wait until Ready", status.phase),
+        ));
+    }
+
+    if !status.approved {
+        patch_plan_approved(&k8s, &namespace, &name).await?;
+        if let Some(repo) = state.audit_store() {
+            let event = audit_plan_approve(&namespace, &name, &actor);
+            if let Err(e) = repo.append(&event).await {
+                tracing::warn!(error = %e, plan = %name, "failed to append plan approve audit");
+            }
+        }
+    }
+
+    let rollout_name = ensure_rollout_for_plan(&k8s, &plan).await?;
+    let rollout = fetch_rollout(&k8s, &namespace, &rollout_name).await?;
+    let rollout_status = rollout
+        .status
+        .as_ref()
+        .ok_or((StatusCode::CONFLICT, "rollout has no status yet".into()))?;
+
+    let rollout_phase = if rollout_status.phase == "AwaitingApproval" {
+        approve_rollout_stage(
+            &state,
+            &k8s,
+            &namespace,
+            &rollout_name,
+            Some(rollout_status.current_stage),
+            &actor,
+        )
+        .await?;
+        fetch_rollout(&k8s, &namespace, &rollout_name)
+            .await?
+            .status
+            .as_ref()
+            .map(|s| s.phase.clone())
+            .unwrap_or_else(|| "Running".into())
+    } else {
+        rollout_status.phase.clone()
+    };
+
+    let plan_item = plan_to_list_item(&fetch_plan(&k8s, &namespace, &name).await?)
+        .ok_or((StatusCode::NOT_FOUND, "plan has no status".into()))?;
+    let sync = build_plan_sync(&k8s, &namespace, &name, &plan_item).await;
+
+    Ok(Json(ExecutePlanResponse {
+        plan_namespace: namespace.clone(),
+        plan_name: name.clone(),
+        plan_approved: true,
+        rollout_namespace: namespace,
+        rollout_name: rollout_name.clone(),
+        rollout_phase: rollout_phase.clone(),
+        message: "Plan approved and migration pipeline started (one approval; remaining stages run automatically)".into(),
+        sync,
+    }))
 }
 
 pub(super) async fn k8s_client() -> Result<K8sClient, (StatusCode, String)> {
@@ -376,4 +549,83 @@ fn translation_to_summary(pt: PolicyTranslation) -> Option<TranslationSummary> {
 
 pub(super) fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+}
+
+async fn patch_plan_approved(
+    k8s: &K8sClient,
+    namespace: &str,
+    name: &str,
+) -> Result<(), (StatusCode, String)> {
+    let api: Api<MigrationPlan> = Api::namespaced(k8s.client.clone(), namespace);
+    let patch = serde_json::json!({ "status": { "approved": true } });
+    api.patch_status(name, &Default::default(), &Patch::Merge(&patch))
+        .await
+        .map_err(internal)?;
+    Ok(())
+}
+
+fn audit_plan_approve(namespace: &str, name: &str, actor: &str) -> ambientor_types::AuditEvent {
+    ambientor_types::AuditEvent {
+        id: Uuid::new_v4(),
+        timestamp: Utc::now(),
+        actor: actor.to_string(),
+        action: "plan.approve".into(),
+        resource: format!("migrationplan/{namespace}/{name}"),
+        outcome: "succeeded".into(),
+        details: None,
+    }
+}
+
+async fn build_plan_sync(
+    k8s: &K8sClient,
+    namespace: &str,
+    plan_name: &str,
+    plan: &PlanListItem,
+) -> PlanSyncStatus {
+    let rollout_name = rollout_name_for_plan(plan_name);
+    let rollout = fetch_rollout(k8s, namespace, &rollout_name).await.ok();
+    let rollout_item = rollout.as_ref().and_then(rollout_to_list_item);
+    let rollout_phase = rollout_item.as_ref().map(|r| r.phase.clone());
+    let rollout_awaiting = rollout_item
+        .as_ref()
+        .is_some_and(|r| r.awaiting_approval);
+
+    let next_action = if plan.phase != "Ready" {
+        "wait_plan".into()
+    } else if rollout_item.as_ref().is_some_and(|r| r.phase == "Completed") {
+        "completed".into()
+    } else if rollout_item.as_ref().is_some_and(|r| r.phase == "Failed") {
+        "failed".into()
+    } else if rollout_item.as_ref().is_some_and(|r| {
+        r.phase == "Running" || r.phase == "Pending"
+    }) {
+        "running".into()
+    } else if rollout_awaiting {
+        "approve_rollout".into()
+    } else if !plan.approved {
+        "execute".into()
+    } else {
+        "execute".into()
+    };
+
+    let gitops_plan_patch = format!(
+        "kubectl patch migrationplan {plan_name} -n {namespace} --type=merge -p '{{\"status\":{{\"approved\":true}}}}'"
+    );
+    let gitops_rollout_patch = format!(
+        "kubectl patch rollout {rollout_name} -n {namespace} --type=merge -p '{{\"status\":{{\"approvedStage\":0,\"phase\":\"Pending\"}}}}'"
+    );
+    let cli = format!("ambientor plan execute -n {namespace} {plan_name}");
+
+    PlanSyncStatus {
+        rollout_name: rollout_item.as_ref().map(|_| rollout_name),
+        rollout_phase,
+        rollout_awaiting_approval: rollout_awaiting,
+        next_action,
+        channels: PlanChannelHints {
+            portal: "Plans → Approve & run migration (one click)".into(),
+            cli,
+            gitops_plan_patch,
+            gitops_rollout_patch,
+        },
+    }
 }

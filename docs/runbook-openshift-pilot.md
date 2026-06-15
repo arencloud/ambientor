@@ -22,6 +22,14 @@ Use this runbook to validate Ambientor on **real OpenShift/OSSM clusters** after
 
 ---
 
+## Clean install
+
+```bash
+./scripts/openshift-cleanup.sh
+export AMBIENTOR_STORAGE_CLASS=<your-sc>
+./scripts/openshift-pilot-install.sh   # or dev-build-push.sh --helm-upgrade
+```
+
 ## 1 — Hub install
 
 ```bash
@@ -81,8 +89,9 @@ Record URLs from install output in your pilot notes.
 | Step | Action | Pass |
 |------|--------|------|
 | 4.1 | Portal → select namespaces → **Create plan** | `MigrationPlan` phase `Ready` |
-| 4.2 | Human approve (ticket / PR comment) | |
-| 4.3 | Portal **Download YAML** or CLI export | Bundle in artifact store |
+| 4.2 | Human approve (ticket / PR comment) | Same as **Approve & run** — sets `MigrationPlan.status.approved` |
+| 4.3 | Portal **Approve & run migration** or CLI `ambientor plan execute` | One approval; pipeline auto-runs |
+| 4.4 | Portal **Download YAML** or `ambientor plan export` | Export includes live `status` for GitOps sync |
 
 ---
 
@@ -90,7 +99,7 @@ Record URLs from install output in your pilot notes.
 
 | Step | Action | Pass |
 |------|--------|------|
-| 5.1 | Portal → plan → **Start rollout** → approve once | Pipeline runs automatically |
+| 5.1 | Portal → plan → **Approve & run migration** (one click) | Pipeline runs automatically; or `ambientor plan execute -n <ns> <plan>` |
 | 5.2 | Rollout phase `Completed`; namespace `istio.io/dataplane-mode=ambient` | |
 | 5.3 | (Optional) Repeat kind-style rollback: fail verify, expect `RolledBack` | See `scripts/e2e-kind-ambient.sh` rollback section |
 

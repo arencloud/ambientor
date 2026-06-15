@@ -60,6 +60,14 @@ pub fn api_router() -> Router<Arc<AppState>> {
             get(plans::export_plan),
         )
         .route(
+            "/api/v1/plans/{namespace}/{name}/approve",
+            post(plans::approve_plan),
+        )
+        .route(
+            "/api/v1/plans/{namespace}/{name}/execute",
+            post(plans::execute_plan),
+        )
+        .route(
             "/api/v1/plans/{namespace}/{name}/rollout",
             post(rollouts::create_rollout_from_plan),
         )

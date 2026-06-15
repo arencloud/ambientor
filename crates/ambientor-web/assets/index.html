@@ -196,10 +196,19 @@
         <div>
           <p class="eyebrow">Migration planning</p>
           <h2>Migration plans</h2>
-          <p class="view-meta">Selection-based waves with policy translation tasks.</p>
+          <p class="view-meta">Review waves, export for GitOps, then approve once to run the full pipeline. Portal, CLI, and kubectl patch the same CR status fields.</p>
         </div>
         <button id="refresh-plans" class="btn">Refresh</button>
       </div>
+      <nav class="workflow-steps" aria-label="Migration workflow">
+        <span class="workflow-step">1. Assess</span>
+        <span class="workflow-arrow">→</span>
+        <span class="workflow-step">2. Plan</span>
+        <span class="workflow-arrow">→</span>
+        <span class="workflow-step active">3. Approve once</span>
+        <span class="workflow-arrow">→</span>
+        <span class="workflow-step">4. Auto rollout</span>
+      </nav>
       <div class="split-layout">
         <aside class="split-sidebar">
           <ul id="plan-list" class="entity-list"></ul>
@@ -214,9 +223,20 @@
           </header>
           <div id="plan-meta-grid" class="meta-grid"></div>
           <p id="plan-assessment-ref" class="hint"></p>
+          <div id="plan-sync-panel" class="sync-panel hidden">
+            <h4>Status (portal · CLI · GitOps)</h4>
+            <p id="plan-sync-summary" class="hint"></p>
+            <details class="sync-details">
+              <summary>Equivalent commands</summary>
+              <pre id="plan-sync-cli" class="mono small"></pre>
+              <pre id="plan-sync-gitops-plan" class="mono small"></pre>
+              <pre id="plan-sync-gitops-rollout" class="mono small"></pre>
+            </details>
+          </div>
           <div class="action-row">
-            <button id="export-plan" class="btn btn-primary" disabled>Export YAML</button>
-            <button id="start-rollout" class="btn" disabled>Start rollout</button>
+            <button id="execute-migration" class="btn btn-primary" disabled>Approve &amp; run migration</button>
+            <button id="export-plan" class="btn" disabled>Export YAML</button>
+            <button id="start-rollout" class="btn btn-ghost hidden" disabled title="Advanced: create rollout without approving">Create rollout only</button>
           </div>
           <h4>Migration waves</h4>
           <ul id="plan-waves" class="wave-list"></ul>
@@ -259,6 +279,7 @@
           <div id="rollout-conditions" class="condition-row"></div>
           <div class="action-row">
             <button id="approve-rollout" class="btn btn-primary" disabled>Approve migration</button>
+            <p class="hint inline-hint">Only needed if rollout was created via GitOps/CLI without execute.</p>
             <a id="rollout-plan-link" class="btn hidden" href="#plans">View plan</a>
           </div>
           <p id="approve-auth-hint" class="hint hidden"></p>

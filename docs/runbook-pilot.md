@@ -78,7 +78,10 @@ kubectl get ambientassessment -A
 2. **Spoke clusters:** register `ClusterConnection` CRs on the hub (see [roadmap/hub-aggregation.md](roadmap/hub-aggregation.md)).
 3. In the portal **Cluster** selector, choose a remote connection or fleet cluster, then **Run assessment** (remote connections use `POST /api/v1/connections/{ns}/{name}/assess`).
 4. Review **Migration candidates** filtered by `clusterRef`; select namespaces and create a **Migration plan** (selection-based plan with `selectedNamespaces`).
-5. Approve the plan in the portal or via `kubectl patch migrationplan … status.approved=true`.
+5. Approve the plan in the portal (**Approve & run migration**) or via CLI/GitOps:
+   - Portal: Plans → one click (sets `status.approved` + rollout stage 0)
+   - CLI: `ambientor plan execute -n <ns> <plan-name>`
+   - GitOps: `kubectl patch migrationplan … status.approved=true` then patch rollout `approvedStage`
 6. Export the GitOps bundle (portal **Download YAML**, API export, or CLI).
 
 **CLI shortcut (selection plan on hub):**

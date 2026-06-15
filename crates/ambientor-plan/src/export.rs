@@ -49,7 +49,21 @@ pub fn build_export_yaml(
         },
         "spec": plan.spec,
     });
-    parts.push(serde_yaml::to_string(&plan_doc).map_err(|e| e.to_string())?);
+    let mut plan_yaml = serde_yaml::to_string(&plan_doc).map_err(|e| e.to_string())?;
+    if let Some(status) = plan.status.as_ref() {
+        let status_doc = json!({
+            "phase": status.phase,
+            "approved": status.approved,
+            "waveCount": status.wave_count,
+            "selectedCount": status.selected_count,
+            "clusterRef": status.cluster_ref,
+        });
+        plan_yaml.push_str(&format!(
+            "\n# Live status (sync portal / CLI / GitOps via status subresource)\nstatus:\n{}",
+            serde_yaml::to_string(&status_doc).map_err(|e| e.to_string())?
+        ));
+    }
+    parts.push(plan_yaml);
 
     for pt in translations {
         let pt_name = pt.metadata.name.as_deref().unwrap_or("translation");
@@ -80,7 +94,7 @@ pub fn build_export_yaml(
         "spec": rollout,
     });
     parts.push(format!(
-        "# Rollout preview (approval-gated in Phase 3)\n{}",
+        "# Rollout preview — one human approval on stage 0 runs the full pipeline.\n# GitOps: patch status.approvedStage to currentStage when phase is AwaitingApproval.\n{}",
         serde_yaml::to_string(&rollout_doc).map_err(|e| e.to_string())?
     ));
 
