@@ -25,6 +25,10 @@ web:
       cpu: 25m
       memory: 32Mi
 
+auth:
+  createSecret: true
+  jwtSecret: "ambientor-lab-only-change-me"
+
 postgresql:
   enabled: true
   auth:

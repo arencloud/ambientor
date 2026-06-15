@@ -19,3 +19,13 @@ web:
 
 openshift:
   apiUrl: "https://ambientor-api-ambientor-system.apps.cl01.arencloud.com"
+  routes:
+    enabled: false
+    api:
+      host: ""
+    web:
+      host: ""
+
+auth:
+  createSecret: true
+  jwtSecret: ""  # set via --set auth.jwtSecret=... on install

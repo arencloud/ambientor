@@ -20,3 +20,4 @@ Merged via PR [#20](https://github.com/arencloud/ambientor/pull/20).
 
 - In-memory CSRF/PKCE map (single API replica); use sticky sessions or external store for HA.
 - OIDC requires Postgres (`DATABASE_URL`) for user provisioning.
+- Helm: see [helm-production.md](helm-production.md) for `auth.oidc.*` values and `ambientor-secrets`.

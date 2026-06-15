@@ -3,6 +3,8 @@ kind: Service
 metadata:
   name: ambientor-web
   namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ambientor.labels" . | nindent 4 }}
 spec:
   selector:
     app: ambientor-web
@@ -15,6 +17,8 @@ kind: Deployment
 metadata:
   name: {{ include "ambientor.fullname" . }}-web
   namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ambientor.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.web.replicas }}
   selector:
@@ -31,8 +35,25 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 3000
+              name: http
           env:
             - name: AMBIENTOR_WEB_ADDR
               value: {{ .Values.web.env.AMBIENTOR_WEB_ADDR | quote }}
             - name: AMBIENTOR_API_URL
-              value: {{ (default .Values.web.env.AMBIENTOR_API_URL .Values.openshift.apiUrl) | quote }}
+              value: {{ include "ambientor.webApiUrl" . | quote }}
+          {{- if .Values.probes.web.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.web.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.web.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.web.liveness.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.web.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.web.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.web.readiness.periodSeconds }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}

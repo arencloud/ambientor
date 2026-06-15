@@ -1,0 +1,41 @@
+{{- if .Values.openshift.routes.enabled }}
+{{- if .Values.openshift.routes.api.host }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "ambientor.fullname" . }}-api
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ambientor.labels" . | nindent 4 }}
+spec:
+  host: {{ .Values.openshift.routes.api.host | quote }}
+  to:
+    kind: Service
+    name: ambientor-api
+  port:
+    targetPort: 8080
+  tls:
+    termination: {{ .Values.openshift.routes.api.tlsTermination | default "edge" }}
+    insecureEdgeTerminationPolicy: Redirect
+---
+{{- end }}
+{{- if .Values.openshift.routes.web.host }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "ambientor.fullname" . }}-web
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ambientor.labels" . | nindent 4 }}
+spec:
+  host: {{ .Values.openshift.routes.web.host | quote }}
+  to:
+    kind: Service
+    name: ambientor-web
+  port:
+    targetPort: 3000
+  tls:
+    termination: {{ .Values.openshift.routes.web.tlsTermination | default "edge" }}
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- end }}

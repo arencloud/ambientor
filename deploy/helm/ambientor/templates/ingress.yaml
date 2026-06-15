@@ -1,0 +1,71 @@
+{{- if .Values.ingress.enabled }}
+{{- if .Values.ingress.api.host }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ambientor.fullname" . }}-api
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ambientor.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.api.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-api-tls" (include "ambientor.fullname" .)) }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.api.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ambientor-api
+                port:
+                  number: {{ .Values.api.service.port }}
+---
+{{- end }}
+{{- if .Values.ingress.web.host }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ambientor.fullname" . }}-web
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "ambientor.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.web.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-web-tls" (include "ambientor.fullname" .)) }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.web.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ambientor-web
+                port:
+                  number: {{ .Values.web.service.port }}
+{{- end }}
+{{- end }}

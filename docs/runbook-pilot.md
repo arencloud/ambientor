@@ -111,9 +111,23 @@ kubectl get migrationplan <name> -n <ns> -o yaml
 
 ## P4 — Portal approve with OIDC (quick check)
 
-1. API with Postgres: set `DATABASE_URL`, JWT secret, and optional OIDC vars (`AMBIENTOR_OIDC_*`).
-2. Set `AMBIENTOR_OIDC_SUCCESS_URL` to the portal origin (e.g. `https://ambientor.example.com/`).
-3. Register a user or use IdP login; assign Casbin role with `rollout:approve` on the rollout namespace.
+1. Install or upgrade with Postgres and auth (Helm example in [roadmap/helm-production.md](roadmap/helm-production.md)):
+
+```bash
+helm upgrade --install ambientor deploy/helm/ambientor/ \
+  -n ambientor-system --create-namespace \
+  --set auth.createSecret=true \
+  --set auth.jwtSecret="$(openssl rand -base64 32)" \
+  --set auth.oidc.enabled=true \
+  --set auth.oidc.issuerUrl=https://YOUR_IDP/... \
+  --set auth.oidc.clientId=ambientor \
+  --set auth.oidc.redirectUri=https://YOUR_API/api/v1/auth/oidc/callback \
+  --set auth.oidc.clientSecret="$OIDC_CLIENT_SECRET" \
+  --set auth.oidc.successUrl=https://YOUR_PORTAL/ \
+  --set openshift.apiUrl=https://YOUR_API
+```
+
+2. Register a user or use IdP login; assign Casbin role with `rollout:approve` on the rollout namespace.
 4. Open portal → sign in (local or **Sign in with SSO**) → **Rollouts** → **Approve current stage** with a stage awaiting approval.
 5. Confirm audit row shows JWT username (not `portal`) when `DATABASE_URL` is set.
 

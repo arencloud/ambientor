@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** P2 pilot sign-off on a spoke cluster (selection plan + export).
+**Current focus:** Tier 4 Helm production wiring (secrets, OIDC, probes, ingress/routes).
 
-**Next up:** Run `./scripts/pilot-ensure-selection-plan.sh` + `./scripts/pilot-validate.sh` on pilot contexts; Tier 4 Helm/OIDC hardening.
+**Next up:** P2 pilot sign-off on a spoke; optional OIDC HA (external PKCE store).
 
 **Last updated:** 2026-05-28
 

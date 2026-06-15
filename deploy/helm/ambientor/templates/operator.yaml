@@ -21,10 +21,7 @@ spec:
           image: {{ include "ambientor.imageRef" (dict "root" . "component" "operator") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
-            {{- with include "ambientor.databaseUrl" . | trim }}
-            - name: DATABASE_URL
-              value: {{ . | quote }}
-            {{- end }}
+            {{ include "ambientor.databaseUrlEnv" . | nindent 12 }}
             {{- range $k, $v := .Values.operator.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

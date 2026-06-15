@@ -7,6 +7,15 @@ image:
 postgresql:
   enabled: false
 
+auth:
+  createSecret: false
+
+probes:
+  api:
+    enabled: false
+  web:
+    enabled: false
+
 operator:
   resources:
     requests:

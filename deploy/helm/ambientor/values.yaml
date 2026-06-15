@@ -37,6 +37,7 @@ api:
     port: 8080
   env:
     AMBIENTOR_API_ADDR: "0.0.0.0:8080"
+    # Prefer auth.jwtSecret / auth.createSecret; legacy inline JWT for lab only.
     AMBIENTOR_JWT_SECRET: ""
   resources:
     requests:
@@ -51,14 +52,75 @@ web:
   service:
     type: ClusterIP
     port: 3000
+  # External API URL for browser (portal config.js). Overrides cluster DNS when set.
+  apiUrl: ""
   env:
     AMBIENTOR_WEB_ADDR: "0.0.0.0:3000"
     AMBIENTOR_API_URL: "http://ambientor-api:8080"
 
+auth:
+  # Create ambientor-secrets (jwt-secret, optional oidc-client-secret). Enable for P4/OIDC pilots.
+  createSecret: false
+  existingSecret: ""
+  secretName: ambientor-secrets
+  # Required when createSecret is true. Use a long random string in production.
+  jwtSecret: ""
+  oidc:
+    enabled: false
+    issuerUrl: ""
+    clientId: ""
+    redirectUri: ""
+    clientSecret: ""
+    scopes: "openid profile email"
+    defaultRoles: "viewer"
+    # Portal origin; IdP callback redirects here with ?token=
+    successUrl: ""
+
+probes:
+  api:
+    enabled: true
+    liveness:
+      path: /healthz
+      initialDelaySeconds: 5
+      periodSeconds: 15
+    readiness:
+      path: /readyz
+      initialDelaySeconds: 3
+      periodSeconds: 10
+  web:
+    enabled: true
+    liveness:
+      path: /
+      initialDelaySeconds: 3
+      periodSeconds: 15
+    readiness:
+      path: /
+      initialDelaySeconds: 2
+      periodSeconds: 10
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: ""
+  api:
+    host: ""
+  web:
+    host: ""
+
 openshift:
-  # Optional: set this to your public API route URL so the browser can call the API.
-  # Example: https://ambientor-api-ambientor-system.apps.cl01.arencloud.com
+  # Browser-facing API URL when web runs separately from API (Route / gateway).
   apiUrl: ""
+  routes:
+    enabled: false
+    api:
+      host: ""
+      tlsTermination: edge
+    web:
+      host: ""
+      tlsTermination: edge
 
 postgresql:
   enabled: true
@@ -84,6 +146,9 @@ postgresql:
 
 database:
   url: ""
+  existingSecret:
+    name: ""
+    key: database-url
 
 rbac:
   create: true
