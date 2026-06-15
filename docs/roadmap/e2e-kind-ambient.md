@@ -7,9 +7,10 @@ Prove the migration path end-to-end on kind with Istio ambient and bookinfo.
 ## Delivered
 
 - [x] `scripts/e2e-kind-ambient.sh` — cluster, Istio ambient, minimal bookinfo (`docs/lab/bookinfo-e2e.yaml`), Ambientor, inventory → assessment → plan → rollout (with stage approvals) → ambient namespace label
+- [x] Rollback failure injection: strip ambient labels at `*-verify` stage → `RolledBack` + reverted waypoint/labels, then happy-path rollout completes
 - [x] `deploy/helm/ambientor/values-e2e.yaml` — no Postgres, `web.replicas: 0` (faster CI)
 - [x] Helm install without `--wait`; explicit `kubectl wait` on operator + API
-- [x] Rollback behavior covered by `ambientor-rollout` unit tests; full rollback injection e2e deferred
+- [x] Rollback behavior covered by `ambientor-rollout` unit tests; full rollback injection e2e in `e2e-kind-ambient.sh` (`SKIP_ROLLBACK_E2E=1` to skip)
 
 ## Branch
 
@@ -20,4 +21,5 @@ Prove the migration path end-to-end on kind with Istio ambient and bookinfo.
 ```bash
 ./scripts/e2e-kind-ambient.sh
 # Reuse cluster: SKIP_CLUSTER_CREATE=1 ./scripts/e2e-kind-ambient.sh
+# Skip rollback injection: SKIP_ROLLBACK_E2E=1 ./scripts/e2e-kind-ambient.sh
 ```

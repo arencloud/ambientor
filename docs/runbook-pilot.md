@@ -80,6 +80,14 @@ kubectl get ambientassessment -A
 5. Approve the plan in the portal or via `kubectl patch migrationplan … status.approved=true`.
 6. Export the GitOps bundle (portal **Download YAML**, API export, or CLI).
 
+**CLI shortcut (selection plan on hub):**
+
+```bash
+# After assessment CR exists (e.g. bookinfo-scan-assessment):
+./scripts/pilot-ensure-selection-plan.sh <kubectl-context> <namespace> <assessment-name>
+./scripts/pilot-export-plans.sh <kubectl-context> ./pilot-artifacts/my-run
+```
+
 ### Per approved migration
 
 1. Confirm assessment completed for the target cluster (`AmbientAssessment` phase `Completed` on hub, or Postgres scan row for remote assess).

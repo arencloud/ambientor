@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Tier 3 rollout safety — enroll/injection rollback complete; rollback failure e2e pending.
+**Current focus:** P2 pilot sign-off on a spoke cluster (selection plan + export).
 
-**Next up:** Extend `e2e-kind-ambient.sh` with rollback failure injection, then P2 pilot sign-off on a spoke.
+**Next up:** Run `./scripts/pilot-ensure-selection-plan.sh` + `./scripts/pilot-validate.sh` on pilot contexts; Tier 4 Helm/OIDC hardening.
 
 **Last updated:** 2026-05-28
 
@@ -111,7 +111,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 |---|-----------|--------|
 | P1 | Blockers match Istio migrate docs on 3+ clusters | ✅ `pilot-artifacts/20260527-validate` (cl01/cl02/cl03, 0 blockers) |
 | P2 | Plans human-approved with exported manifests | 🔄 | Portal multicluster assess + Postgres findings wired; export on pilot pending |
-| P3 | Rollout: one NS, verify + auto-rollback in e2e | ✅ |
+| P3 | Rollout: one NS, verify + auto-rollback in e2e | ✅ | kind e2e injects verify failure → `RolledBack` then happy path |
 | P4 | Portal/OIDC gates approve + execute | ✅ PR [#29](https://github.com/arencloud/ambientor/pull/29) |
 | P5 | Audit log for approve / apply / rollback | ✅ |
 

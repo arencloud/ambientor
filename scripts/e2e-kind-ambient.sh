@@ -20,6 +20,7 @@ AMBIENTOR_API_DEPLOY="${AMBIENTOR_API_DEPLOY:-ambientor-ambientor-api}"
 POLL_INTERVAL_SEC="${POLL_INTERVAL_SEC:-5}"
 SKIP_CLUSTER_CREATE="${SKIP_CLUSTER_CREATE:-0}"
 SKIP_IMAGE_BUILD="${SKIP_IMAGE_BUILD:-0}"
+SKIP_ROLLBACK_E2E="${SKIP_ROLLBACK_E2E:-0}"
 
 # Waiting reasons that will not self-heal; fail immediately instead of kubectl wait's long timeout.
 FATAL_POD_WAIT_REASONS=(
@@ -135,56 +136,130 @@ wait_for_deployment() {
 }
 
 approve_rollout_if_needed() {
+  local rollout="${1:-${ROLLOUT}}"
   local phase current approved stage_name
-  phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+  phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
   [[ "${phase}" == "AwaitingApproval" ]] || return 0
-  current="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.currentStage}')"
-  approved="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.approvedStage}' 2>/dev/null || echo 0)"
-  stage_name="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath="{.spec.stages[${current}].name}" 2>/dev/null || echo "?")"
+  current="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.currentStage}')"
+  approved="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.approvedStage}' 2>/dev/null || echo 0)"
+  stage_name="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath="{.spec.stages[${current}].name}" 2>/dev/null || echo "?")"
   if [[ "${approved}" -ge "${current}" ]]; then
     log "rollout stage ${current} (${stage_name}) already approved (approvedStage=${approved}); waiting for operator"
     return 0
   fi
   log "approving rollout stage ${current} (${stage_name})"
-  if api_curl POST "/api/v1/rollouts/${NS_SYSTEM}/${ROLLOUT}/approve" \
+  if api_curl POST "/api/v1/rollouts/${NS_SYSTEM}/${rollout}/approve" \
     "{\"stage\":${current},\"actor\":\"e2e\"}" >/dev/null 2>&1; then
     return 0
   fi
   log "API approve unavailable; patching rollout status"
-  kubectl_ctx patch rollout "${ROLLOUT}" -n "${NS_SYSTEM}" --subresource=status --type=merge -p \
+  kubectl_ctx patch rollout "${rollout}" -n "${NS_SYSTEM}" --subresource=status --type=merge -p \
     "{\"status\":{\"approvedStage\":${current}}}"
 }
 
+wait_rollout_rolled_back() {
+  local rollout="${1:-${ROLLOUT}}"
+  wait_for "rollout ${rollout} rolled back" -n "${NS_SYSTEM}" \
+    --for=jsonpath='{.status.phase}=RolledBack' "rollout/${rollout}"
+}
+
+wait_until_rollout_stage_suffix() {
+  local suffix="$1"
+  local rollout="${2:-${ROLLOUT}}"
+  local start
+  start="$(date +%s)"
+  while true; do
+    local phase current name
+    phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)"
+    case "${phase}" in
+      RolledBack|Failed)
+        kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o yaml || true
+        die "rollback e2e: rollout reached ${phase} before verify injection point"
+        ;;
+      Completed)
+        die "rollback e2e: rollout completed before verify injection (test invalid)"
+        ;;
+    esac
+    current="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.currentStage}')"
+    name="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath="{.spec.stages[${current}].name}" 2>/dev/null || echo "")"
+    if [[ "${name}" == *"${suffix}" ]]; then
+      log "rollout ${rollout} at stage ${current} (${name})"
+      return 0
+    fi
+    approve_rollout_if_needed "${rollout}"
+    if (( "$(date +%s)" - start > E2E_TIMEOUT_SEC )); then
+      kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o yaml || true
+      die "timeout waiting for rollout ${rollout} stage *${suffix}"
+    fi
+    sleep 2
+  done
+}
+
+inject_verify_failure() {
+  log "removing ambient labels to force VerifyTraffic failure"
+  kubectl_ctx label namespace "${BOOKINFO_NS}" \
+    istio.io/dataplane-mode- istio.io/use-waypoint- --overwrite 2>/dev/null || true
+}
+
+assert_rollout_rollback_state() {
+  local dp wp
+  dp="$(kubectl_ctx get namespace "${BOOKINFO_NS}" -o jsonpath='{.metadata.labels.istio\.io/dataplane-mode}' 2>/dev/null || true)"
+  [[ "${dp}" != "ambient" ]] || die "rollback: namespace still has dataplane-mode=ambient"
+  wp="$(kubectl_ctx get namespace "${BOOKINFO_NS}" -o jsonpath='{.metadata.labels.istio\.io/use-waypoint}' 2>/dev/null || true)"
+  [[ -z "${wp}" ]] || die "rollback: namespace still has use-waypoint=${wp}"
+  if kubectl_ctx get gateway waypoint -n "${BOOKINFO_NS}" >/dev/null 2>&1; then
+    die "rollback: waypoint Gateway still exists after rollback"
+  fi
+  log "rollback state OK (ambient labels and waypoint reverted)"
+}
+
+run_rollback_failure_e2e() {
+  if [[ "${SKIP_ROLLBACK_E2E}" == "1" ]]; then
+    log "SKIP rollback failure e2e (SKIP_ROLLBACK_E2E=1)"
+    return 0
+  fi
+  log "rollback e2e: create rollout and inject verify failure"
+  api_curl POST "/api/v1/plans/${NS_SYSTEM}/${PLAN}/rollout" '{}' >/dev/null
+  approve_rollout_if_needed "${ROLLOUT}"
+  wait_until_rollout_stage_suffix "-verify" "${ROLLOUT}"
+  inject_verify_failure
+  wait_rollout_rolled_back "${ROLLOUT}"
+  assert_rollout_rollback_state
+  log "deleting rolled-back rollout before happy-path retry"
+  kubectl_ctx delete rollout "${ROLLOUT}" -n "${NS_SYSTEM}" --ignore-not-found --wait=true
+}
+
 wait_rollout_terminal() {
+  local rollout="${1:-${ROLLOUT}}"
   local start
   start="$(date +%s)"
   while true; do
     local phase
-    phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)"
+    phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)"
     case "${phase}" in
       Completed)
-        log "rollout completed"
+        log "rollout ${rollout} completed"
         return 0
         ;;
       Failed|RolledBack)
         kubectl_ctx logs -n "${NS_SYSTEM}" -l app=ambientor-operator --tail=100 || true
-        kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o yaml || true
+        kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o yaml || true
         local failed_msg failed_name
-        failed_msg="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" \
+        failed_msg="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" \
           -o jsonpath='{range .status.stageResults[?(@.phase=="Failed")]}{.name}: {.message}{"\n"}{end}' 2>/dev/null || true)"
-        failed_name="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" \
+        failed_name="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" \
           -o jsonpath='{range .status.stageResults[?(@.phase=="Failed")]}{.name}{"\n"}{end}' 2>/dev/null | head -1)"
         if [[ -n "${failed_msg}" ]]; then
-          die "rollout ended in phase ${phase} (failed stage: ${failed_msg})"
+          die "rollout ${rollout} ended in phase ${phase} (failed stage: ${failed_msg})"
         fi
-        die "rollout ended in phase ${phase} (last stage ${failed_name:-unknown})"
+        die "rollout ${rollout} ended in phase ${phase} (last stage ${failed_name:-unknown})"
         ;;
     esac
-    approve_rollout_if_needed
-    phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)"
+    approve_rollout_if_needed "${rollout}"
+    phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)"
     if (( "$(date +%s)" - start > E2E_TIMEOUT_SEC )); then
-      kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o yaml || true
-      die "rollout timed out after ${E2E_TIMEOUT_SEC}s (phase=${phase}, currentStage=$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.currentStage}' 2>/dev/null || echo ?), approvedStage=$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${ROLLOUT}" -o jsonpath='{.status.approvedStage}' 2>/dev/null || echo ?))"
+      kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o yaml || true
+      die "rollout ${rollout} timed out after ${E2E_TIMEOUT_SEC}s (phase=${phase}, currentStage=$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.currentStage}' 2>/dev/null || echo ?), approvedStage=$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.approvedStage}' 2>/dev/null || echo ?))"
     fi
     sleep 5
   done
@@ -299,7 +374,9 @@ plan_ns="$(kubectl_ctx get migrationplan -n "${NS_SYSTEM}" "${PLAN}" \
 log "migration plan wave-1 namespace: ${plan_ns:-unknown}"
 [[ "${plan_ns}" == "${BOOKINFO_NS}" ]] || die "expected plan to target ${BOOKINFO_NS}, got '${plan_ns}'"
 
-log "creating rollout from plan via API"
+run_rollback_failure_e2e
+
+log "creating rollout from plan via API (happy path)"
 api_curl POST "/api/v1/plans/${NS_SYSTEM}/${PLAN}/rollout" '{}' >/dev/null
 
 log "driving rollout to completion (approving gated stages)"
@@ -319,4 +396,4 @@ if command -v jq >/dev/null 2>&1; then
   fi
 fi
 
-log "e2e passed: bookinfo → assessment → plan → rollout → ambient namespace"
+log "e2e passed: rollback on verify failure + bookinfo → assessment → plan → rollout → ambient namespace"
