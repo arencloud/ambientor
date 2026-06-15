@@ -26,6 +26,13 @@ pub trait ScanStore: Send + Sync {
     ) -> Result<Uuid, DbError>;
 
     async fn list_recent(&self, limit: i64) -> Result<Vec<ScanRunRow>, DbError>;
+
+    /// Latest stored findings for a completed `AmbientAssessment` (Postgres is canonical when CR status omits findings).
+    async fn latest_for_assessment(
+        &self,
+        cluster_ref: &str,
+        assessment_name: &str,
+    ) -> Result<Option<StoredAssessment>, DbError>;
 }
 
 #[async_trait]

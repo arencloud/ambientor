@@ -17,7 +17,7 @@ use kube::Api;
 use serde::Serialize;
 
 use crate::routes::applications::persist_assessment_from_findings;
-use crate::routes::assess::{AssessRequest, AssessResponse};
+use crate::routes::assess::{application_count_for_cluster, AssessRequest, AssessResponse};
 use crate::state::AppState;
 
 #[derive(Serialize)]
@@ -133,11 +133,13 @@ pub async fn assess_connection(
         );
     }
 
+    let application_count = application_count_for_cluster(state.as_ref(), &cluster_ref).await;
+
     Ok(Json(AssessResponse {
         findings,
         scores,
         summary,
-        application_count: 0,
+        application_count,
         trigger: "direct".into(),
         assessment_name: None,
         assessment_namespace: None,

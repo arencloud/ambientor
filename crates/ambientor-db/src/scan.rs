@@ -87,6 +87,31 @@ impl ScanRepository {
         .await?;
         Ok(rows)
     }
+
+    pub async fn latest_for_assessment(
+        &self,
+        cluster_ref: &str,
+        assessment_name: &str,
+    ) -> Result<Option<StoredAssessment>, DbError> {
+        let row: Option<(serde_json::Value,)> = sqlx::query_as(
+            r#"
+            SELECT assessment_json
+            FROM scan_runs
+            WHERE cluster_ref = $1
+              AND status = 'completed'
+              AND assessment_json->>'assessmentName' = $2
+            ORDER BY COALESCE(finished_at, started_at) DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(cluster_ref)
+        .bind(assessment_name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(|(json,)| serde_json::from_value(json).map_err(|e| DbError::Serialize(e.to_string())))
+            .transpose()
+    }
 }
 
 #[async_trait]
@@ -102,6 +127,14 @@ impl ScanStore for ScanRepository {
 
     async fn list_recent(&self, limit: i64) -> Result<Vec<ScanRunRow>, DbError> {
         ScanRepository::list_recent(self, limit).await
+    }
+
+    async fn latest_for_assessment(
+        &self,
+        cluster_ref: &str,
+        assessment_name: &str,
+    ) -> Result<Option<StoredAssessment>, DbError> {
+        ScanRepository::latest_for_assessment(self, cluster_ref, assessment_name).await
     }
 }
 

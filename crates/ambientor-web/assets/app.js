@@ -25,6 +25,19 @@
   let rolloutPollTimer = null;
   let activeClusterRef = '';
   let fleetClusters = [];
+  let clusterConnections = [];
+
+  function isRemoteConnectionRef(ref) {
+    return !!ref && ref.includes('/') && ref !== 'in-cluster';
+  }
+
+  function connectionAssessPath(ref) {
+    const parts = ref.split('/');
+    if (parts.length < 2) return null;
+    const ns = encodeURIComponent(parts[0]);
+    const name = encodeURIComponent(parts.slice(1).join('/'));
+    return '/api/v1/connections/' + ns + '/' + name + '/assess';
+  }
 
   function showPanel(id) {
     document.querySelectorAll('main .view-panel, main .panel').forEach((p) => p.classList.add('hidden'));
@@ -579,12 +592,19 @@
     const select = $('cluster-select');
     if (!select || !API()) return;
     try {
-      const res = await fetch(API() + '/api/v1/dashboard/fleet');
-      if (!res.ok) return;
-      const fleet = await res.json();
-      fleetClusters = fleet.clusters || fleet.Clusters || [];
+      const [fleetRes, connRes] = await Promise.all([
+        fetch(API() + '/api/v1/dashboard/fleet'),
+        fetch(API() + '/api/v1/connections'),
+      ]);
+      if (fleetRes.ok) {
+        const fleet = await fleetRes.json();
+        fleetClusters = fleet.clusters || fleet.Clusters || [];
+      }
+      if (connRes.ok) {
+        clusterConnections = await connRes.json();
+      }
       const prev = select.value;
-      select.innerHTML = '<option value="">Hub (default)</option>';
+      select.innerHTML = '<option value="">Hub (local)</option>';
       fleetClusters.forEach((c) => {
         const ref = c.clusterRef || c.cluster_ref;
         if (!ref) return;
@@ -594,17 +614,63 @@
         opt.textContent = name + (ref !== name ? ` (${ref})` : '');
         select.appendChild(opt);
       });
+      const remote = clusterConnections.filter((c) => !c.hub);
+      if (remote.length) {
+        const group = document.createElement('optgroup');
+        group.label = 'Remote connections';
+        remote.forEach((c) => {
+          const ref = c.namespace + '/' + c.name;
+          const opt = document.createElement('option');
+          opt.value = ref;
+          const label = c.displayName || c.display_name || c.name;
+          const phase = c.phase || 'Unknown';
+          opt.textContent = label + ' · ' + phase;
+          group.appendChild(opt);
+        });
+        select.appendChild(group);
+      }
       if (prev) select.value = prev;
       else if (activeClusterRef) select.value = activeClusterRef;
+      renderConnectionsList();
     } catch {
-      /* fleet API optional */
+      /* fleet / connections API optional */
     }
+  }
+
+  function renderConnectionsList() {
+    const list = $('dash-connections-list');
+    if (!list) return;
+    const remote = clusterConnections.filter((c) => !c.hub);
+    if (!remote.length) {
+      list.innerHTML =
+        '<p class="hint">No remote <code>ClusterConnection</code> resources. Register spoke clusters on the hub to assess them from this portal.</p>';
+      return;
+    }
+    list.innerHTML = remote
+      .map((c) => {
+        const ref = c.namespace + '/' + c.name;
+        const label = escapeHtml(c.displayName || c.display_name || c.name);
+        const phase = escapeHtml(c.phase || 'Unknown');
+        const msg = c.readyMessage || c.ready_message;
+        const hint = msg ? `<p class="hint small">${escapeHtml(msg)}</p>` : '';
+        const active = ref === activeClusterRef ? ' connection-row-active' : '';
+        return `<article class="connection-row${active}">
+          <div>
+            <strong>${label}</strong>
+            <span class="mono small">${escapeHtml(ref)}</span>
+            ${hint}
+          </div>
+          <span class="badge-status ${statusCssClass(phase)}">${phase}</span>
+        </article>`;
+      })
+      .join('');
   }
 
   function onClusterChange(ref) {
     activeClusterRef = ref || '';
     const bar = $('cluster-bar');
     if (bar) bar.classList.toggle('cluster-active', !!activeClusterRef);
+    renderConnectionsList();
     loadDashboard();
     if (!$('assessments')?.classList.contains('hidden')) loadApplications();
     if (!$('rollouts')?.classList.contains('hidden')) loadRollouts();
@@ -894,11 +960,19 @@
   }
 
   async function runAssessment() {
-    setStatus('Running assessment…');
+    const remote = isRemoteConnectionRef(activeClusterRef);
+    const assessPath = remote
+      ? connectionAssessPath(activeClusterRef)
+      : '/api/v1/assess';
+    if (!assessPath) {
+      setStatus('Invalid remote cluster selection', true);
+      return;
+    }
+    setStatus(remote ? 'Running assessment on remote cluster…' : 'Running assessment…');
     const btn = $('run-assess');
     if (btn) btn.disabled = true;
     try {
-      const res = await fetch(API() + '/api/v1/assess', {
+      const res = await fetch(API() + assessPath, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -906,26 +980,24 @@
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       const count = data.applicationCount ?? data.application_count ?? 0;
-      const trigger = data.trigger || 'crd';
+      const trigger = data.trigger || (remote ? 'direct' : 'crd');
       const assessName = data.assessmentName || data.assessment_name;
       const assessNs = data.assessmentNamespace || data.assessment_namespace;
+      const target = remote ? activeClusterRef : 'hub';
       const crdHint =
         trigger === 'crd' && assessName
           ? ` via ${assessNs || 'ambientor-system'}/${assessName}`
           : trigger === 'direct'
-            ? ' (direct API scan)'
+            ? remote
+              ? ' (remote scan)'
+              : ' (direct API scan)'
             : '';
       setStatus(
-        `Assessment complete${crdHint} — ${count.toLocaleString()} application(s) in database`
+        `Assessment complete on ${target}${crdHint} — ${count.toLocaleString()} application(s) in database`
       );
       showPanel('assessments');
       appListPage = 1;
       closeApplicationDetail();
-      const clusterSelect = $('cluster-select');
-      if (clusterSelect) {
-        clusterSelect.value = '';
-        activeClusterRef = '';
-      }
       await loadApplications();
       await loadDashboard();
     } catch (e) {

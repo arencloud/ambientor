@@ -111,6 +111,14 @@
 .progress-track { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; margin: 0.75rem 0; }
 #rollout-progress-fill { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--success)); transition: width 0.4s ease; }
 .mesh-grid { display: flex; flex-direction: column; gap: 1rem; }
+.connections-list { display: flex; flex-direction: column; gap: 0.65rem; }
+.connection-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+  padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-elevated, rgba(255,255,255,0.02));
+}
+.connection-row-active { border-color: var(--accent, #3b82f6); }
+.connection-row .mono { display: block; margin-top: 0.2rem; opacity: 0.75; }
 .savings-banner {
   margin-bottom: 1.25rem; padding: 1.25rem 1.5rem;
   background: linear-gradient(135deg, #ecfdf5 0%, #f0f9ff 100%);

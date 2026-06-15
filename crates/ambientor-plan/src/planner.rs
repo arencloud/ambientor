@@ -26,8 +26,19 @@ pub fn namespaces_from_findings(findings: &[Finding]) -> Vec<String> {
 
 /// Build an assessment result from a completed AmbientAssessment status.
 pub fn assessment_result_from_status(status: &AmbientAssessmentStatus) -> AssessmentResult {
+    assessment_result_from_status_and_findings(status, None)
+}
+
+/// Prefer `stored_findings` when CR status omits findings (Postgres canonical store).
+pub fn assessment_result_from_status_and_findings(
+    status: &AmbientAssessmentStatus,
+    stored_findings: Option<Vec<Finding>>,
+) -> AssessmentResult {
+    let findings = stored_findings
+        .filter(|f| !f.is_empty())
+        .unwrap_or_else(|| status.findings.clone());
     AssessmentResult {
-        findings: status.findings.clone(),
+        findings,
         scores: AssessmentScores {
             readiness: status.readiness_score,
             sidecar_dependency: status.sidecar_dependency_score,

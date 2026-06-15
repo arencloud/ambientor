@@ -47,9 +47,23 @@ pub async fn assess(
     let k8s = k8s_client().await?;
     match trigger_and_wait(&k8s.client, &cluster_ref).await {
         Ok(completed) => {
-            let findings = completed.status.findings.clone();
+            let mut findings = completed.status.findings.clone();
+            if findings.is_empty() {
+                if let Some(repo) = state.scan_store() {
+                    if let Ok(Some(stored)) = repo
+                        .latest_for_assessment(&cluster_ref, &completed.name)
+                        .await
+                    {
+                        findings = stored.findings;
+                    }
+                }
+            }
             let scores = completed.scores();
-            let summary = completed.summary();
+            let summary = if findings.is_empty() {
+                completed.summary()
+            } else {
+                FindingSummary::from_findings(&findings)
+            };
 
             publish_completed(&state, &cluster_ref, findings.len()).await;
 
@@ -155,7 +169,7 @@ async fn publish_completed(state: &AppState, cluster_ref: &str, finding_count: u
     );
 }
 
-async fn application_count_for_cluster(state: &AppState, cluster_ref: &str) -> usize {
+pub(crate) async fn application_count_for_cluster(state: &AppState, cluster_ref: &str) -> usize {
     let Some(store) = state.applications_store() else {
         return 0;
     };

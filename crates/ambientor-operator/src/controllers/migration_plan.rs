@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use ambientor_plan::{
-    assessment_result_from_status, build_plan, build_plan_from_selection,
+    assessment_result_from_status_and_findings, build_plan, build_plan_from_selection,
     namespaces_for_planning, namespaces_matching_selector, namespaces_with_blockers,
     plan_name_for_assessment,
 };
-use ambientor_db::cluster_ref_from_env;
-use ambientor_types::{AmbientAssessment, MeshInventory, MigrationPlan, MigrationPlanSpec};
+use ambientor_db::{ScanStore, cluster_ref_from_env};
+use ambientor_types::{AmbientAssessment, AmbientAssessmentStatus, MeshInventory, MigrationPlan, MigrationPlanSpec};
 use futures::StreamExt;
 use kube::{
     Api, Client,
@@ -20,10 +20,11 @@ use super::inventory::FIELD_MANAGER;
 use super::policy_translation::ensure_translations_in_namespace;
 use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 
-pub async fn run(client: Client) {
-    Controller::new(Api::<MigrationPlan>::all(client.clone()), Config::default())
+pub async fn run(client: Client, scan_repo: Option<Arc<dyn ScanStore>>) {
+    let ctx = Arc::new(PlanContext { client, scan_repo });
+    Controller::new(Api::<MigrationPlan>::all(ctx.client.clone()), Config::default())
         .shutdown_on_signal()
-        .run(reconcile, error_policy, Arc::new(client))
+        .run(reconcile, error_policy, ctx)
         .for_each(|res| async move {
             if let Err(e) = res {
                 tracing::error!(error = ?e, "migrationplan controller error");
@@ -32,17 +33,23 @@ pub async fn run(client: Client) {
         .await;
 }
 
-async fn reconcile(plan: Arc<MigrationPlan>, client: Arc<Client>) -> ReconcileResult {
+struct PlanContext {
+    client: Client,
+    scan_repo: Option<Arc<dyn ScanStore>>,
+}
+
+async fn reconcile(plan: Arc<MigrationPlan>, ctx: Arc<PlanContext>) -> ReconcileResult {
     if plan.status.as_ref().is_some_and(|s| s.approved) {
         return Ok(Action::await_change());
     }
-    reconcile_inner(&client, &plan)
+    reconcile_inner(&ctx, &plan)
         .await
         .map_err(ReconcileError::Other)?;
     Ok(Action::await_change())
 }
 
-async fn reconcile_inner(client: &Client, plan: &MigrationPlan) -> anyhow::Result<()> {
+async fn reconcile_inner(ctx: &PlanContext, plan: &MigrationPlan) -> anyhow::Result<()> {
+    let client = &ctx.client;
     let ns = plan
         .metadata
         .namespace
@@ -76,9 +83,9 @@ async fn reconcile_inner(client: &Client, plan: &MigrationPlan) -> anyhow::Resul
     }
 
     let spec = if has_selection {
-        reconcile_selection_plan(client, plan, &ns).await?
+        reconcile_selection_plan(ctx, plan, &ns).await?
     } else if plan.spec.assessment_ref.is_some() {
-        reconcile_assessment_plan(client, plan, &ns).await?
+        reconcile_assessment_plan(ctx, plan, &ns).await?
     } else if has_waves {
         return Ok(());
     } else {
@@ -132,12 +139,13 @@ async fn reconcile_inner(client: &Client, plan: &MigrationPlan) -> anyhow::Resul
 }
 
 async fn reconcile_selection_plan(
-    client: &Client,
+    ctx: &PlanContext,
     plan: &MigrationPlan,
     assessment_namespace: &str,
 ) -> anyhow::Result<MigrationPlanSpec> {
+    let client = &ctx.client;
     let assessment_result = optional_assessment_result(
-        client,
+        ctx,
         assessment_namespace,
         plan.spec.assessment_ref.as_deref(),
     )
@@ -175,10 +183,11 @@ async fn reconcile_selection_plan(
 }
 
 async fn reconcile_assessment_plan(
-    client: &Client,
+    ctx: &PlanContext,
     plan: &MigrationPlan,
     assessment_namespace: &str,
 ) -> anyhow::Result<MigrationPlanSpec> {
+    let client = &ctx.client;
     let plan_name = plan.metadata.name.clone().unwrap_or_default();
     let assessment_ref = plan
         .spec
@@ -224,7 +233,8 @@ async fn reconcile_assessment_plan(
         return Ok(plan.spec.clone());
     }
 
-    let assessment_result = assessment_result_from_status(status);
+    let assessment_result =
+        assessment_result_for_assessment(ctx, &assessment, status).await;
     let inventory_namespaces = inventory_target_namespaces(client, &assessment, assessment_namespace)
         .await
         .unwrap_or_default();
@@ -242,10 +252,11 @@ async fn reconcile_assessment_plan(
 }
 
 async fn optional_assessment_result(
-    client: &Client,
+    ctx: &PlanContext,
     ns: &str,
     assessment_ref: Option<&str>,
 ) -> anyhow::Result<Option<ambientor_core::inventory::AssessmentResult>> {
+    let client = &ctx.client;
     let Some(name) = assessment_ref else {
         return Ok(None);
     };
@@ -258,7 +269,36 @@ async fn optional_assessment_result(
     if status.phase != "Completed" {
         anyhow::bail!("assessment {name} is not Completed (phase={})", status.phase);
     }
-    Ok(Some(assessment_result_from_status(status)))
+    Ok(Some(
+        assessment_result_for_assessment(ctx, &assessment, status).await,
+    ))
+}
+
+async fn assessment_result_for_assessment(
+    ctx: &PlanContext,
+    assessment: &AmbientAssessment,
+    status: &AmbientAssessmentStatus,
+) -> ambientor_core::inventory::AssessmentResult {
+    let stored_findings = if status.findings.is_empty() {
+        if let (Some(repo), Some(name)) = (ctx.scan_repo.as_ref(), assessment.metadata.name.as_ref())
+        {
+            let cluster_ref = assessment
+                .spec
+                .cluster_ref
+                .clone()
+                .unwrap_or_else(cluster_ref_from_env);
+            repo.latest_for_assessment(&cluster_ref, name)
+                .await
+                .ok()
+                .flatten()
+                .map(|stored| stored.findings)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    assessment_result_from_status_and_findings(status, stored_findings)
 }
 
 async fn ensure_translations_for_plan(client: &Client, plan: &MigrationPlan) {

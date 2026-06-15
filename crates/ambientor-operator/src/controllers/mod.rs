@@ -32,6 +32,7 @@ pub async fn run_all(
     let op_ctx = OperatorContext::new(client.clone(), rollout_engine, audit_repo);
     let dashboard_client = client.clone();
     let dashboard_store = dashboard_repo.clone();
+    let scan_for_plans = scan_repo.clone();
     tokio::join!(
         inventory::run(client.clone()),
         assessment::run(
@@ -41,7 +42,7 @@ pub async fn run_all(
             applications_repo,
             Some(resource_cache.clone()),
         ),
-        migration_plan::run(client.clone()),
+        migration_plan::run(client.clone(), scan_for_plans),
         policy_translation::run(client.clone()),
         rollout::run(op_ctx),
         cluster::run(client.clone()),
