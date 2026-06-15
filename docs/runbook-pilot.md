@@ -6,6 +6,7 @@ Use this runbook for **P1** (multi-cluster assessment validation) and **P2** (hu
 |------|--------|
 | **Progress tracker** | [PROGRESS.md](PROGRESS.md) |
 | **Lab baseline** | [runbook-lab.md](runbook-lab.md) |
+| **OpenShift pilot** | [runbook-openshift-pilot.md](runbook-openshift-pilot.md) |
 | **OIDC API** | [roadmap/oidc-auth.md](roadmap/oidc-auth.md) |
 
 ---

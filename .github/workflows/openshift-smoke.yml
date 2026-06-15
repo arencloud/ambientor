@@ -40,3 +40,11 @@ jobs:
 
       - name: Helm lint chart
         run: helm lint deploy/helm/ambientor
+
+      - name: Helm template OpenShift pilot values
+        run: |
+          helm template ambientor deploy/helm/ambientor \
+            -f deploy/helm/ambientor/values-openshift-pilot.yaml \
+            --set auth.jwtSecret=ci-test \
+            --set postgresql.auth.password=ci-test \
+            | grep -q 'kind: Route'

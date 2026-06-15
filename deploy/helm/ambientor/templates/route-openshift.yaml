@@ -1,5 +1,4 @@
 {{- if .Values.openshift.routes.enabled }}
-{{- if .Values.openshift.routes.api.host }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -8,7 +7,9 @@ metadata:
   labels:
     {{- include "ambientor.labels" . | nindent 4 }}
 spec:
-  host: {{ .Values.openshift.routes.api.host | quote }}
+  {{- with .Values.openshift.routes.api.host }}
+  host: {{ . | quote }}
+  {{- end }}
   to:
     kind: Service
     name: ambientor-api
@@ -18,8 +19,6 @@ spec:
     termination: {{ .Values.openshift.routes.api.tlsTermination | default "edge" }}
     insecureEdgeTerminationPolicy: Redirect
 ---
-{{- end }}
-{{- if .Values.openshift.routes.web.host }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -28,7 +27,9 @@ metadata:
   labels:
     {{- include "ambientor.labels" . | nindent 4 }}
 spec:
-  host: {{ .Values.openshift.routes.web.host | quote }}
+  {{- with .Values.openshift.routes.web.host }}
+  host: {{ . | quote }}
+  {{- end }}
   to:
     kind: Service
     name: ambientor-web
@@ -37,5 +38,4 @@ spec:
   tls:
     termination: {{ .Values.openshift.routes.web.tlsTermination | default "edge" }}
     insecureEdgeTerminationPolicy: Redirect
-{{- end }}
 {{- end }}

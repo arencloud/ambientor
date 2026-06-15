@@ -1,0 +1,72 @@
+# OpenShift production pilot: Quay images, Routes, Postgres PVC, auth + probes.
+# Use with scripts/openshift-pilot-install.sh (sets JWT + Postgres password).
+image:
+  registry: quay.io/arencloud
+  tag: "0.1.4"
+  pullPolicy: IfNotPresent
+
+operator:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 1536Mi
+
+api:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+web:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      enabled: true
+      # Set before first install on your cluster, e.g. gp3, truenas-iscsi, ocs-storagecluster-ceph-rbd
+      storageClass: ""
+      size: 20Gi
+
+auth:
+  createSecret: true
+  jwtSecret: ""
+  oidc:
+    enabled: false
+    issuerUrl: ""
+    clientId: ""
+    redirectUri: ""
+    clientSecret: ""
+    successUrl: ""
+
+openshift:
+  apiUrl: ""
+  routes:
+    enabled: true
+    api:
+      host: ""
+      tlsTermination: edge
+    web:
+      host: ""
+      tlsTermination: edge
+
+probes:
+  api:
+    enabled: true
+  web:
+    enabled: true

@@ -5,9 +5,9 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** Tier 4 Helm production wiring (secrets, OIDC, probes, ingress/routes).
+**Current focus:** OpenShift pilot validation on real clusters (install scripts, runbook, Tier 1–4 sign-off).
 
-**Next up:** P2 pilot sign-off on a spoke; optional OIDC HA (external PKCE store).
+**Next up:** P2 export sign-off on hub/spoke OpenShift; optional OIDC HA (external PKCE store); Tier 5 remote rollout on spokes.
 
 **Last updated:** 2026-05-28
 
@@ -110,7 +110,7 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | # | Criterion | Status |
 |---|-----------|--------|
 | P1 | Blockers match Istio migrate docs on 3+ clusters | ✅ `pilot-artifacts/20260527-validate` (cl01/cl02/cl03, 0 blockers) |
-| P2 | Plans human-approved with exported manifests | 🔄 | Portal multicluster assess + Postgres findings wired; export on pilot pending |
+| P2 | Plans human-approved with exported manifests | 🔄 | Use `docs/runbook-openshift-pilot.md` + `scripts/openshift-pilot-*.sh` on real clusters |
 | P3 | Rollout: one NS, verify + auto-rollback in e2e | ✅ | kind e2e injects verify failure → `RolledBack` then happy path |
 | P4 | Portal/OIDC gates approve + execute | ✅ PR [#29](https://github.com/arencloud/ambientor/pull/29) |
 | P5 | Audit log for approve / apply / rollback | ✅ |

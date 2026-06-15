@@ -1,0 +1,32 @@
+# Example spoke registration on the hub (multi-cluster assess from portal).
+# 1. On spoke: create credentials secret with kubeconfig or token+server+ca.crt
+# 2. On hub: apply this ClusterConnection (adjust namespace/name/displayName)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: spoke-cl02-kubeconfig
+  namespace: ambientor-system
+type: Opaque
+stringData:
+  # kubeconfig: |
+  #   apiVersion: v1
+  #   ...
+  # Or token auth:
+  # token: "..."
+  # server: "https://api.spoke.example:6443"
+  # ca.crt: |
+  #   -----BEGIN CERTIFICATE-----
+  #   ...
+---
+apiVersion: ambientor.io/v1alpha1
+kind: ClusterConnection
+metadata:
+  name: cl02
+  namespace: ambientor-system
+spec:
+  displayName: Pilot cluster cl02
+  hub: false
+  credentialsSecretRef:
+    name: spoke-cl02-kubeconfig
+    namespace: ambientor-system
+  # apiServer: "https://api.spoke.example:6443"  # optional when using token secret

@@ -54,6 +54,18 @@ helm upgrade --install ambientor deploy/helm/ambientor/ \
 - Change default `postgresql.auth.password` before any production install.
 - E2E disables secrets and probes: `values-e2e.yaml`.
 
+## OpenShift pilot
+
+For real-cluster testing use `values-openshift-pilot.yaml` and:
+
+```bash
+export AMBIENTOR_STORAGE_CLASS=<your-sc>
+./scripts/openshift-pilot-install.sh
+./scripts/openshift-pilot-smoke.sh
+```
+
+See [runbook-openshift-pilot.md](../runbook-openshift-pilot.md). Routes omit `host` when empty so OpenShift assigns `*.apps.<cluster>`.
+
 ## Branch
 
 `main` (Tier 4)
