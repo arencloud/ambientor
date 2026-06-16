@@ -36,6 +36,15 @@ pub async fn run(
     }
 }
 
+/// Recompute hub dashboard and persist to Postgres (used after rollout reconcile).
+pub async fn sync_hub_now(
+    client: &Client,
+    store: &dyn DashboardStore,
+    scan_repo: Option<&dyn ScanStore>,
+) {
+    sync_hub_dashboard(client, store, scan_repo).await;
+}
+
 async fn sync_hub_dashboard(
     client: &Client,
     store: &dyn DashboardStore,

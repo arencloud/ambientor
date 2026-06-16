@@ -13,6 +13,7 @@ use kube::{
 };
 
 use super::context::OperatorContext;
+use super::dashboard;
 use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 
 pub async fn run(ctx: Arc<OperatorContext>) {
@@ -31,17 +32,31 @@ pub async fn run(ctx: Arc<OperatorContext>) {
 async fn reconcile(obj: Arc<Rollout>, ctx: Arc<OperatorContext>) -> ReconcileResult {
     let phase = obj.status.as_ref().map(|s| s.phase.as_str()).unwrap_or("");
     if phase == "Completed" || phase == "Failed" || phase == "RolledBack" {
+        sync_dashboard(&ctx).await;
         return Ok(Action::await_change());
     }
     let mut status = obj.status.clone().unwrap_or_default();
     reconcile_inner(&ctx, &obj, &mut status)
         .await
         .map_err(ReconcileError::Other)?;
+    sync_dashboard(&ctx).await;
     if status.phase == "AwaitingApproval" {
         Ok(Action::await_change())
     } else {
         Ok(Action::requeue(Duration::from_secs(10)))
     }
+}
+
+async fn sync_dashboard(ctx: &OperatorContext) {
+    let Some(store) = ctx.dashboard_repo.as_ref() else {
+        return;
+    };
+    dashboard::sync_hub_now(
+        &ctx.client,
+        store.as_ref(),
+        ctx.scan_repo.as_deref(),
+    )
+    .await;
 }
 
 async fn reconcile_inner(

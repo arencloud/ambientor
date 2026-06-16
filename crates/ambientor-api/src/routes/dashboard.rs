@@ -96,6 +96,26 @@ pub async fn get_fleet_dashboard(
     Ok(Json(fleet))
 }
 
+/// Recompute dashboard from the cluster, persist, and notify SSE subscribers.
+pub async fn refresh_and_notify(state: &AppState, cluster_ref: &str) {
+    match compute_and_persist_live(state, cluster_ref).await {
+        Ok(_) => {
+            state.sse.write().await.publish(
+                "dashboard",
+                &serde_json::json!({ "clusterRef": cluster_ref }),
+            );
+        }
+        Err((status, msg)) => {
+            tracing::warn!(
+                status = ?status,
+                error = %msg,
+                cluster_ref = %cluster_ref,
+                "dashboard refresh failed"
+            );
+        }
+    }
+}
+
 async fn compute_and_persist_live(
     state: &AppState,
     cluster_ref: &str,

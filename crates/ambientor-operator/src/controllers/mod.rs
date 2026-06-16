@@ -29,7 +29,13 @@ pub async fn run_all(
     resource_cache: Arc<ClusterResourceCache>,
 ) {
     info!("starting ambientor-operator controllers (kube-runtime watches)");
-    let op_ctx = OperatorContext::new(client.clone(), rollout_engine, audit_repo);
+    let op_ctx = OperatorContext::new(
+        client.clone(),
+        rollout_engine,
+        audit_repo,
+        dashboard_repo.clone(),
+        scan_repo.clone(),
+    );
     let dashboard_client = client.clone();
     let dashboard_store = dashboard_repo.clone();
     let scan_for_plans = scan_repo.clone();

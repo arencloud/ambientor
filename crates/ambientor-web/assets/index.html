@@ -67,6 +67,15 @@
 
       <section id="dash-savings-panel" class="savings-banner hidden" aria-label="Migration savings"></section>
 
+      <section id="dash-migration-banner" class="migration-banner hidden" aria-live="polite">
+        <div class="migration-banner-head">
+          <strong id="dash-migration-title">Migration in progress</strong>
+          <label class="toggle-inline"><input type="checkbox" id="dash-auto-refresh" checked /> Live updates</label>
+        </div>
+        <p id="dash-migration-detail" class="hint"></p>
+        <div class="progress-track"><span id="dash-migration-progress"></span></div>
+      </section>
+
       <div class="stat-grid" id="dash-status-summary">
         <article class="stat-card migrated"><span class="stat-value" id="sum-migrated">—</span><span class="stat-label">Migrated</span></article>
         <article class="stat-card processing"><span class="stat-value" id="sum-processing">—</span><span class="stat-label">Processing</span></article>
@@ -198,7 +207,10 @@
           <h2>Migration plans</h2>
           <p class="view-meta">Review waves, export for GitOps, then approve once to run the full pipeline. Portal, CLI, and kubectl patch the same CR status fields.</p>
         </div>
-        <button id="refresh-plans" class="btn">Refresh</button>
+        <div class="hero-actions">
+          <label class="toggle-inline"><input type="checkbox" id="plan-auto-refresh" checked /> Live</label>
+          <button id="refresh-plans" class="btn">Refresh</button>
+        </div>
       </div>
       <nav class="workflow-steps" aria-label="Migration workflow">
         <span class="workflow-step">1. Assess</span>
@@ -226,6 +238,7 @@
           <div id="plan-sync-panel" class="sync-panel hidden">
             <h4>Status (portal · CLI · GitOps)</h4>
             <p id="plan-sync-summary" class="hint"></p>
+            <div class="progress-track"><span id="plan-sync-progress"></span></div>
             <details class="sync-details">
               <summary>Equivalent commands</summary>
               <pre id="plan-sync-cli" class="mono small"></pre>

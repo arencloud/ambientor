@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::state::AppState;
 
+use super::dashboard::refresh_and_notify;
 use super::plans::{fetch_plan, internal, k8s_client};
 
 #[derive(Debug, Deserialize)]
@@ -276,6 +277,8 @@ pub(super) async fn approve_rollout_stage(
 
     let updated = fetch_rollout(k8s, namespace, name).await?;
     let new_status = updated.status.as_ref().unwrap();
+    let cluster_ref = cluster_ref_from_env();
+    refresh_and_notify(state, &cluster_ref).await;
     Ok(ApproveRolloutResponse {
         name: name.into(),
         namespace: namespace.into(),

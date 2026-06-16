@@ -25,6 +25,7 @@ use super::rollouts::{
     approve_rollout_stage, ensure_rollout_for_plan, fetch_rollout, rollout_name_for_plan,
     rollout_to_list_item,
 };
+use super::dashboard::refresh_and_notify;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -465,6 +466,8 @@ pub async fn execute_plan(
     let plan_item = plan_to_list_item(&fetch_plan(&k8s, &namespace, &name).await?)
         .ok_or((StatusCode::NOT_FOUND, "plan has no status".into()))?;
     let sync = build_plan_sync(&k8s, &namespace, &name, &plan_item).await;
+    let cluster_ref = cluster_ref_from_env();
+    refresh_and_notify(&state, &cluster_ref).await;
 
     Ok(Json(ExecutePlanResponse {
         plan_namespace: namespace.clone(),

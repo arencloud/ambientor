@@ -22,7 +22,7 @@
   let rollouts = [];
   let selectedRolloutKey = null;
   let rolloutDetail = null;
-  let rolloutPollTimer = null;
+  let migrationPollTimer = null;
   let activeClusterRef = '';
   let fleetClusters = [];
   let clusterConnections = [];
@@ -914,8 +914,8 @@
     return card;
   }
 
-  async function loadDashboard() {
-    setStatus('Loading dashboard…');
+  async function loadDashboard(quiet) {
+    if (!quiet) setStatus('Loading dashboard…');
     const container = $('dash-mesh-instances');
     try {
       const res = await fetch(
@@ -952,11 +952,120 @@
           container.innerHTML = '<p class="hint">No Istio control planes discovered.</p>';
         }
       }
-      setStatus('Dashboard loaded');
+      if (!quiet) setStatus('Dashboard loaded');
     } catch (e) {
       if (container) container.innerHTML = '';
-      setStatus('Dashboard failed: ' + e.message, true);
+      if (!quiet) setStatus('Dashboard failed: ' + e.message, true);
     }
+  }
+
+  function activeRollouts() {
+    return rollouts.filter((r) => rolloutIsActive(r.phase));
+  }
+
+  function renderDashboardMigrationBanner(active) {
+    const banner = $('dash-migration-banner');
+    if (!banner) return;
+    if (!active.length) {
+      banner.classList.add('hidden');
+      return;
+    }
+    banner.classList.remove('hidden');
+    const r = active[0];
+    const stage = (r.currentStage ?? r.current_stage ?? 0) + 1;
+    const total = r.stageCount ?? r.stage_count ?? 0;
+    const pct = total > 0 ? Math.min(100, Math.round((stage / total) * 100)) : 0;
+    const title = $('dash-migration-title');
+    const detail = $('dash-migration-detail');
+    const fill = $('dash-migration-progress');
+    if (title) {
+      title.textContent =
+        active.length > 1
+          ? `${active.length} migrations in progress`
+          : `Migration in progress · ${r.namespace}/${r.name}`;
+    }
+    if (detail) {
+      const awaiting = r.awaitingApproval || r.awaiting_approval;
+      detail.textContent = `Stage ${stage}/${total || '?'} · ${r.phase}${awaiting ? ' · awaiting approval' : ''}`;
+    }
+    if (fill) fill.style.width = `${pct}%`;
+  }
+
+  function migrationLiveEnabled() {
+    return (
+      $('dash-auto-refresh')?.checked !== false ||
+      $('rollout-auto-refresh')?.checked !== false ||
+      $('plan-auto-refresh')?.checked !== false
+    );
+  }
+
+  function migrationStillActive() {
+    const active = activeRollouts();
+    if (active.length) return true;
+    if (rolloutIsActive(rolloutDetail?.rollout?.phase)) return true;
+    return planNeedsLiveRefresh();
+  }
+
+  function stopMigrationPolling() {
+    if (migrationPollTimer) {
+      clearInterval(migrationPollTimer);
+      migrationPollTimer = null;
+    }
+  }
+
+  async function pollMigrationActivity(quiet) {
+    try {
+      const res = await fetch(API() + '/api/v1/rollouts' + clusterQueryPrefix());
+      if (!res.ok) return;
+      rollouts = await res.json();
+      const active = activeRollouts();
+      renderDashboardMigrationBanner(active);
+
+      const dashLive = $('dash-auto-refresh')?.checked !== false;
+      const rolloutLive = $('rollout-auto-refresh')?.checked !== false;
+      const planLive = $('plan-auto-refresh')?.checked !== false;
+
+      if (dashLive) await loadDashboard(quiet);
+      if (rolloutLive) {
+        renderRolloutList();
+        if (selectedRolloutKey) {
+          const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
+          if (r) await refreshRolloutDetail(r, true);
+        }
+      }
+      if (planLive) await refreshPlansQuiet();
+
+      if (!migrationStillActive()) stopMigrationPolling();
+    } catch (_) {}
+  }
+
+  function startMigrationPolling() {
+    stopMigrationPolling();
+    if (!migrationLiveEnabled()) return;
+    if (!migrationStillActive()) return;
+    renderDashboardMigrationBanner(activeRollouts());
+    migrationPollTimer = setInterval(() => pollMigrationActivity(true), 5000);
+  }
+
+  function startDashboardPolling() {
+    startMigrationPolling();
+  }
+
+  async function ensureMigrationPolling() {
+    if (!rollouts.length) {
+      try {
+        const res = await fetch(API() + '/api/v1/rollouts' + clusterQueryPrefix());
+        if (res.ok) rollouts = await res.json();
+      } catch (_) {}
+    }
+    if (!plans.length) {
+      try {
+        const res = await fetch(API() + '/api/v1/plans');
+        if (res.ok) plans = await res.json();
+      } catch (_) {}
+    }
+    renderDashboardMigrationBanner(activeRollouts());
+    startMigrationPolling();
   }
 
   async function runAssessment() {
@@ -1022,6 +1131,28 @@
 
   function planKey(p) {
     return p.namespace + '/' + p.name;
+  }
+
+  function rolloutNameForPlan(p) {
+    return `${p.name}-rollout`;
+  }
+
+  function rolloutForPlan(p) {
+    const rolloutName = rolloutNameForPlan(p);
+    return rollouts.find((r) => r.namespace === p.namespace && r.name === rolloutName);
+  }
+
+  function planIsBuilding(phase) {
+    const p = (phase || '').toLowerCase();
+    return p === 'pending' || p === 'processing' || p === 'running';
+  }
+
+  function planNeedsLiveRefresh() {
+    return plans.some((p) => {
+      if (planIsBuilding(p.phase)) return true;
+      const r = rolloutForPlan(p);
+      return r && rolloutIsActive(r.phase);
+    });
   }
 
   function renderPlanList() {
@@ -1099,7 +1230,7 @@
     });
   }
 
-  function renderPlanSync(sync) {
+  function renderPlanSync(sync, plan) {
     const panel = $('plan-sync-panel');
     if (!panel) return;
     if (!sync) {
@@ -1125,6 +1256,20 @@
     };
     lines.push(actionText[action] || action);
     $('plan-sync-summary').textContent = lines.join(' · ');
+    const fill = $('plan-sync-progress');
+    if (fill) {
+      const linked = plan ? rolloutForPlan(plan) : null;
+      const stage = (linked?.currentStage ?? linked?.current_stage ?? 0) + 1;
+      const total = linked?.stageCount ?? linked?.stage_count ?? 0;
+      const running = action === 'running' || rolloutIsActive(rollout) || rolloutIsActive(linked?.phase);
+      if (running && total > 0) {
+        fill.style.width = `${Math.min(100, Math.round((stage / total) * 100))}%`;
+      } else if (action === 'completed') {
+        fill.style.width = '100%';
+      } else {
+        fill.style.width = '0%';
+      }
+    }
     const ch = sync.channels || {};
     $('plan-sync-cli').textContent = ch.cli || '';
     $('plan-sync-gitops-plan').textContent = ch.gitopsPlanPatch || ch.gitops_plan_patch || '';
@@ -1144,11 +1289,7 @@
     }
   }
 
-  async function selectPlan(key) {
-    selectedPlanKey = key;
-    const p = plans.find((x) => planKey(x) === key);
-    if (!p) return;
-    renderPlanList();
+  function renderPlanSummary(p) {
     $('plan-detail-title').textContent = `${p.namespace}/${p.name}`;
     $('plan-detail-phase').textContent = p.phase;
     $('plan-detail-phase').className =
@@ -1177,42 +1318,75 @@
         : 'Assessment-wide plan (legacy)';
     $('export-plan').disabled = false;
     $('start-rollout').disabled = p.phase !== 'Ready';
-    renderWaves(p.waves);
-    setStatus('Loading plan detail…');
+  }
+
+  async function refreshPlanDetail(p, quiet) {
+    renderPlanSummary(p);
     try {
       const res = await fetch(
         API() + `/api/v1/plans/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}`
       );
       if (!res.ok) throw new Error(await res.text());
       const detail = await res.json();
-      renderTranslations(detail.translations);
-      renderPlanSync(detail.sync);
-      setStatus(`Plan ${p.namespace}/${p.name} loaded`);
+      if (!quiet || planIsBuilding(p.phase)) {
+        renderTranslations(detail.translations);
+      }
+      renderPlanSync(detail.sync, p);
+      if (!quiet) setStatus(`Plan ${p.namespace}/${p.name} loaded`);
+      if (!quiet) startMigrationPolling();
     } catch (e) {
-      setStatus('Failed to load plan detail: ' + e.message, true);
-      renderTranslations([]);
-      renderPlanSync(null);
+      if (!quiet) setStatus('Failed to load plan detail: ' + e.message, true);
+      if (!quiet) {
+        renderTranslations([]);
+        renderPlanSync(null);
+      }
     }
+  }
+
+  async function selectPlan(key) {
+    selectedPlanKey = key;
+    const p = plans.find((x) => planKey(x) === key);
+    if (!p) return;
+    renderPlanList();
+    renderWaves(p.waves);
+    await refreshPlanDetail(p, false);
     showPanel('plans');
   }
 
-  async function loadPlans() {
-    setStatus('Loading migration plans…');
+  async function refreshPlansQuiet() {
+    try {
+      const res = await fetch(API() + '/api/v1/plans');
+      if (!res.ok) return;
+      plans = await res.json();
+      renderPlanList();
+      if (selectedPlanKey) {
+        const p = plans.find((x) => planKey(x) === selectedPlanKey);
+        if (p) await refreshPlanDetail(p, true);
+      }
+    } catch (_) {}
+  }
+
+  async function loadPlans(quiet) {
+    if (!quiet) setStatus('Loading migration plans…');
     try {
       const res = await fetch(API() + '/api/v1/plans');
       if (!res.ok) throw new Error(await res.text());
       plans = await res.json();
       renderPlanList();
-      setStatus(
-        plans.length
-          ? `Loaded ${plans.length} migration plan(s)`
-          : 'No migration plans in cluster'
-      );
+      if (!quiet) {
+        setStatus(
+          plans.length
+            ? `Loaded ${plans.length} migration plan(s)`
+            : 'No migration plans in cluster'
+        );
+      }
       if (plans.length && !selectedPlanKey) {
-        selectPlan(planKey(plans[0]));
+        await selectPlan(planKey(plans[0]));
+      } else {
+        startMigrationPolling();
       }
     } catch (e) {
-      setStatus('Failed to load plans: ' + e.message, true);
+      if (!quiet) setStatus('Failed to load plans: ' + e.message, true);
     }
   }
 
@@ -1230,29 +1404,8 @@
     );
   }
 
-  function stopRolloutPolling() {
-    if (rolloutPollTimer) {
-      clearInterval(rolloutPollTimer);
-      rolloutPollTimer = null;
-    }
-  }
-
   function startRolloutPolling() {
-    stopRolloutPolling();
-    if (!$('rollout-auto-refresh')?.checked) return;
-    const active = rollouts.some((r) => rolloutIsActive(r.phase));
-    if (!active && !rolloutIsActive(rolloutDetail?.rollout?.phase)) return;
-    rolloutPollTimer = setInterval(async () => {
-      if ($('rollouts')?.classList.contains('hidden')) {
-        stopRolloutPolling();
-        return;
-      }
-      await loadRollouts(true);
-      if (selectedRolloutKey) {
-        const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
-        if (r) await refreshRolloutDetail(r, true);
-      }
-    }, 5000);
+    startMigrationPolling();
   }
 
   function renderRolloutList() {
@@ -1452,7 +1605,7 @@
       updateApproveAuthHint();
       await loadRolloutAudit(r.namespace, r.name);
       if (!quiet) setStatus(`Rollout ${r.namespace}/${r.name} loaded`);
-      startRolloutPolling();
+      if (!quiet) startMigrationPolling();
     } catch (e) {
       if (!quiet) setStatus('Failed to load rollout: ' + e.message, true);
       renderRolloutStages({ stages: [] });
@@ -1555,7 +1708,7 @@
       if (rollouts.length && !selectedRolloutKey) {
         await selectRollout(rolloutKey(rollouts[0]));
       } else {
-        startRolloutPolling();
+        startMigrationPolling();
       }
     } catch (e) {
       if (!quiet) setStatus('Failed to load rollouts: ' + e.message, true);
@@ -1591,6 +1744,8 @@
       setStatus(`Approved stage for ${r.namespace}/${r.name}`);
       await loadRollouts();
       await selectRollout(rolloutKey(r));
+      startDashboardPolling();
+      if (!$('dashboard')?.classList.contains('hidden')) await loadDashboard(true);
     } catch (e) {
       setStatus('Approve failed: ' + e.message, true);
       $('approve-rollout').disabled = false;
@@ -1626,6 +1781,8 @@
       showPanel('rollouts');
       await loadRollouts();
       if (selectedRolloutKey) await selectRollout(selectedRolloutKey);
+      startDashboardPolling();
+      await loadDashboard(true);
     } catch (e) {
       setStatus('Execute failed: ' + e.message, true);
       if (btn) btn.disabled = false;
@@ -1686,12 +1843,18 @@
         e.preventDefault();
         const id = a.getAttribute('href').slice(1);
         showPanel(id);
-        if (id === 'dashboard') loadDashboard();
+        if (id === 'dashboard') {
+          loadDashboard();
+          ensureMigrationPolling();
+        }
         if (id === 'assessments') {
           loadAssessments();
           loadMeshInstancesForPlans();
         }
-        if (id === 'plans') loadPlans();
+        if (id === 'plans') {
+          loadPlans();
+          ensureMigrationPolling();
+        }
         if (id === 'rollouts') loadRollouts();
       });
     });
@@ -1700,7 +1863,17 @@
   function initSse() {
     if (!API()) return;
     const evtSource = new EventSource(API() + '/api/v1/events/assessment');
-    evtSource.onmessage = (e) => appendEvent(e.data);
+    evtSource.onmessage = (e) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        if (parsed.channel === 'dashboard') {
+          if (!$('dashboard')?.classList.contains('hidden')) loadDashboard(true);
+          ensureMigrationPolling();
+          return;
+        }
+      } catch (_) {}
+      appendEvent(e.data);
+    };
     evtSource.onerror = () => appendEvent('SSE connection error');
   }
 
@@ -1713,7 +1886,9 @@
     loadFleetClusters();
     $('cluster-select')?.addEventListener('change', (e) => onClusterChange(e.target.value));
     $('rollout-filter')?.addEventListener('input', renderRolloutList);
-    $('rollout-auto-refresh')?.addEventListener('change', startRolloutPolling);
+    $('plan-auto-refresh')?.addEventListener('change', startMigrationPolling);
+    $('rollout-auto-refresh')?.addEventListener('change', startMigrationPolling);
+    $('dash-auto-refresh')?.addEventListener('change', startMigrationPolling);
     $('auth-login-btn')?.addEventListener('click', loginLocal);
     $('auth-logout-btn')?.addEventListener('click', logout);
     $('auth-oidc-login')?.addEventListener('click', startOidcLogin);
@@ -1764,5 +1939,6 @@
     initSse();
     showPanel('dashboard');
     loadDashboard();
+    ensureMigrationPolling();
   });
 })();
