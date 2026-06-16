@@ -14,7 +14,10 @@ pub async fn label_namespace_ambient(client: &Client, name: &str) -> Result<(), 
         name,
         json!({
             "istio.io/dataplane-mode": "ambient",
-            "istio-injection": null
+            "istio-injection": null,
+            // Keep `istio.io/rev` until after waypoint programming.
+            // Clearing it too early can prevent the waypoint controller from binding to
+            // the correct istiod revision in multi-RevisionTag environments.
         }),
     )
     .await?;

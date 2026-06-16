@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use ambientor_mesh::dynamic::{api_resource, list_cr_in_namespace};
 use ambientor_mesh::namespace_enrolled_on_mesh;
 use ambientor_types::MeshInstance;
@@ -5,9 +7,13 @@ use k8s_openapi::api::core::v1::Namespace;
 use kube::api::DynamicObject;
 use kube::{Api, Client};
 use serde_json::Value;
+use tokio::time::sleep;
 
 use crate::engine::RolloutError;
 use crate::waypoint::WAYPOINT_GATEWAY_NAME;
+
+const WORKLOAD_READY_TIMEOUT_SECS: u64 = 180;
+const WORKLOAD_POLL_INTERVAL_SECS: u64 = 2;
 
 /// Verify ambient enrollment, waypoint binding, and waypoint Gateway readiness.
 pub async fn verify_namespace_traffic(
@@ -139,6 +145,28 @@ pub async fn verify_application_reachability(
     client: &Client,
     namespace: &str,
 ) -> Result<(), RolloutError> {
+    let deadline = Duration::from_secs(WORKLOAD_READY_TIMEOUT_SECS);
+    let started = std::time::Instant::now();
+    let mut last_err = format!("workloads in {namespace} not ready");
+    while started.elapsed() < deadline {
+        match check_application_reachability(client, namespace).await {
+            Ok(()) => return Ok(()),
+            Err(RolloutError::ExecutionFailed(msg)) => {
+                last_err = msg;
+                sleep(Duration::from_secs(WORKLOAD_POLL_INTERVAL_SECS)).await;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(RolloutError::ExecutionFailed(format!(
+        "{last_err} (timed out after {WORKLOAD_READY_TIMEOUT_SECS}s waiting for workloads)"
+    )))
+}
+
+async fn check_application_reachability(
+    client: &Client,
+    namespace: &str,
+) -> Result<(), RolloutError> {
     use k8s_openapi::api::apps::v1::Deployment;
     use k8s_openapi::api::core::v1::Pod;
     use kube::api::ListParams;
@@ -200,11 +228,7 @@ pub async fn verify_application_reachability(
                 "Pod {namespace}/{name} not Ready"
             )));
         }
-        if pod
-            .spec
-            .as_ref()
-            .is_some_and(|s| s.containers.iter().any(|c| c.name == "istio-proxy"))
-        {
+        if pod_has_workload_sidecar(pod) {
             return Err(RolloutError::ExecutionFailed(format!(
                 "Pod {namespace}/{name} still has istio-proxy sidecar after migration"
             )));
@@ -212,6 +236,27 @@ pub async fn verify_application_reachability(
     }
 
     Ok(())
+}
+
+fn pod_has_workload_sidecar(pod: &k8s_openapi::api::core::v1::Pod) -> bool {
+    if pod
+        .metadata
+        .annotations
+        .as_ref()
+        .is_some_and(|a| a.contains_key("sidecar.istio.io/status"))
+    {
+        return true;
+    }
+    pod.spec.as_ref().is_some_and(|spec| {
+        spec.containers
+            .iter()
+            .any(|c| c.name == "istio-proxy")
+            || spec.init_containers.as_ref().is_some_and(|inits| {
+                inits
+                    .iter()
+                    .any(|c| c.name == "istio-proxy" || c.name == "istio-validation")
+            })
+    })
 }
 
 fn is_system_pod(pod: &k8s_openapi::api::core::v1::Pod) -> bool {

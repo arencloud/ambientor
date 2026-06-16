@@ -72,9 +72,10 @@ helm upgrade --install ambientor deploy/helm/ambientor/ \\
 EOF
 
 if [[ "${HELM_UPGRADE}" == true ]]; then
-  API_URL="${API_URL:-https://ambientor-api-ambientor-system.apps.cl01.arencloud.com}"
+  API_URL="${API_URL:-}"
   helm upgrade --install ambientor deploy/helm/ambientor/ \
     -n ambientor-system --create-namespace \
+    -f deploy/helm/ambientor/values-openshift-dev.yaml \
     --set image.pullPolicy=Always \
     --set operator.image.repository="${REGISTRY}/ambientor-operator-dev" \
     --set operator.image.tag="${TAG}" \
@@ -82,7 +83,26 @@ if [[ "${HELM_UPGRADE}" == true ]]; then
     --set api.image.tag="${TAG}" \
     --set web.image.repository="${REGISTRY}/ambientor-web-dev" \
     --set web.image.tag="${TAG}" \
-    --set openshift.apiUrl="${API_URL}"
+    --set openshift.routes.enabled=true \
+    --set postgresql.primary.persistence.enabled=false
+  if command -v oc >/dev/null 2>&1; then
+    API_HOST="$(oc get route ambientor-ambientor-api -n ambientor-system -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+    WEB_HOST="$(oc get route ambientor-ambientor-web -n ambientor-system -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+    if [[ -n "${API_HOST}" ]]; then
+      helm upgrade ambientor deploy/helm/ambientor/ -n ambientor-system --reuse-values \
+        --set "openshift.apiUrl=https://${API_HOST}"
+      API_URL="https://${API_HOST}"
+    fi
+    if [[ -n "${WEB_HOST}" ]]; then
+      echo "Portal: https://${WEB_HOST}/"
+    fi
+    if [[ -n "${API_URL}" ]]; then
+      echo "API: ${API_URL}/healthz"
+    fi
+  elif [[ -n "${API_URL}" ]]; then
+    helm upgrade ambientor deploy/helm/ambientor/ -n ambientor-system --reuse-values \
+      --set "openshift.apiUrl=${API_URL}"
+  fi
   kubectl rollout restart deployment -n ambientor-system \
     -l 'app in (ambientor-operator,ambientor-api,ambientor-web)' 2>/dev/null || true
 fi

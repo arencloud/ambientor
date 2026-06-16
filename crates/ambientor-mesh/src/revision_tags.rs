@@ -10,6 +10,8 @@ const REVISION_TAG_APIS: &[(&str, &str, &str, &str)] = &[
     ("tags.istio.io", "v1alpha3", "RevisionTag", "revisiontags"),
     ("tags.istio.io", "v1alpha1", "RevisionTag", "revisiontags"),
     ("istio.io", "v1alpha1", "IstioRevisionTag", "istiorevisiontags"),
+    // OpenShift Service Mesh / Sail Operator (cluster-scoped IstioRevisionTag).
+    ("sailoperator.io", "v1", "IstioRevisionTag", "istiorevisiontags"),
 ];
 
 /// Map istiod deployment revision → preferred `istio.io/rev` label value (revision tag when set).
@@ -99,13 +101,31 @@ fn merge_revision_tag(out: &mut HashMap<String, String>, tag: &kube::api::Dynami
 
 fn parse_revision_tag(tag: &kube::api::DynamicObject) -> Option<(String, String)> {
     let tag_name = tag.metadata.name.clone()?;
-    let spec = tag.data.get("spec")?;
-    let target_revision = spec
-        .get("revision")
+    let target_revision = tag
+        .data
+        .get("spec")
+        .and_then(istiod_revision_from_tag_spec)
+        .or_else(|| {
+            tag.data
+                .get("status")
+                .and_then(|s| s.get("istioRevision"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })?;
+    Some((target_revision, tag_name))
+}
+
+fn istiod_revision_from_tag_spec(spec: &serde_json::Value) -> Option<String> {
+    spec.get("revision")
         .or_else(|| spec.get("targetRevision"))
         .and_then(|v| v.as_str())
-        .map(str::to_string)?;
-    Some((target_revision, tag_name))
+        .map(str::to_string)
+        .or_else(|| {
+            spec.get("targetRef")
+                .and_then(|r| r.get("name"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
 }
 
 #[cfg(test)]
@@ -130,6 +150,29 @@ mod tests {
         assert_eq!(
             parsed,
             Some(("ambient-v1-28-6".into(), "prod-stable".into()))
+        );
+    }
+
+    #[test]
+    fn parses_sail_istio_revision_tag_target_ref() {
+        let parsed = parse_revision_tag(&DynamicObject {
+            metadata: ObjectMeta {
+                name: Some("ambient".into()),
+                ..Default::default()
+            },
+            data: json!({
+                "spec": {
+                    "targetRef": {
+                        "kind": "IstioRevision",
+                        "name": "ambient-v1-28-6"
+                    }
+                }
+            }),
+            types: None,
+        });
+        assert_eq!(
+            parsed,
+            Some(("ambient-v1-28-6".into(), "ambient".into()))
         );
     }
 }

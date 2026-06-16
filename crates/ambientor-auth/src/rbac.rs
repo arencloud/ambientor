@@ -122,6 +122,9 @@ async fn seed_defaults(enforcer: &mut Enforcer) -> Result<(), RbacError> {
             "allow",
         ),
         ("migration-operator", "*", "plan/*", "read|export", "allow"),
+        // Alias for docs/CLI that say "operator"
+        ("operator", "*", "rollout/*", "approve|execute|read", "allow"),
+        ("operator", "*", "plan/*", "read|export", "allow"),
         ("viewer", "*", "*", "read", "allow"),
         ("auditor", "*", "audit/*", "read", "allow"),
     ];
@@ -140,9 +143,10 @@ async fn seed_defaults(enforcer: &mut Enforcer) -> Result<(), RbacError> {
     Ok(())
 }
 
-/// Build a namespace-scoped object path for Casbin (`keyMatch` patterns).
-pub fn object_in_namespace(namespace: &str, kind: &str, name: &str) -> String {
-    format!("{kind}/{namespace}/{name}")
+/// Build an object path for Casbin (`keyMatch` patterns).
+/// Namespace is enforced via the Casbin domain argument, not duplicated in the path.
+pub fn object_in_namespace(_namespace: &str, kind: &str, name: &str) -> String {
+    format!("{kind}/{name}")
 }
 
 pub fn object_pattern(kind: &str, pattern: &str) -> String {
@@ -156,14 +160,10 @@ mod tests {
     #[tokio::test]
     async fn namespace_domain_enforces_rollout_approve() {
         let rbac = RbacEnforcer::with_defaults().await.unwrap();
+        let object = object_in_namespace("bookinfo", "rollout", "bookinfo-reviews");
         assert!(
-            rbac.enforce(
-                "migration-operator",
-                "bookinfo",
-                "rollout/bookinfo-reviews",
-                "approve"
-            )
-            .unwrap()
+            rbac.enforce("migration-operator", "bookinfo", &object, "approve")
+                .unwrap()
         );
         assert!(
             !rbac

@@ -162,6 +162,12 @@ pub fn namespace_enrolled_on_mesh(labels: &BTreeMap<String, String>, mesh: &Mesh
         }
         MeshEnrollmentMode::DiscoveryLabel => discovery_matches(labels, e),
         MeshEnrollmentMode::RevisionAndDiscovery | MeshEnrollmentMode::OssmMemberRoll => {
+            // Native ambient namespaces (see ADR 002) enroll via discovery only.
+            if labels.get("istio.io/dataplane-mode").map(String::as_str) == Some("ambient")
+                && discovery_matches(labels, e)
+            {
+                return true;
+            }
             revision_matches(labels, e) && discovery_matches(labels, e)
         }
     }
@@ -453,6 +459,25 @@ mod tests {
             enrolled_namespace_count: 0,
             enrollment,
         }
+    }
+
+    #[test]
+    fn enrolled_when_ambient_dataplane_without_rev_label() {
+        let enrollment = MeshEnrollment {
+            mode: MeshEnrollmentMode::RevisionAndDiscovery,
+            revision: "ambient".into(),
+            istio_revision: Some("ambient-v1-28-6".into()),
+            revision_tag: Some("ambient".into()),
+            discovery_label_key: Some("istio-discovery".into()),
+            discovery_label_value: Some("mesh-ambient".into()),
+            member_roll_namespace: None,
+            from_istiod_config: false,
+        };
+        let mesh = mesh_with_enrollment(enrollment);
+        let mut labels = BTreeMap::new();
+        labels.insert("istio.io/dataplane-mode".into(), "ambient".into());
+        labels.insert("istio-discovery".into(), "mesh-ambient".into());
+        assert!(namespace_enrolled_on_mesh(&labels, &mesh));
     }
 
     #[test]

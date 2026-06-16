@@ -243,14 +243,14 @@ pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
             requires_approval: false,
         });
         stages.push(RolloutStage {
-            name: format!("{}-restart-sidecars", wave.name),
-            r#type: RolloutStageType::RollingRestart,
+            name: format!("{}-label", wave.name),
+            r#type: RolloutStageType::LabelNamespace,
             namespaces: wave.namespaces.clone(),
             requires_approval: false,
         });
         stages.push(RolloutStage {
-            name: format!("{}-label", wave.name),
-            r#type: RolloutStageType::LabelNamespace,
+            name: format!("{}-restart", wave.name),
+            r#type: RolloutStageType::RollingRestart,
             namespaces: wave.namespaces.clone(),
             requires_approval: false,
         });
@@ -267,7 +267,7 @@ pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
             requires_approval: false,
         });
         stages.push(RolloutStage {
-            name: format!("{}-restart", wave.name),
+            name: format!("{}-restart-final", wave.name),
             r#type: RolloutStageType::RollingRestart,
             namespaces: wave.namespaces.clone(),
             requires_approval: false,
@@ -298,6 +298,35 @@ mod tests {
     #[test]
     fn namespaces_default_when_empty() {
         assert_eq!(namespaces_from_findings(&[]), vec!["default"]);
+    }
+
+    #[test]
+    fn labels_ambient_before_first_restart() {
+        let plan = build_plan(
+            &AssessmentResult {
+                findings: vec![],
+                scores: Default::default(),
+                summary: Default::default(),
+            },
+            &["bookinfo".into()],
+        );
+        let rollout = plan_to_rollout(&plan);
+        let types: Vec<_> = rollout.stages.iter().map(|s| s.r#type).collect();
+        let label = types
+            .iter()
+            .position(|t| *t == RolloutStageType::LabelNamespace)
+            .expect("label stage");
+        let first_restart = types
+            .iter()
+            .position(|t| *t == RolloutStageType::RollingRestart)
+            .expect("restart stage");
+        assert!(label < first_restart);
+        assert!(
+            !rollout
+                .stages
+                .iter()
+                .any(|s| s.name.ends_with("-restart-sidecars"))
+        );
     }
 
     #[test]

@@ -18,9 +18,9 @@ web:
     tag: ""
 
 openshift:
-  apiUrl: "https://ambientor-api-ambientor-system.apps.cl01.arencloud.com"
+  apiUrl: ""
   routes:
-    enabled: false
+    enabled: true
     api:
       host: ""
     web:
