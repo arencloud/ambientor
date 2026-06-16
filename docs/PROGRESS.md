@@ -5,11 +5,11 @@ Agents should update status when a step is started, merged, or blocked.
 
 **Legend:** ✅ done · 🔄 in progress · ⬜ pending · ⏸ blocked
 
-**Current focus:** OpenShift pilot validation on real clusters (install scripts, runbook, Tier 1–4 sign-off).
+**Current focus:** OpenShift pilot sign-off on cl01 (assess → plan → execute → rollout Completed on sidecar namespaces).
 
-**Next up:** P2 export sign-off on hub/spoke OpenShift; optional OIDC HA (external PKCE store); Tier 5 remote rollout on spokes.
+**Next up:** P2 formal sign-off across cl02/cl03; ADR 002 istiod ConfigMap discovery on Sail; hub spoke sync + remote rollout (ADR 003); optional OIDC HA (external PKCE store).
 
-**Last updated:** 2026-05-28
+**Last updated:** 2026-06-16
 
 ---
 
@@ -77,8 +77,9 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | 3.3 | Approval API + portal UI | ✅ | PR [#17](https://github.com/arencloud/ambientor/pull/17) | Merged |
 | 3.4 | Audit log for approve/apply/rollback | ✅ | PR [#18](https://github.com/arencloud/ambientor/pull/18) | Merged |
 | 3.5 | kind e2e: bookinfo → plan → rollout → verify | ✅ | PR [#19](https://github.com/arencloud/ambientor/pull/19) | `scripts/e2e-kind-ambient.sh`, `.github/workflows/e2e-kind.yml` |
+| 3.6 | OpenShift ambient rollout hardening (ADR 002) | ✅ | `b1c4785` on `main` | Sail `IstioRevisionTag`, stage reorder, waypoint rev timing, verify polling/sidecar checks; cl01 `mesh-sidecar-*` Completed |
 
-**Phase 3 exit criteria:** ✅ One namespace at a time; verify + auto-rollback proven in e2e (happy-path kind job + rollback unit tests).
+**Phase 3 exit criteria:** ✅ One namespace at a time; verify + auto-rollback proven in e2e and on OpenShift cl01 sidecar→ambient migrations.
 
 ---
 
@@ -110,10 +111,28 @@ See [architecture/README.md](architecture/README.md) and [ADR 001](adr/001-in-cl
 | # | Criterion | Status |
 |---|-----------|--------|
 | P1 | Blockers match Istio migrate docs on 3+ clusters | ✅ `pilot-artifacts/20260527-validate` (cl01/cl02/cl03, 0 blockers) |
-| P2 | Plans human-approved with exported manifests | 🔄 | Use `docs/runbook-openshift-pilot.md` + `scripts/openshift-pilot-*.sh` on real clusters |
-| P3 | Rollout: one NS, verify + auto-rollback in e2e | ✅ | kind e2e injects verify failure → `RolledBack` then happy path |
-| P4 | Portal/OIDC gates approve + execute | ✅ PR [#29](https://github.com/arencloud/ambientor/pull/29) |
+| P2 | Plans human-approved with exported manifests | 🔄 | cl01: install package + portal execute; formal sign-off on cl02/cl03 pending |
+| P3 | Rollout: verify + auto-rollback | ✅ | kind e2e + cl01 sidecar→ambient rollouts Completed (`mesh-sidecar-1`, `mesh-sidecar-2`/`3`) |
+| P4 | Portal/OIDC gates approve + execute | ✅ | PR [#29](https://github.com/arencloud/ambientor/pull/29); Casbin/RBAC fixes on cl01 dev loop |
 | P5 | Audit log for approve / apply / rollback | ✅ |
+
+### OpenShift dev loop (cl01)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Pilot install package | ✅ | `a0b881e` — `scripts/openshift-pilot-install.sh`, runbook |
+| Dev build/push + Routes | ✅ | `scripts/dev-build-push.sh`, `values-openshift-dev.yaml` |
+| One-click plan execute | ✅ | `559cb3c` — approve + rollout + stage 0 |
+| Mesh enrollment on Sail | ✅ | `b1c4785` — revision tags, waypoint timing, no sidecar after ambient |
+| Cleanup / fresh install | ✅ | `scripts/openshift-cleanup.sh` |
+
+### ADR follow-ups (architecture)
+
+| ADR | Remaining |
+|-----|-----------|
+| [002](adr/002-mesh-enrollment.md) | istiod ConfigMap discovery on Sail; portal enroll button; revision-only / MemberRoll coverage |
+| [003](adr/003-dashboard-multicluster-persistence.md) | Hub periodic spoke sync; remote rollout on `ClusterConnection` spokes |
+| [004](adr/004-application-assessment-catalog.md) | Operational only — requires Postgres for `/applications` |
 
 ---
 
