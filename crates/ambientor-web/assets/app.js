@@ -1408,9 +1408,69 @@
     startMigrationPolling();
   }
 
+  function rolloutPhaseMeta(phase) {
+    const key = (phase || 'unknown').toLowerCase().replace(/[^a-z]/g, '');
+    const map = {
+      completed: { label: 'Completed', icon: '✓', class: 'completed' },
+      running: { label: 'Running', icon: '↻', class: 'running' },
+      pending: { label: 'Pending', icon: '○', class: 'pending' },
+      awaitingapproval: { label: 'Awaiting approval', icon: '!', class: 'awaitingapproval' },
+      failed: { label: 'Failed', icon: '✕', class: 'failed' },
+      rolledback: { label: 'Rolled back', icon: '↩', class: 'rolledback' },
+      processing: { label: 'Processing', icon: '↻', class: 'processing' },
+    };
+    return map[key] || { label: phase || 'Unknown', icon: '·', class: key || 'unknown' };
+  }
+
+  function stageTypeIcon(type) {
+    const t = (type || '').toLowerCase();
+    if (t.includes('enroll')) return '⎔';
+    if (t.includes('restart')) return '↻';
+    if (t.includes('verify')) return '✓';
+    if (t.includes('label')) return '⌁';
+    if (t.includes('waypoint')) return '◎';
+    if (t.includes('remove')) return '⊖';
+    return '●';
+  }
+
+  function rolloutProgressPct(r) {
+    const current = r.currentStage ?? r.current_stage ?? 0;
+    const total = r.stageCount ?? r.stage_count ?? 0;
+    if (!total) return 0;
+    return Math.min(100, Math.round(((current + 1) / total) * 100));
+  }
+
+  function setRolloutDetailVisible(visible) {
+    $('rollout-empty-state')?.classList.toggle('hidden', visible);
+    $('rollout-detail-panel')?.classList.toggle('hidden', !visible);
+  }
+
+  function renderRolloutStats() {
+    const bar = $('rollout-stats');
+    if (!bar) return;
+    const total = rollouts.length;
+    const active = rollouts.filter((r) => rolloutIsActive(r.phase)).length;
+    const completed = rollouts.filter(
+      (r) => (r.phase || '').toLowerCase() === 'completed'
+    ).length;
+    const failed = rollouts.filter((r) => {
+      const p = (r.phase || '').toLowerCase();
+      return p === 'failed' || p === 'rolledback';
+    }).length;
+    const badge = $('rollout-count-badge');
+    if (badge) badge.textContent = String(total);
+    bar.innerHTML = `
+      <div class="rollout-stat total"><span class="rollout-stat-value">${total}</span><span class="rollout-stat-label">Total</span></div>
+      <div class="rollout-stat active"><span class="rollout-stat-value">${active}</span><span class="rollout-stat-label">In progress</span></div>
+      <div class="rollout-stat completed"><span class="rollout-stat-value">${completed}</span><span class="rollout-stat-label">Completed</span></div>
+      <div class="rollout-stat failed"><span class="rollout-stat-value">${failed}</span><span class="rollout-stat-label">Failed</span></div>
+    `;
+  }
+
   function renderRolloutList() {
     const ul = $('rollout-list');
     if (!ul) return;
+    renderRolloutStats();
     const filter = ($('rollout-filter')?.value || '').toLowerCase();
     ul.innerHTML = '';
     const list = rollouts.filter((r) => {
@@ -1419,7 +1479,8 @@
       return hay.includes(filter);
     });
     if (!list.length) {
-      ul.innerHTML = '<li class="hint">No rollouts match</li>';
+      ul.innerHTML = '<li class="hint rollout-list-empty">No rollouts match your search</li>';
+      if (!selectedRolloutKey) setRolloutDetailVisible(false);
       return;
     }
     list.forEach((r) => {
@@ -1428,13 +1489,28 @@
       li.className =
         'rollout-list-item' + (key === selectedRolloutKey ? ' selected' : '');
       const awaiting = r.awaitingApproval || r.awaiting_approval;
-      const phaseClass = (r.phase || 'unknown').toLowerCase().replace(/[^a-z]/g, '');
+      const meta = rolloutPhaseMeta(r.phase);
+      const pct = rolloutProgressPct(r);
+      const planRef = r.planRef || r.plan_ref;
+      const stage = (r.currentStage ?? r.current_stage ?? 0) + 1;
+      const total = r.stageCount ?? r.stage_count ?? '?';
       li.innerHTML = `
         <button type="button" data-key="${escapeHtml(key)}">
-          <span class="rollout-list-name">${escapeHtml(r.namespace)}/${escapeHtml(r.name)}</span>
-          <span class="phase-badge small ${phaseClass}">${escapeHtml(r.phase)}</span>
-          <span class="rollout-list-meta">Stage ${(r.currentStage ?? r.current_stage ?? 0) + 1} / ${r.stageCount ?? r.stage_count ?? '?'}</span>
-          ${awaiting ? '<span class="badge-status warning">Approve</span>' : ''}
+          <div class="rollout-card-top">
+            <div>
+              <span class="rollout-list-name">${escapeHtml(r.name)}</span>
+              <span class="rollout-list-plan">${escapeHtml(r.namespace)}${planRef ? ' · ' + escapeHtml(planRef) : ''}</span>
+            </div>
+            <span class="phase-badge small ${meta.class}">${escapeHtml(meta.label)}</span>
+          </div>
+          <div class="rollout-card-progress">
+            <div class="progress-track"><span style="display:block;height:100%;width:${pct}%;background:linear-gradient(90deg,var(--accent),var(--success));border-radius:3px;transition:width 0.4s ease"></span></div>
+            <span>${pct}%</span>
+          </div>
+          <div class="rollout-list-meta">
+            <span>Stage ${stage}/${total}</span>
+            ${awaiting ? '<span class="badge-status warning">Needs approval</span>' : ''}
+          </div>
         </button>
       `;
       li.querySelector('button').addEventListener('click', () => selectRollout(key));
@@ -1450,19 +1526,27 @@
     if (!events || !events.length) {
       if (hint) {
         hint.textContent = events
-          ? 'No audit events for this rollout yet.'
-          : 'Audit log unavailable (configure DATABASE_URL on the API).';
+          ? '· no events yet'
+          : '· audit unavailable';
       }
       return;
     }
-    if (hint) hint.textContent = `${events.length} recent event(s)`;
+    if (hint) hint.textContent = `· ${events.length} event(s)`;
     events.forEach((ev) => {
       const li = document.createElement('li');
       const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleString() : '—';
+      const outcome = (ev.outcome || '').toLowerCase();
+      const dotClass = outcome === 'succeeded' ? 'success' : outcome === 'failed' ? 'failed' : '';
       li.innerHTML = `
-        <span class="audit-ts">${escapeHtml(ts)}</span>
-        <span class="audit-action">${escapeHtml(ev.action)}</span>
-        <span><span class="audit-outcome">${escapeHtml(ev.outcome)}</span> · ${escapeHtml(ev.actor || '')}${ev.details?.stageName ? ' · ' + escapeHtml(ev.details.stageName) : ''}</span>
+        <span class="audit-dot ${dotClass}" aria-hidden="true"></span>
+        <div>
+          <div class="audit-event-head">
+            <span class="audit-event-action">${escapeHtml(ev.action)}</span>
+            <span class="audit-event-outcome ${escapeHtml(outcome)}">${escapeHtml(ev.outcome || '')}</span>
+            <span class="audit-event-meta">${escapeHtml(ts)}</span>
+          </div>
+          <div class="audit-event-meta">${escapeHtml(ev.actor || 'system')}${ev.details?.stageName ? ' · ' + escapeHtml(ev.details.stageName) : ''}</div>
+        </div>
       `;
       ul.appendChild(li);
     });
@@ -1497,7 +1581,7 @@
       detail.rollout?.resolvedMeshTarget;
     if (!mesh) {
       el.classList.add('hidden');
-      el.textContent = '';
+      el.innerHTML = '';
       return;
     }
     el.classList.remove('hidden');
@@ -1507,11 +1591,15 @@
       enroll.revision_tag ||
       enroll.revision ||
       mesh.revision;
-    const parts = [`istio.io/rev=${rev}`, 'istio.io/dataplane-mode=ambient'];
+    const chips = [`istio.io/rev=${rev}`, 'istio.io/dataplane-mode=ambient'];
     if (enroll.discoveryLabelKey && enroll.discoveryLabelValue) {
-      parts.push(`${enroll.discoveryLabelKey}=${enroll.discoveryLabelValue}`);
+      chips.push(`${enroll.discoveryLabelKey}=${enroll.discoveryLabelValue}`);
     }
-    el.textContent = `Resolved mesh: ${mesh.discoveryLabel || mesh.discovery_label} · labels: ${parts.join(', ')}`;
+    el.innerHTML = `
+      <strong>Target mesh</strong>
+      <div>${escapeHtml(mesh.discoveryLabel || mesh.discovery_label || mesh.revision || 'Istio')}</div>
+      <div class="rollout-mesh-chips">${chips.map((c) => `<span class="rollout-label-chip">${escapeHtml(c)}</span>`).join('')}</div>
+    `;
   }
 
   function renderRolloutConditions(detail) {
@@ -1545,15 +1633,23 @@
         else if (s.index === current) cls += ' active';
         const result = s.resultPhase || s.result_phase;
         if (result === 'Failed') cls += ' failed';
-        return `<div class="${cls}" title="${escapeHtml(s.name)}"><span class="timeline-dot"></span><span class="timeline-label">${escapeHtml(s.name)}</span></div>`;
+        const dotContent =
+          result === 'Completed' || s.index < current
+            ? '✓'
+            : result === 'Failed'
+              ? '✕'
+              : s.index === current
+                ? String(s.index + 1)
+                : String(s.index + 1);
+        return `<div class="${cls}" title="${escapeHtml(s.name)}"><span class="timeline-dot">${dotContent}</span><span class="timeline-label">${escapeHtml(s.name)}</span></div>`;
       })
       .join('');
   }
 
   function renderRolloutStages(detail) {
-    const tbody = $('rollout-stages')?.querySelector('tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '';
+    const grid = $('rollout-stages-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
     const current =
       detail.rollout?.currentStage ??
       detail.rollout?.current_stage ??
@@ -1561,28 +1657,40 @@
     const awaiting =
       detail.rollout?.awaitingApproval ?? detail.rollout?.awaiting_approval;
     const total = detail.stages?.length || detail.rollout?.stageCount || detail.rollout?.stage_count || 1;
+    const pct = Math.min(100, Math.round(((current + 1) / total) * 100));
     const fill = $('rollout-progress-fill');
-    if (fill) {
-      const pct = Math.min(100, Math.round(((current + 1) / total) * 100));
-      fill.style.width = pct + '%';
+    if (fill) fill.style.width = pct + '%';
+    const pctEl = $('rollout-progress-pct');
+    if (pctEl) pctEl.textContent = pct + '%';
+    const hint = $('rollout-pipeline-hint');
+    if (hint) {
+      hint.textContent = `${detail.stages?.length || 0} stage(s) · auto-advance between waves`;
     }
     (detail.stages || []).forEach((s) => {
-      const tr = document.createElement('tr');
-      if (s.index === current) tr.classList.add('current');
-      if (s.index === current && awaiting) tr.classList.add('awaiting');
-      if ((s.resultPhase || s.result_phase) === 'Completed') tr.classList.add('done');
-      if ((s.resultPhase || s.result_phase) === 'Failed') tr.classList.add('failed');
-      const approval = s.requiresApproval || s.requires_approval ? 'Manual' : 'Auto';
-      const result = s.resultPhase || s.result_phase || '—';
+      const card = document.createElement('article');
+      card.className = 'rollout-stage-card';
+      if (s.index === current) card.classList.add('current');
+      if (s.index === current && awaiting) card.classList.add('awaiting');
+      if ((s.resultPhase || s.result_phase) === 'Completed') card.classList.add('done');
+      if ((s.resultPhase || s.result_phase) === 'Failed') card.classList.add('failed');
+      const result = s.resultPhase || s.result_phase;
+      const stageType = s.stageType || s.stage_type || '';
       const ns = (s.namespaces || []).join(', ') || '—';
-      tr.innerHTML = `
-        <td>${s.index + 1}</td>
-        <td><strong>${escapeHtml(s.name)}</strong></td>
-        <td>${escapeHtml(s.stageType || s.stage_type || '')}</td>
-        <td class="mono small">${escapeHtml(ns)}</td>
-        <td>${escapeHtml(result)}${s.resultMessage || s.result_message ? '<br><span class="hint">' + escapeHtml(s.resultMessage || s.result_message) + '</span>' : ''}</td>
+      const approval = s.requiresApproval || s.requires_approval;
+      let resultLine = 'Upcoming';
+      if (result === 'Completed') resultLine = 'Completed';
+      else if (result === 'Failed') resultLine = 'Failed';
+      else if (s.index === current) resultLine = awaiting ? 'Awaiting approval' : 'In progress';
+      card.innerHTML = `
+        <div class="rollout-stage-card-head">
+          <h5>${escapeHtml(s.name)}</h5>
+          <span class="rollout-stage-num">#${s.index + 1}</span>
+        </div>
+        <div class="rollout-stage-type"><span aria-hidden="true">${stageTypeIcon(stageType)}</span> ${escapeHtml(stageType)}${approval ? ' · manual' : ' · auto'}</div>
+        <div class="rollout-stage-ns">${escapeHtml(ns)}</div>
+        <div class="rollout-stage-result">${escapeHtml(resultLine)}${s.resultMessage || s.result_message ? ' — ' + escapeHtml(s.resultMessage || s.result_message) : ''}</div>
       `;
-      tbody.appendChild(tr);
+      grid.appendChild(card);
     });
     renderRolloutTimeline(detail);
     renderRolloutMeshTarget(detail);
@@ -1599,9 +1707,6 @@
       rolloutDetail = await res.json();
       renderRolloutDetailHeader(r, rolloutDetail);
       renderRolloutStages(rolloutDetail);
-      const awaitingDetail =
-        rolloutDetail.rollout?.awaitingApproval ?? rolloutDetail.rollout?.awaiting_approval;
-      $('approve-rollout').disabled = !canApproveRollout(awaitingDetail);
       updateApproveAuthHint();
       await loadRolloutAudit(r.namespace, r.name);
       if (!quiet) setStatus(`Rollout ${r.namespace}/${r.name} loaded`);
@@ -1613,24 +1718,34 @@
   }
 
   function renderRolloutDetailHeader(r, detail) {
-    $('rollout-detail-title').textContent = `${r.namespace}/${r.name}`;
+    setRolloutDetailVisible(true);
+    const shortName = r.name || '—';
+    $('rollout-detail-title').textContent = shortName;
     const phase = r.phase || detail?.rollout?.phase || '—';
+    const meta = rolloutPhaseMeta(phase);
     const phaseEl = $('rollout-detail-phase');
-    if (phaseEl) {
-      phaseEl.textContent = phase;
-      phaseEl.className =
-        'phase-badge large ' + phase.toLowerCase().replace(/[^a-z]/g, '');
-    }
+    const iconEl = $('rollout-phase-icon');
+    const chipEl = $('rollout-phase-chip');
+    if (phaseEl) phaseEl.textContent = meta.label;
+    if (iconEl) iconEl.textContent = meta.icon;
+    if (chipEl) chipEl.className = 'rollout-phase-chip ' + meta.class;
+    const hero = $('rollout-hero-card');
+    if (hero) hero.className = 'rollout-hero-card phase-' + meta.class;
     const current = r.currentStage ?? r.current_stage ?? 0;
     const total = r.stageCount ?? r.stage_count ?? '?';
-    $('rollout-stage-progress').textContent =
-      `Stage ${current + 1} of ${total} · approved through stage ${(r.approvedStage ?? r.approved_stage ?? 0) + 1}`;
+    const approved = (r.approvedStage ?? r.approved_stage ?? 0) + 1;
+    const stageName =
+      detail?.stages?.find((s) => s.index === current)?.name || `Stage ${current + 1}`;
+    const progressEl = $('rollout-stage-progress');
+    if (progressEl) {
+      progressEl.textContent = `${stageName} · stage ${current + 1} of ${total} · approved through ${approved}`;
+    }
     const cr = r.clusterRef || r.cluster_ref || detail?.rollout?.clusterRef || detail?.rollout?.cluster_ref;
     const crEl = $('rollout-cluster-ref');
-    if (crEl) crEl.textContent = cr ? `Cluster: ${cr}` : '';
+    if (crEl) crEl.textContent = cr ? `Cluster ${cr}` : `Namespace ${r.namespace}`;
     const planRef = r.planRef || r.plan_ref;
     const planEl = $('rollout-plan-ref');
-    if (planEl) planEl.textContent = planRef ? `Plan: ${planRef}` : 'No linked plan';
+    if (planEl) planEl.textContent = planRef ? `Linked plan · ${planRef}` : 'Standalone rollout';
     const planLink = $('rollout-plan-link');
     if (planLink) {
       if (planRef) {
@@ -1639,8 +1754,20 @@
       } else planLink.classList.add('hidden');
     }
     const autoRb = detail?.autoRollback ?? detail?.auto_rollback;
-    if (autoRb !== undefined && $('rollout-stage-progress')) {
-      $('rollout-stage-progress').textContent += autoRb ? ' · auto-rollback on' : ' · auto-rollback off';
+    if (autoRb !== undefined && progressEl) {
+      progressEl.textContent += autoRb ? ' · auto-rollback enabled' : ' · auto-rollback off';
+    }
+    const awaiting =
+      r.awaitingApproval ||
+      r.awaiting_approval ||
+      detail?.rollout?.awaitingApproval ||
+      detail?.rollout?.awaiting_approval;
+    const banner = $('rollout-awaiting-banner');
+    if (banner) banner.classList.toggle('hidden', !awaiting);
+    const approveBtn = $('approve-rollout');
+    if (approveBtn) {
+      approveBtn.classList.toggle('pulse', !!awaiting && canApproveRollout(awaiting));
+      approveBtn.disabled = !canApproveRollout(awaiting);
     }
   }
 
@@ -1650,9 +1777,6 @@
     if (!r) return;
     renderRolloutList();
     renderRolloutDetailHeader(r, rolloutDetail);
-    const awaiting = r.awaitingApproval || r.awaiting_approval;
-    $('approve-rollout').disabled = !canApproveRollout(awaiting);
-    updateApproveAuthHint();
     setStatus('Loading rollout detail…');
     await refreshRolloutDetail(r, false);
     showPanel('rollouts');
@@ -1666,7 +1790,7 @@
       if (!res.ok) throw new Error(await res.text());
       const items = await res.json();
       if (!items.length) {
-        el.textContent = 'No Istio control planes discovered.';
+        el.classList.add('hidden');
         return;
       }
       const ambient = items.filter((m) => m.ambient);
@@ -1681,12 +1805,13 @@
       });
       el.textContent =
         (ambient.length === 1
-          ? 'Single ambient mesh — rollouts can omit meshTarget. '
+          ? 'Single ambient mesh detected. '
           : ambient.length > 1
             ? 'Multiple ambient meshes — set rollout.spec.meshTarget. '
             : '') + lines.join(' · ');
+      el.classList.remove('hidden');
     } catch (e) {
-      el.textContent = 'Mesh instances: ' + e.message;
+      el.classList.add('hidden');
     }
   }
 
@@ -1698,11 +1823,16 @@
       if (!res.ok) throw new Error(await res.text());
       rollouts = await res.json();
       renderRolloutList();
+      if (!rollouts.length) {
+        setRolloutDetailVisible(false);
+        if (!quiet) {
+          setStatus('No rollouts yet — start one from a migration plan');
+        }
+        return;
+      }
       if (!quiet) {
         setStatus(
-          rollouts.length
-            ? `Loaded ${rollouts.length} rollout(s)${activeClusterRef ? ' · ' + activeClusterRef : ''}`
-            : 'No rollouts in cluster (start one from a migration plan)'
+          `Loaded ${rollouts.length} rollout(s)${activeClusterRef ? ' · ' + activeClusterRef : ''}`
         );
       }
       if (rollouts.length && !selectedRolloutKey) {

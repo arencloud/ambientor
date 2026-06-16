@@ -264,48 +264,97 @@
       <div class="view-hero">
         <div>
           <p class="eyebrow">Execution</p>
-          <h2>Rollouts</h2>
-          <p class="view-meta">Approve once to run enroll → remove sidecar labels → restart → verify reachability. Failed verify rolls back automatically.</p>
+          <h2>Migration rollouts</h2>
+          <p class="view-meta">Track each wave as it moves through enroll → ambient labels → restart → verify. One approval starts the pipeline; failed verify triggers automatic rollback.</p>
         </div>
         <div class="hero-actions">
-          <label class="toggle-inline"><input type="checkbox" id="rollout-auto-refresh" checked /> Live</label>
+          <label class="toggle-inline"><input type="checkbox" id="rollout-auto-refresh" checked /> Live updates</label>
           <button id="refresh-rollouts" class="btn">Refresh</button>
         </div>
       </div>
-      <div class="split-layout">
-        <aside class="split-sidebar">
-          <input type="search" id="rollout-filter" class="filter-input" placeholder="Filter rollouts…" />
-          <ul id="rollout-list" class="entity-list"></ul>
-        </aside>
-        <div class="split-detail content-card rollout-detail">
-          <header class="split-detail-head">
-            <div>
-              <p class="eyebrow" id="rollout-plan-ref">—</p>
-              <h3 id="rollout-detail-title">Select a rollout</h3>
-              <p class="hint" id="rollout-cluster-ref"></p>
-            </div>
-            <span id="rollout-detail-phase" class="phase-badge phase-lg">—</span>
-          </header>
-          <div class="progress-track"><span id="rollout-progress-fill"></span></div>
-          <p id="rollout-stage-progress" class="hint"></p>
-          <div id="rollout-mesh-target" class="label-preview hidden"></div>
-          <div id="rollout-conditions" class="condition-row"></div>
-          <div class="action-row">
-            <button id="approve-rollout" class="btn btn-primary" disabled>Approve migration</button>
-            <p class="hint inline-hint">Only needed if rollout was created via GitOps/CLI without execute.</p>
-            <a id="rollout-plan-link" class="btn hidden" href="#plans">View plan</a>
+
+      <div id="rollout-stats" class="rollout-stats-bar" aria-label="Rollout summary"></div>
+
+      <div class="split-layout rollout-split">
+        <aside class="split-sidebar rollout-sidebar">
+          <div class="rollout-sidebar-head">
+            <h3>All rollouts</h3>
+            <span id="rollout-count-badge" class="rollout-count-badge">0</span>
           </div>
-          <p id="approve-auth-hint" class="hint hidden"></p>
-          <p id="mesh-instances-hint" class="hint"></p>
-          <h4>Pipeline</h4>
-          <div id="rollout-stage-timeline" class="stage-timeline"></div>
-          <table class="data-table compact" id="rollout-stages">
-            <thead><tr><th>#</th><th>Stage</th><th>Type</th><th>Namespaces</th><th>Status</th></tr></thead>
-            <tbody></tbody>
-          </table>
-          <h4>Audit</h4>
-          <p id="rollout-audit-hint" class="hint">Requires DATABASE_URL.</p>
-          <ul id="rollout-audit-list" class="audit-list"></ul>
+          <input type="search" id="rollout-filter" class="filter-input rollout-filter" placeholder="Search name, plan, phase…" />
+          <ul id="rollout-list" class="rollout-list"></ul>
+        </aside>
+
+        <div class="rollout-detail-wrap">
+          <div id="rollout-empty-state" class="rollout-empty-state">
+            <div class="rollout-empty-icon" aria-hidden="true">⟡</div>
+            <h3>No rollout selected</h3>
+            <p class="hint">Choose a migration from the list, or start one from a <a href="#plans">migration plan</a>.</p>
+          </div>
+
+          <div id="rollout-detail-panel" class="rollout-detail-panel hidden">
+            <div class="rollout-hero-card" id="rollout-hero-card">
+              <header class="rollout-hero-head">
+                <div class="rollout-hero-titles">
+                  <p class="eyebrow" id="rollout-plan-ref">—</p>
+                  <h3 id="rollout-detail-title">—</h3>
+                  <p class="hint" id="rollout-cluster-ref"></p>
+                </div>
+                <div class="rollout-phase-chip" id="rollout-phase-chip">
+                  <span class="rollout-phase-icon" id="rollout-phase-icon">·</span>
+                  <span id="rollout-detail-phase" class="rollout-phase-label">—</span>
+                </div>
+              </header>
+
+              <div class="rollout-progress-block">
+                <div class="rollout-progress-meta">
+                  <span class="rollout-progress-pct" id="rollout-progress-pct">0%</span>
+                  <span class="rollout-progress-caption" id="rollout-stage-progress">—</span>
+                </div>
+                <div class="progress-track progress-track-lg rollout-progress-track">
+                  <span id="rollout-progress-fill"></span>
+                </div>
+              </div>
+
+              <div id="rollout-awaiting-banner" class="rollout-awaiting-banner hidden" role="status">
+                <div class="awaiting-banner-glow" aria-hidden="true"></div>
+                <div class="awaiting-banner-body">
+                  <strong>Your approval is needed</strong>
+                  <p>The current stage is paused until you approve it to continue the migration.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="rollout-info-row">
+              <div id="rollout-mesh-target" class="rollout-mesh-card hidden"></div>
+              <div id="rollout-conditions" class="rollout-conditions"></div>
+            </div>
+
+            <div class="rollout-action-bar">
+              <button id="approve-rollout" class="btn btn-primary btn-lg rollout-approve-btn" disabled>
+                <span class="btn-icon" aria-hidden="true">✓</span> Approve stage
+              </button>
+              <a id="rollout-plan-link" class="btn hidden" href="#plans">View plan</a>
+              <p id="approve-auth-hint" class="hint hidden"></p>
+            </div>
+            <p class="rollout-action-note hint">Approve is only required when a rollout was created via GitOps or CLI without one-click execute.</p>
+
+            <section class="rollout-section">
+              <div class="rollout-section-head">
+                <h4>Pipeline</h4>
+                <span class="hint" id="rollout-pipeline-hint"></span>
+              </div>
+              <div id="rollout-stage-timeline" class="rollout-stepper" aria-label="Stage progress"></div>
+              <div id="rollout-stages-grid" class="rollout-stages-grid"></div>
+            </section>
+
+            <details class="rollout-audit-details">
+              <summary>Activity log <span id="rollout-audit-hint" class="audit-summary-hint">—</span></summary>
+              <ul id="rollout-audit-list" class="rollout-audit-timeline"></ul>
+            </details>
+
+            <p id="mesh-instances-hint" class="rollout-mesh-hint hint hidden"></p>
+          </div>
         </div>
       </div>
     </section>
