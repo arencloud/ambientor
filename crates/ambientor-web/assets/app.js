@@ -972,9 +972,9 @@
     }
     banner.classList.remove('hidden');
     const r = active[0];
-    const stage = (r.currentStage ?? r.current_stage ?? 0) + 1;
-    const total = r.stageCount ?? r.stage_count ?? 0;
-    const pct = total > 0 ? Math.min(100, Math.round((stage / total) * 100)) : 0;
+    const detail = rolloutDetailFor(r);
+    const pct = rolloutProgressPct(r, detail);
+    const stageLabel = rolloutStageLabel(r, detail);
     const title = $('dash-migration-title');
     const detail = $('dash-migration-detail');
     const fill = $('dash-migration-progress');
@@ -986,7 +986,7 @@
     }
     if (detail) {
       const awaiting = r.awaitingApproval || r.awaiting_approval;
-      detail.textContent = `Stage ${stage}/${total || '?'} · ${r.phase}${awaiting ? ' · awaiting approval' : ''}`;
+      detail.textContent = `${stageLabel} · ${r.phase}${awaiting ? ' · awaiting approval' : ''}`;
     }
     if (fill) fill.style.width = `${pct}%`;
   }
@@ -1259,11 +1259,8 @@
     const fill = $('plan-sync-progress');
     if (fill) {
       const linked = plan ? rolloutForPlan(plan) : null;
-      const stage = (linked?.currentStage ?? linked?.current_stage ?? 0) + 1;
-      const total = linked?.stageCount ?? linked?.stage_count ?? 0;
-      const running = action === 'running' || rolloutIsActive(rollout) || rolloutIsActive(linked?.phase);
-      if (running && total > 0) {
-        fill.style.width = `${Math.min(100, Math.round((stage / total) * 100))}%`;
+      if (linked) {
+        fill.style.width = `${rolloutProgressPct(linked, rolloutDetailFor(linked))}%`;
       } else if (action === 'completed') {
         fill.style.width = '100%';
       } else {
@@ -1433,11 +1430,60 @@
     return '●';
   }
 
-  function rolloutProgressPct(r) {
-    const current = r.currentStage ?? r.current_stage ?? 0;
-    const total = r.stageCount ?? r.stage_count ?? 0;
+  function stageResultDone(result) {
+    const p = (result || '').toLowerCase();
+    return p === 'succeeded' || p === 'completed';
+  }
+
+  function rolloutPhase(r, detail) {
+    return (r?.phase || detail?.rollout?.phase || '').toLowerCase();
+  }
+
+  function rolloutStageTotal(r, detail) {
+    const stages = detail?.stages;
+    if (stages?.length) return stages.length;
+    const n = r?.stageCount ?? r?.stage_count ?? 0;
+    return n || 0;
+  }
+
+  function rolloutDetailFor(r) {
+    if (!r || !rolloutDetail) return null;
+    if (rolloutKey(r) !== selectedRolloutKey) return null;
+    const ro = rolloutDetail.rollout;
+    if (ro && rolloutKey(ro) === rolloutKey(r)) return rolloutDetail;
+    return rolloutDetail;
+  }
+
+  function rolloutCompletedStages(r, detail) {
+    const total = rolloutStageTotal(r, detail);
+    const phase = rolloutPhase(r, detail);
+    if (phase === 'completed') return total;
+    const stages = detail?.stages || [];
+    if (stages.length) {
+      return stages.filter((s) => stageResultDone(s.resultPhase || s.result_phase)).length;
+    }
+    const current = r?.currentStage ?? r?.current_stage ?? 0;
+    if (total > 0 && current >= total) return total;
+    return Math.max(0, current);
+  }
+
+  function rolloutProgressPct(r, detail) {
+    const total = rolloutStageTotal(r, detail);
     if (!total) return 0;
-    return Math.min(100, Math.round(((current + 1) / total) * 100));
+    if (rolloutPhase(r, detail) === 'completed') return 100;
+    const done = rolloutCompletedStages(r, detail);
+    return Math.min(100, Math.round((done / total) * 100));
+  }
+
+  function rolloutStageLabel(r, detail) {
+    const total = rolloutStageTotal(r, detail);
+    const done = rolloutCompletedStages(r, detail);
+    const phase = rolloutPhase(r, detail);
+    if (phase === 'completed') return `${total} stages complete`;
+    if (!total) return '—';
+    const active = rolloutIsActive(r?.phase);
+    if (active && done < total) return `Stage ${done + 1} of ${total}`;
+    return `${done} of ${total} stages done`;
   }
 
   function setRolloutDetailVisible(visible) {
@@ -1490,10 +1536,10 @@
         'rollout-list-item' + (key === selectedRolloutKey ? ' selected' : '');
       const awaiting = r.awaitingApproval || r.awaiting_approval;
       const meta = rolloutPhaseMeta(r.phase);
-      const pct = rolloutProgressPct(r);
+      const detail = rolloutDetailFor(r);
+      const pct = rolloutProgressPct(r, detail);
+      const stageLabel = rolloutStageLabel(r, detail);
       const planRef = r.planRef || r.plan_ref;
-      const stage = (r.currentStage ?? r.current_stage ?? 0) + 1;
-      const total = r.stageCount ?? r.stage_count ?? '?';
       li.innerHTML = `
         <button type="button" data-key="${escapeHtml(key)}">
           <div class="rollout-card-top">
@@ -1508,7 +1554,7 @@
             <span>${pct}%</span>
           </div>
           <div class="rollout-list-meta">
-            <span>Stage ${stage}/${total}</span>
+            <span>${escapeHtml(stageLabel)}</span>
             ${awaiting ? '<span class="badge-status warning">Needs approval</span>' : ''}
           </div>
         </button>
@@ -1621,26 +1667,28 @@
   function renderRolloutTimeline(detail) {
     const el = $('rollout-stage-timeline');
     if (!el) return;
+    const r = detail.rollout || detail;
     const current =
       detail.rollout?.currentStage ??
       detail.rollout?.current_stage ??
       0;
+    const phase = rolloutPhase(r, detail);
     const stages = detail.stages || [];
     el.innerHTML = stages
       .map((s) => {
-        let cls = 'timeline-step';
-        if (s.index < current) cls += ' done';
-        else if (s.index === current) cls += ' active';
         const result = s.resultPhase || s.result_phase;
-        if (result === 'Failed') cls += ' failed';
-        const dotContent =
-          result === 'Completed' || s.index < current
-            ? '✓'
-            : result === 'Failed'
-              ? '✕'
-              : s.index === current
-                ? String(s.index + 1)
-                : String(s.index + 1);
+        let cls = 'timeline-step';
+        if (stageResultDone(result)) cls += ' done';
+        else if (phase === 'failed' && (s.resultPhase || s.result_phase)) cls += ' failed';
+        else if (s.index === current && rolloutIsActive(r?.phase)) cls += ' active';
+        else if (s.index < current) cls += ' done';
+        const dotContent = stageResultDone(result)
+          ? '✓'
+          : (result || '').toLowerCase() === 'failed'
+            ? '✕'
+            : s.index === current && rolloutIsActive(r?.phase)
+              ? String(s.index + 1)
+              : String(s.index + 1);
         return `<div class="${cls}" title="${escapeHtml(s.name)}"><span class="timeline-dot">${dotContent}</span><span class="timeline-label">${escapeHtml(s.name)}</span></div>`;
       })
       .join('');
@@ -1650,36 +1698,38 @@
     const grid = $('rollout-stages-grid');
     if (!grid) return;
     grid.innerHTML = '';
+    const r = detail.rollout || detail;
     const current =
       detail.rollout?.currentStage ??
       detail.rollout?.current_stage ??
       0;
     const awaiting =
       detail.rollout?.awaitingApproval ?? detail.rollout?.awaiting_approval;
-    const total = detail.stages?.length || detail.rollout?.stageCount || detail.rollout?.stage_count || 1;
-    const pct = Math.min(100, Math.round(((current + 1) / total) * 100));
+    const total = rolloutStageTotal(r, detail) || 1;
+    const pct = rolloutProgressPct(r, detail);
     const fill = $('rollout-progress-fill');
     if (fill) fill.style.width = pct + '%';
     const pctEl = $('rollout-progress-pct');
     if (pctEl) pctEl.textContent = pct + '%';
     const hint = $('rollout-pipeline-hint');
     if (hint) {
-      hint.textContent = `${detail.stages?.length || 0} stage(s) · auto-advance between waves`;
+      const done = rolloutCompletedStages(r, detail);
+      hint.textContent = `${done}/${total} stages complete`;
     }
     (detail.stages || []).forEach((s) => {
       const card = document.createElement('article');
       card.className = 'rollout-stage-card';
-      if (s.index === current) card.classList.add('current');
-      if (s.index === current && awaiting) card.classList.add('awaiting');
-      if ((s.resultPhase || s.result_phase) === 'Completed') card.classList.add('done');
-      if ((s.resultPhase || s.result_phase) === 'Failed') card.classList.add('failed');
       const result = s.resultPhase || s.result_phase;
+      if (stageResultDone(result)) card.classList.add('done');
+      else if ((result || '').toLowerCase() === 'failed') card.classList.add('failed');
+      else if (s.index === current) card.classList.add('current');
+      if (s.index === current && awaiting) card.classList.add('awaiting');
       const stageType = s.stageType || s.stage_type || '';
       const ns = (s.namespaces || []).join(', ') || '—';
       const approval = s.requiresApproval || s.requires_approval;
-      let resultLine = 'Upcoming';
-      if (result === 'Completed') resultLine = 'Completed';
-      else if (result === 'Failed') resultLine = 'Failed';
+      let resultLine = 'Pending';
+      if (stageResultDone(result)) resultLine = 'Succeeded';
+      else if ((result || '').toLowerCase() === 'failed') resultLine = 'Failed';
       else if (s.index === current) resultLine = awaiting ? 'Awaiting approval' : 'In progress';
       card.innerHTML = `
         <div class="rollout-stage-card-head">
@@ -1732,13 +1782,18 @@
     const hero = $('rollout-hero-card');
     if (hero) hero.className = 'rollout-hero-card phase-' + meta.class;
     const current = r.currentStage ?? r.current_stage ?? 0;
-    const total = r.stageCount ?? r.stage_count ?? '?';
+    const total = rolloutStageTotal(r, detail);
     const approved = (r.approvedStage ?? r.approved_stage ?? 0) + 1;
     const stageName =
-      detail?.stages?.find((s) => s.index === current)?.name || `Stage ${current + 1}`;
+      detail?.stages?.find((s) => s.index === current && rolloutIsActive(phase))?.name ||
+      (meta.class === 'completed' ? 'All stages' : `Stage ${current + 1}`);
     const progressEl = $('rollout-stage-progress');
     if (progressEl) {
-      progressEl.textContent = `${stageName} · stage ${current + 1} of ${total} · approved through ${approved}`;
+      if (meta.class === 'completed') {
+        progressEl.textContent = `All ${total} stages complete · approved through stage ${approved}`;
+      } else {
+        progressEl.textContent = `${stageName} · ${rolloutStageLabel(r, detail)} · approved through ${approved}`;
+      }
     }
     const cr = r.clusterRef || r.cluster_ref || detail?.rollout?.clusterRef || detail?.rollout?.cluster_ref;
     const crEl = $('rollout-cluster-ref');
