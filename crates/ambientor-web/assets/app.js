@@ -972,11 +972,11 @@
     }
     banner.classList.remove('hidden');
     const r = active[0];
-    const detail = rolloutDetailFor(r);
-    const pct = rolloutProgressPct(r, detail);
-    const stageLabel = rolloutStageLabel(r, detail);
+    const rolloutCtx = rolloutDetailFor(r);
+    const pct = rolloutProgressPct(r, rolloutCtx);
+    const stageLabel = rolloutStageLabel(r, rolloutCtx);
     const title = $('dash-migration-title');
-    const detail = $('dash-migration-detail');
+    const detailEl = $('dash-migration-detail');
     const fill = $('dash-migration-progress');
     if (title) {
       title.textContent =
@@ -984,9 +984,9 @@
           ? `${active.length} migrations in progress`
           : `Migration in progress · ${r.namespace}/${r.name}`;
     }
-    if (detail) {
+    if (detailEl) {
       const awaiting = r.awaitingApproval || r.awaiting_approval;
-      detail.textContent = `${stageLabel} · ${r.phase}${awaiting ? ' · awaiting approval' : ''}`;
+      detailEl.textContent = `${stageLabel} · ${r.phase}${awaiting ? ' · awaiting approval' : ''}`;
     }
     if (fill) fill.style.width = `${pct}%`;
   }
