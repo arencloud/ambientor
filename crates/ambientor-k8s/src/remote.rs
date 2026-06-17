@@ -139,12 +139,33 @@ async fn client_from_token_secret(
     };
 
     if let Some(ca) = data.get("ca.crt").or_else(|| data.get("ca-bundle")) {
-        config.root_cert = Some(vec![ca.0.clone()]);
+        config.root_cert = Some(parse_root_certificates(&ca.0)?);
     }
 
     let client =
         Client::try_from(config).map_err(|e| RemoteClientError::ClientBuild(e.to_string()))?;
     Ok(K8sClient { client })
+}
+
+/// Split a PEM CA bundle (or single DER cert) into DER blobs for kube/rustls.
+fn parse_root_certificates(ca: &[u8]) -> Result<Vec<Vec<u8>>, RemoteClientError> {
+    if ca.windows(5).any(|w| w == b"-----") {
+        let parsed = pem::parse_many(ca).map_err(|e| {
+            RemoteClientError::InvalidSecret(format!("failed to parse CA PEM: {e}"))
+        })?;
+        let ders: Vec<Vec<u8>> = parsed
+            .into_iter()
+            .filter(|p| p.tag() == "CERTIFICATE")
+            .map(|p| p.into_contents())
+            .collect();
+        if ders.is_empty() {
+            return Err(RemoteClientError::InvalidSecret(
+                "CA PEM contains no CERTIFICATE blocks".into(),
+            ));
+        }
+        return Ok(ders);
+    }
+    Ok(vec![ca.to_vec()])
 }
 
 #[cfg(test)]
@@ -185,5 +206,30 @@ mod tests {
             Some(("ambientor-system", "cl02"))
         );
         assert_eq!(parse_connection_cluster_ref("in-cluster"), None);
+    }
+
+    #[test]
+    fn parses_pem_ca_bundle_into_der() {
+        let pem = include_str!("testdata/spoke-test-ca-bundle.pem");
+        let ders = parse_root_certificates(pem.as_bytes()).expect("pem bundle");
+        assert_eq!(ders.len(), 2);
+        assert!(!ders[0].starts_with(b"-----"));
+        assert!(!ders[1].starts_with(b"-----"));
+    }
+
+    #[tokio::test]
+    async fn token_auth_accepts_pem_ca() {
+        let pem = include_str!("testdata/spoke-test-ca-bundle.pem");
+        let secret = secret_with(BTreeMap::from([
+            ("token".into(), b"tok".to_vec()),
+            ("server".into(), b"https://api.example:6443".to_vec()),
+            ("ca.crt".into(), pem.as_bytes().to_vec()),
+        ]));
+        let result = client_from_secret(&secret, None).await;
+        assert!(
+            result.is_ok(),
+            "expected client build to succeed with PEM ca.crt: {:?}",
+            result.err()
+        );
     }
 }

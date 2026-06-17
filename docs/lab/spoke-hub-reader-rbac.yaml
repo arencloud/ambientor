@@ -1,0 +1,101 @@
+# Long-lived hub read access on a spoke cluster (assess + dashboard sync).
+#
+# Apply on the SPOKE (not the hub):
+#   oc apply -f docs/lab/spoke-hub-reader-rbac.yaml
+#
+# Then export credentials for the hub ClusterConnection secret — see:
+#   ./scripts/spoke-export-hub-credentials.sh
+#
+# Permissions are read-only and mirror what Ambientor needs to scan mesh state,
+# workloads, and (if present) ambientor.io CRs on the spoke.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ambientor-system
+  labels:
+    app.kubernetes.io/name: ambientor
+    app.kubernetes.io/component: hub-remote-access
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ambientor-hub-reader
+  namespace: ambientor-system
+  labels:
+    app.kubernetes.io/name: ambientor
+    app.kubernetes.io/component: hub-remote-access
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ambientor-hub-reader
+  labels:
+    app.kubernetes.io/name: ambientor
+    app.kubernetes.io/component: hub-remote-access
+rules:
+  # Cluster discovery + version check (verify_connectivity).
+  - nonResourceURLs: ["/version", "/healthz", "/livez", "/readyz"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  # Istio / Gateway API policies scanned by assessment rules.
+  - apiGroups:
+      - networking.istio.io
+      - security.istio.io
+      - extensions.istio.io
+      - gateway.networking.k8s.io
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  # Control-plane discovery (istiod, Sail, revision tags).
+  - apiGroups: [install.istio.io, sailoperator.io, tags.istio.io, istio.io]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  # OpenShift Service Mesh membership.
+  - apiGroups: [maistra.io]
+    resources: ["servicemeshmemberrolls"]
+    verbs: ["get", "list", "watch"]
+  # OSSM / OLM operator detection (read-only wizard checks).
+  - apiGroups: [operators.coreos.com]
+    resources: ["subscriptions", "clusterserviceversions"]
+    verbs: ["get", "list", "watch"]
+  # Optional: ambientor CRs if ever installed on the spoke.
+  - apiGroups: [ambientor.io]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ambientor-hub-reader
+  labels:
+    app.kubernetes.io/name: ambientor
+    app.kubernetes.io/component: hub-remote-access
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ambientor-hub-reader
+subjects:
+  - kind: ServiceAccount
+    name: ambientor-hub-reader
+    namespace: ambientor-system
+---
+# Long-lived token (Kubernetes populates data.token and data.ca.crt).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ambientor-hub-reader-token
+  namespace: ambientor-system
+  labels:
+    app.kubernetes.io/name: ambientor
+    app.kubernetes.io/component: hub-remote-access
+  annotations:
+    kubernetes.io/service-account.name: ambientor-hub-reader
+type: kubernetes.io/service-account-token
