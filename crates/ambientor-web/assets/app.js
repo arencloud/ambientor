@@ -15,6 +15,7 @@
   let appListPage = 1;
   let appListFilters = { q: '', riskLevel: '', meshRevision: '' };
   let selectedAppNamespace = null;
+  let selectedAppClusterRef = '';
   let plans = [];
   let selectedPlanKey = null;
   let meshInstancesForPlan = [];
@@ -499,33 +500,40 @@
     const tbody = $('app-assess-tbody');
     if (!tbody) return;
     const items = applicationsPage.items || [];
+    const colSpan = isFleetView() ? 11 : 10;
     if (!items.length) {
-        tbody.innerHTML =
-        '<tr><td colspan="10" class="empty-cell">No migration candidates on this cluster. Run assessment to scan sidecar workloads.</td></tr>';
+      tbody.innerHTML =
+        `<tr><td colspan="${colSpan}" class="empty-cell">${isFleetView() ? 'No migration candidates across the fleet yet. Select a cluster and run assessment.' : 'No migration candidates on this cluster. Run assessment to scan sidecar workloads.'}</td></tr>`;
       return;
     }
+    const fleetCol = isFleetView();
     tbody.innerHTML = items
       .map((app) => {
         const ns = app.namespace;
+        const clusterRef = app._clusterRef || activeClusterRef;
         const selected = ns === selectedAppNamespace ? ' selected' : '';
         const readiness = app.readinessPct ?? app.readiness_pct ?? 0;
         const risk = app.riskLevel || app.risk_level || 'low';
         const blockers = app.blockerCount ?? app.blocker_count ?? 0;
-        const warnings = app.warningCount ?? app.warning_count ?? 0;
         const dp = formatDataplane(app);
         const candidate = app.migrationCandidate ?? app.migration_candidate ?? true;
         const blocked = blockers > 0;
+        const fleetBlocked = isFleetView();
         const checked = selectedMigrationNamespaces.has(ns);
         const rowClass =
-          'app-row' + selected + (blocked || !candidate ? ' row-blocked' : '');
+          'app-row' + selected + (blocked || !candidate || fleetBlocked ? ' row-blocked' : '');
         const checkCell =
-          blocked || !candidate
-            ? `<td class="col-check" title="${blocked ? 'Resolve blockers before migration' : 'Already on ambient dataplane'}">—</td>`
+          fleetBlocked || blocked || !candidate
+            ? `<td class="col-check" title="${fleetBlocked ? 'Select a cluster to build a plan' : blocked ? 'Resolve blockers before migration' : 'Already on ambient dataplane'}">—</td>`
             : `<td class="col-check"><input type="checkbox" data-ns="${escapeHtml(ns)}" ${checked ? 'checked' : ''} aria-label="Select ${escapeHtml(appDisplayName(app))} for migration" /></td>`;
         const displayName = appDisplayName(app);
-        return `<tr class="${rowClass}" data-ns="${escapeHtml(ns)}" tabindex="0">
+        const clusterCell = fleetCol
+          ? `<td class="mono small">${escapeHtml(app._clusterLabel || clusterLabelForRef(clusterRef))}</td>`
+          : '';
+        return `<tr class="${rowClass}" data-ns="${escapeHtml(ns)}" data-cluster-ref="${escapeHtml(clusterRef)}" tabindex="0">
           ${checkCell}
           <td><strong>${escapeHtml(displayName)}</strong></td>
+          ${clusterCell}
           <td class="mono">${escapeHtml(ns)}</td>
           <td class="mono">${app.workloadCount ?? app.workload_count ?? '—'}</td>
           <td>${escapeHtml(formatControlPlane(app))}</td>
@@ -545,18 +553,19 @@
 
     tbody.querySelectorAll('.app-row').forEach((row) => {
       const ns = row.getAttribute('data-ns');
+      const clusterRef = row.getAttribute('data-cluster-ref') || activeClusterRef;
       row.querySelector('input[type="checkbox"]')?.addEventListener('click', (e) => {
         e.stopPropagation();
         toggleMigrationNamespace(ns, e.target.checked);
       });
       row.addEventListener('click', (e) => {
         if (e.target.closest('input[type="checkbox"]')) return;
-        openApplicationDetail(ns);
+        openApplicationDetail(ns, clusterRef);
       });
       row.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          openApplicationDetail(ns);
+          openApplicationDetail(ns, clusterRef);
         }
       });
     });
@@ -580,17 +589,146 @@
     if (next) next.disabled = page >= pages;
   }
 
+  function isFleetView() {
+    return !activeClusterRef;
+  }
+
+  function clusterLabelForRef(ref) {
+    if (!ref) return 'All clusters';
+    const fleet = fleetClusters.find((c) => (c.clusterRef || c.cluster_ref) === ref);
+    if (fleet?.cluster?.name) return fleet.cluster.name;
+    const conn = clusterConnections.find((c) => !c.hub && c.namespace + '/' + c.name === ref);
+    if (conn) return conn.displayName || conn.display_name || conn.name;
+    return ref;
+  }
+
+  function updateScopeUi() {
+    const banner = $('scope-banner');
+    const text = $('scope-banner-text');
+    const clearBtn = $('scope-clear-btn');
+    const fleetSection = $('dash-fleet-section');
+    const meshSection = $('dash-mesh-section');
+    const fleetCols = document.querySelectorAll('.fleet-only-col');
+    const composeCard = document.querySelector('.compose-card');
+    const runBtn = $('run-assess');
+
+    if (banner) {
+      banner.classList.toggle('scope-fleet', isFleetView());
+      banner.classList.toggle('scope-cluster', !isFleetView());
+    }
+    if (text) {
+      if (isFleetView()) {
+        const n = fleetClusters.length || 1;
+        text.innerHTML = `<strong>Fleet view</strong> — aggregated status across ${n} cluster${n === 1 ? '' : 's'}. Select a cluster to assess, plan, or rollout.`;
+      } else {
+        text.innerHTML = `Focused on <strong>${escapeHtml(clusterLabelForRef(activeClusterRef))}</strong> <span class="mono small">(${escapeHtml(activeClusterRef)})</span>`;
+      }
+    }
+    if (clearBtn) clearBtn.classList.toggle('hidden', isFleetView());
+    if (fleetSection) fleetSection.classList.toggle('hidden', !isFleetView());
+    if (meshSection) meshSection.classList.toggle('hidden', isFleetView());
+    if (meshSection && !isFleetView()) meshSection.classList.remove('view-cluster-only');
+    fleetCols.forEach((el) => el.classList.toggle('hidden', !isFleetView()));
+    if (composeCard) composeCard.classList.toggle('fleet-disabled', isFleetView());
+    if (runBtn) {
+      runBtn.disabled = isFleetView();
+      runBtn.title = isFleetView() ? 'Select a cluster to run assessment' : '';
+    }
+    const eyebrow = $('dash-eyebrow');
+    if (eyebrow) eyebrow.textContent = isFleetView() ? 'Fleet overview' : 'Cluster dashboard';
+    const meshTitle = $('dash-mesh-title');
+    if (meshTitle) meshTitle.textContent = isFleetView() ? 'Control planes' : 'Control planes';
+    document.querySelectorAll('.cluster-pill').forEach((btn) => {
+      const ref = btn.getAttribute('data-cluster') ?? '';
+      const active = ref === activeClusterRef;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+  }
+
+  function selectCluster(ref) {
+    activeClusterRef = ref || '';
+    const select = $('cluster-select');
+    if (select) select.value = activeClusterRef;
+    onClusterChange(activeClusterRef);
+  }
+
+  function renderClusterSwitcher() {
+    const switcher = $('cluster-switcher');
+    const select = $('cluster-select');
+    if (!switcher) return;
+
+    const entries = [];
+    entries.push({ ref: '', label: 'All clusters', icon: '◈', remote: false });
+
+    const seen = new Set(['']);
+    fleetClusters.forEach((c) => {
+      const ref = c.clusterRef || c.cluster_ref;
+      if (!ref || seen.has(ref)) return;
+      seen.add(ref);
+      const name = c.cluster?.name || ref;
+      entries.push({ ref, label: name, icon: '◎', remote: ref.includes('/') });
+    });
+
+    clusterConnections
+      .filter((c) => !c.hub)
+      .forEach((c) => {
+        const ref = c.namespace + '/' + c.name;
+        if (seen.has(ref)) return;
+        seen.add(ref);
+        const label = c.displayName || c.display_name || c.name;
+        entries.push({ ref, label, icon: '⬡', remote: true });
+      });
+
+    switcher.innerHTML = entries
+      .map(
+        (e) =>
+          `<button type="button" class="cluster-pill${e.remote ? ' remote' : ''}${e.ref === activeClusterRef ? ' active' : ''}" data-cluster="${escapeHtml(e.ref)}" role="tab" aria-selected="${e.ref === activeClusterRef}">
+            <span class="cluster-pill-icon" aria-hidden="true">${e.icon}</span>${escapeHtml(e.label)}
+          </button>`
+      )
+      .join('');
+
+    switcher.querySelectorAll('.cluster-pill').forEach((btn) => {
+      btn.addEventListener('click', () => selectCluster(btn.getAttribute('data-cluster') || ''));
+    });
+
+    if (select) {
+      select.innerHTML = entries
+        .map((e) => `<option value="${escapeHtml(e.ref)}">${escapeHtml(e.label)}</option>`)
+        .join('');
+      select.value = activeClusterRef;
+    }
+  }
+
+  function filteredPlans() {
+    if (isFleetView()) return plans;
+    return plans.filter((p) => {
+      const cr = p.clusterRef || p.cluster_ref;
+      return !cr || cr === activeClusterRef;
+    });
+  }
+
+  function filteredRollouts() {
+    if (isFleetView()) return rollouts;
+    return rollouts.filter((r) => {
+      const cr = r.clusterRef || r.cluster_ref;
+      return !cr || cr === activeClusterRef;
+    });
+  }
+
   function clusterQuerySuffix() {
+    if (isFleetView()) return '';
     return activeClusterRef ? '&clusterRef=' + encodeURIComponent(activeClusterRef) : '';
   }
 
   function clusterQueryPrefix() {
+    if (isFleetView()) return '?clusterRef=*';
     return activeClusterRef ? '?clusterRef=' + encodeURIComponent(activeClusterRef) : '';
   }
 
   async function loadFleetClusters() {
-    const select = $('cluster-select');
-    if (!select || !API()) return;
+    if (!API()) return;
     try {
       const [fleetRes, connRes] = await Promise.all([
         fetch(API() + '/api/v1/dashboard/fleet'),
@@ -603,35 +741,9 @@
       if (connRes.ok) {
         clusterConnections = await connRes.json();
       }
-      const prev = select.value;
-      select.innerHTML = '<option value="">Hub (local)</option>';
-      fleetClusters.forEach((c) => {
-        const ref = c.clusterRef || c.cluster_ref;
-        if (!ref) return;
-        const opt = document.createElement('option');
-        opt.value = ref;
-        const name = c.cluster?.name || ref;
-        opt.textContent = name + (ref !== name ? ` (${ref})` : '');
-        select.appendChild(opt);
-      });
-      const remote = clusterConnections.filter((c) => !c.hub);
-      if (remote.length) {
-        const group = document.createElement('optgroup');
-        group.label = 'Remote connections';
-        remote.forEach((c) => {
-          const ref = c.namespace + '/' + c.name;
-          const opt = document.createElement('option');
-          opt.value = ref;
-          const label = c.displayName || c.display_name || c.name;
-          const phase = c.phase || 'Unknown';
-          opt.textContent = label + ' · ' + phase;
-          group.appendChild(opt);
-        });
-        select.appendChild(group);
-      }
-      if (prev) select.value = prev;
-      else if (activeClusterRef) select.value = activeClusterRef;
+      renderClusterSwitcher();
       renderConnectionsList();
+      updateScopeUi();
     } catch {
       /* fleet / connections API optional */
     }
@@ -654,7 +766,7 @@
         const msg = c.readyMessage || c.ready_message;
         const hint = msg ? `<p class="hint small">${escapeHtml(msg)}</p>` : '';
         const active = ref === activeClusterRef ? ' connection-row-active' : '';
-        return `<article class="connection-row${active}">
+        return `<article class="connection-row${active}" data-cluster-ref="${escapeHtml(ref)}" role="button" tabindex="0">
           <div>
             <strong>${label}</strong>
             <span class="mono small">${escapeHtml(ref)}</span>
@@ -664,16 +776,34 @@
         </article>`;
       })
       .join('');
+    list.querySelectorAll('.connection-row[data-cluster-ref]').forEach((row) => {
+      const ref = row.getAttribute('data-cluster-ref');
+      const activate = () => selectCluster(ref);
+      row.addEventListener('click', activate);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
+        }
+      });
+    });
   }
 
   function onClusterChange(ref) {
     activeClusterRef = ref || '';
     const bar = $('cluster-bar');
     if (bar) bar.classList.toggle('cluster-active', !!activeClusterRef);
+    updateScopeUi();
     renderConnectionsList();
     loadDashboard();
     if (!$('assessments')?.classList.contains('hidden')) loadApplications();
     if (!$('rollouts')?.classList.contains('hidden')) loadRollouts();
+    if (!$('plans')?.classList.contains('hidden')) {
+      renderPlanList();
+      if (selectedPlanKey && !filteredPlans().some((p) => planKey(p) === selectedPlanKey)) {
+        selectedPlanKey = null;
+      }
+    }
   }
 
   function applicationsQueryString() {
@@ -693,6 +823,7 @@
   }
 
   async function loadApplications() {
+    if (isFleetView()) return loadFleetApplications();
     setStatus('Loading migration candidates…');
     try {
       const res = await fetch(API() + '/api/v1/applications?' + applicationsQueryString());
@@ -702,15 +833,7 @@
       if (!res.ok) throw new Error(await res.text());
       applicationsPage = await res.json();
       appListPage = applicationsPage.page || 1;
-      const meta = $('assess-meta');
-      if (meta) {
-        const when = applicationsPage.lastAssessedAt || applicationsPage.last_assessed_at;
-        meta.textContent = when
-          ? `${applicationsPage.total.toLocaleString()} sidecar migration candidate(s) · assessed ${new Date(when).toLocaleString()}`
-          : applicationsPage.total
-            ? `${applicationsPage.total.toLocaleString()} candidate(s) — run assessment again to refresh`
-            : 'No migration candidates yet. Run assessment on this cluster to discover sidecar workloads.';
-      }
+      updateAssessMeta();
       renderMeshFilterOptions();
       renderApplicationsTable();
       updatePaginationUi();
@@ -720,6 +843,77 @@
     }
   }
 
+  async function loadFleetApplications() {
+    setStatus('Loading migration candidates across fleet…');
+    const refs = fleetClusters.map((c) => c.clusterRef || c.cluster_ref).filter(Boolean);
+    if (!refs.length) refs.push('in-cluster');
+    try {
+      const pages = await Promise.all(
+        refs.map(async (ref) => {
+          const params = new URLSearchParams({
+            clusterRef: ref,
+            page: '1',
+            pageSize: '200',
+            migrationCandidatesOnly: 'true',
+          });
+          if (appListFilters.q) params.set('q', appListFilters.q);
+          if (appListFilters.riskLevel) params.set('riskLevel', appListFilters.riskLevel);
+          if (appListFilters.meshRevision) params.set('meshRevision', appListFilters.meshRevision);
+          const res = await fetch(API() + '/api/v1/applications?' + params);
+          if (!res.ok) return { ref, items: [], total: 0 };
+          const data = await res.json();
+          const items = (data.items || []).map((app) => ({
+            ...app,
+            _clusterRef: ref,
+            _clusterLabel: clusterLabelForRef(ref),
+          }));
+          return { ref, items, total: data.total || items.length };
+        })
+      );
+      const merged = pages.flatMap((p) => p.items);
+      merged.sort((a, b) => {
+        const al = a._clusterLabel || a._clusterRef || '';
+        const bl = b._clusterLabel || b._clusterRef || '';
+        return al.localeCompare(bl) || appDisplayName(a).localeCompare(appDisplayName(b));
+      });
+      const pageSize = 50;
+      const total = merged.length;
+      const start = (appListPage - 1) * pageSize;
+      applicationsPage = {
+        items: merged.slice(start, start + pageSize),
+        total,
+        page: appListPage,
+        pageSize,
+        fleet: true,
+      };
+      updateAssessMeta(total);
+      renderMeshFilterOptions();
+      renderApplicationsTable();
+      updatePaginationUi();
+      setStatus(`Loaded ${total.toLocaleString()} candidate(s) across ${refs.length} cluster(s)`);
+    } catch (e) {
+      setStatus('Failed to load fleet candidates: ' + e.message, true);
+    }
+  }
+
+  function updateAssessMeta(totalOverride) {
+    const meta = $('assess-meta');
+    if (!meta) return;
+    const total = totalOverride ?? applicationsPage.total ?? 0;
+    if (isFleetView()) {
+      meta.textContent = total
+        ? `${total.toLocaleString()} migration candidate(s) fleet-wide — select a cluster to assess or create a plan`
+        : 'No migration candidates yet. Select a cluster and run assessment.';
+      return;
+    }
+    const when = applicationsPage.lastAssessedAt || applicationsPage.last_assessed_at;
+    meta.textContent = when
+      ? `${total.toLocaleString()} sidecar migration candidate(s) · assessed ${new Date(when).toLocaleString()}`
+      : total
+        ? `${total.toLocaleString()} candidate(s) — run assessment again to refresh`
+        : 'No migration candidates yet. Run assessment on this cluster to discover sidecar workloads.';
+  }
+
   function closeApplicationDetail() {
     const drawer = $('app-detail-drawer');
     if (drawer) {
@@ -727,11 +921,13 @@
       drawer.setAttribute('aria-hidden', 'true');
     }
     selectedAppNamespace = null;
+    selectedAppClusterRef = '';
     renderApplicationsTable();
   }
 
-  async function openApplicationDetail(namespace) {
+  async function openApplicationDetail(namespace, clusterRef) {
     selectedAppNamespace = namespace;
+    selectedAppClusterRef = clusterRef || activeClusterRef || 'in-cluster';
     renderApplicationsTable();
     const drawer = $('app-detail-drawer');
     if (drawer) {
@@ -746,7 +942,8 @@
         API() +
           '/api/v1/applications/' +
           encodeURIComponent(namespace) +
-          (activeClusterRef ? '?clusterRef=' + encodeURIComponent(activeClusterRef) : '')
+          '?clusterRef=' +
+          encodeURIComponent(selectedAppClusterRef)
       );
       if (!res.ok) throw new Error(await res.text());
       const detail = await res.json();
@@ -914,7 +1111,72 @@
     return card;
   }
 
+  function renderFleetClusterCard(cluster) {
+    const ref = cluster.clusterRef || cluster.cluster_ref;
+    const name = cluster.cluster?.name || clusterLabelForRef(ref);
+    const summary = cluster.summary || {};
+    const meshes = cluster.meshInstances || cluster.mesh_instances || [];
+    const active = ref === activeClusterRef;
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'fleet-cluster-card' + (active ? ' active' : '');
+    card.innerHTML = `
+      <h4>${escapeHtml(name)}</h4>
+      <span class="fleet-ref">${escapeHtml(ref)}</span>
+      <div class="fleet-cluster-stats">
+        <div class="fleet-stat migrated"><span class="fleet-stat-value">${summary.migrated ?? 0}</span><span class="fleet-stat-label">Migrated</span></div>
+        <div class="fleet-stat scanned"><span class="fleet-stat-value">${summary.scanned ?? 0}</span><span class="fleet-stat-label">Scanned</span></div>
+        <div class="fleet-stat blocker"><span class="fleet-stat-value">${summary.blocker ?? 0}</span><span class="fleet-stat-label">Blockers</span></div>
+      </div>
+      <p class="hint small" style="margin:0.65rem 0 0">${meshes.length} control plane(s)</p>
+    `;
+    card.addEventListener('click', () => selectCluster(ref));
+    return card;
+  }
+
+  async function loadFleetDashboard(quiet) {
+    if (!quiet) setStatus('Loading fleet dashboard…');
+    const grid = $('dash-fleet-grid');
+    const container = $('dash-mesh-instances');
+    try {
+      const res = await fetch(API() + '/api/v1/dashboard/fleet');
+      if (!res.ok) throw new Error(await res.text());
+      const fleet = await res.json();
+      fleetClusters = fleet.clusters || fleet.Clusters || fleetClusters;
+      renderClusterSwitcher();
+
+      const summary = fleet.summary || {};
+      $('dash-cluster-name').textContent = 'All clusters';
+      const clusterCount = fleetClusters.length || 1;
+      $('dash-cluster-meta').textContent =
+        `${clusterCount} connected cluster${clusterCount === 1 ? '' : 's'} · fleet-wide migration status`;
+      if (fleet.lastUpdated || fleet.last_updated) {
+        $('dash-last-updated').textContent =
+          'Updated ' + new Date(fleet.lastUpdated || fleet.last_updated).toLocaleString();
+      }
+      renderStatusSummary(summary);
+      renderMigrationSavings(null);
+      if (grid) {
+        grid.innerHTML = '';
+        if (!fleetClusters.length) {
+          grid.innerHTML = '<p class="hint">No cluster snapshots yet. Run assessment on the hub or spoke clusters.</p>';
+        } else {
+          fleetClusters.forEach((c) => grid.appendChild(renderFleetClusterCard(c)));
+        }
+      }
+      if (container) container.innerHTML = '';
+      const hint = $('dash-fleet-hint');
+      if (hint) hint.textContent = 'Click a cluster to view control planes and run assessments';
+      if (!quiet) setStatus(`Fleet dashboard · ${clusterCount} cluster(s)`);
+    } catch (e) {
+      if (grid) grid.innerHTML = '<p class="hint">Failed to load fleet data.</p>';
+      if (container) container.innerHTML = '';
+      if (!quiet) setStatus('Fleet dashboard failed: ' + e.message, true);
+    }
+  }
+
   async function loadDashboard(quiet) {
+    if (isFleetView()) return loadFleetDashboard(quiet);
     if (!quiet) setStatus('Loading dashboard…');
     const container = $('dash-mesh-instances');
     try {
@@ -1069,6 +1331,10 @@
   }
 
   async function runAssessment() {
+    if (isFleetView()) {
+      setStatus('Select a cluster from the header to run assessment', true);
+      return;
+    }
     const remote = isRemoteConnectionRef(activeClusterRef);
     const assessPath = remote
       ? connectionAssessPath(activeClusterRef)
@@ -1159,7 +1425,12 @@
     const ul = $('plan-list');
     if (!ul) return;
     ul.innerHTML = '';
-    plans.forEach((p) => {
+    const list = filteredPlans();
+    if (!list.length) {
+      ul.innerHTML = `<li class="hint">${isFleetView() ? 'No migration plans in the fleet' : 'No plans for this cluster'}</li>`;
+      return;
+    }
+    list.forEach((p) => {
       const li = document.createElement('li');
       const key = planKey(p);
       li.className = key === selectedPlanKey ? 'selected' : '';
@@ -1494,12 +1765,13 @@
   function renderRolloutStats() {
     const bar = $('rollout-stats');
     if (!bar) return;
-    const total = rollouts.length;
-    const active = rollouts.filter((r) => rolloutIsActive(r.phase)).length;
-    const completed = rollouts.filter(
+    const visible = filteredRollouts();
+    const total = visible.length;
+    const active = visible.filter((r) => rolloutIsActive(r.phase)).length;
+    const completed = visible.filter(
       (r) => (r.phase || '').toLowerCase() === 'completed'
     ).length;
-    const failed = rollouts.filter((r) => {
+    const failed = visible.filter((r) => {
       const p = (r.phase || '').toLowerCase();
       return p === 'failed' || p === 'rolledback';
     }).length;
@@ -1519,13 +1791,13 @@
     renderRolloutStats();
     const filter = ($('rollout-filter')?.value || '').toLowerCase();
     ul.innerHTML = '';
-    const list = rollouts.filter((r) => {
+    const list = filteredRollouts().filter((r) => {
       if (!filter) return true;
-      const hay = `${r.namespace}/${r.name} ${r.phase} ${r.planRef || r.plan_ref || ''}`.toLowerCase();
+      const hay = `${r.namespace}/${r.name} ${r.phase} ${r.planRef || r.plan_ref || ''} ${r.clusterRef || r.cluster_ref || ''}`.toLowerCase();
       return hay.includes(filter);
     });
     if (!list.length) {
-      ul.innerHTML = '<li class="hint rollout-list-empty">No rollouts match your search</li>';
+      ul.innerHTML = `<li class="hint rollout-list-empty">${isFleetView() ? 'No rollouts in the fleet' : 'No rollouts for this cluster'}</li>`;
       if (!selectedRolloutKey) setRolloutDetailVisible(false);
       return;
     }
@@ -1886,8 +2158,11 @@
         return;
       }
       if (!quiet) {
+        const visible = filteredRollouts().length;
         setStatus(
-          `Loaded ${rollouts.length} rollout(s)${activeClusterRef ? ' · ' + activeClusterRef : ''}`
+          isFleetView()
+            ? `Loaded ${visible} rollout(s) across fleet`
+            : `Loaded ${visible} rollout(s)${activeClusterRef ? ' · ' + activeClusterRef : ''}`
         );
       }
       if (rollouts.length && !selectedRolloutKey) {
@@ -2068,8 +2343,12 @@
     loadAuthConfig().then(() => {
       if (getToken()) setStatus('Signed in as ' + (parseJwtUsername(getToken()) || 'user'));
     });
-    loadFleetClusters();
-    $('cluster-select')?.addEventListener('change', (e) => onClusterChange(e.target.value));
+    loadFleetClusters().then(() => {
+      updateScopeUi();
+      loadDashboard();
+    });
+    $('cluster-select')?.addEventListener('change', (e) => selectCluster(e.target.value));
+    $('scope-clear-btn')?.addEventListener('click', () => selectCluster(''));
     $('rollout-filter')?.addEventListener('input', renderRolloutList);
     $('plan-auto-refresh')?.addEventListener('change', startMigrationPolling);
     $('rollout-auto-refresh')?.addEventListener('change', startMigrationPolling);

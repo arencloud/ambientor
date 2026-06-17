@@ -171,11 +171,12 @@ async fn list_namespaces(client: &Client) -> anyhow::Result<Vec<Namespace>> {
 
 async fn ztunnel_revisions(client: &Client) -> anyhow::Result<Vec<String>> {
     let api: Api<Pod> = Api::all(client.clone());
-    let pods = api
-        .list(&ListParams::default().labels("app=ztunnel"))
-        .await?;
+    let pods = api.list(&ListParams::default()).await?;
     let mut set = std::collections::BTreeSet::new();
     for p in pods.items {
+        if !is_ztunnel_pod(&p) {
+            continue;
+        }
         if let Some(rev) = p
             .metadata
             .labels
@@ -186,6 +187,24 @@ async fn ztunnel_revisions(client: &Client) -> anyhow::Result<Vec<String>> {
         }
     }
     Ok(set.into_iter().collect())
+}
+
+fn is_ztunnel_pod(pod: &Pod) -> bool {
+    let labels = match pod.metadata.labels.as_ref() {
+        Some(l) => l,
+        None => return false,
+    };
+    labels
+        .get("app")
+        .is_some_and(|v| v == "ztunnel" || v == "istio-ztunnel")
+        || labels
+            .get("app.kubernetes.io/name")
+            .is_some_and(|v| v == "ztunnel" || v == "istio-ztunnel")
+        || pod
+            .metadata
+            .name
+            .as_deref()
+            .is_some_and(|n| n.starts_with("ztunnel-"))
 }
 
 fn discovery_label_counts(namespaces: &[Namespace]) -> HashMap<String, usize> {

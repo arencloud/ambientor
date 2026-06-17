@@ -4,7 +4,7 @@ use ambientor_core::rules::RuleContext;
 use ambientor_core::scoring::compute_scores;
 use ambientor_mesh::application_identity::NamespaceApplicationIdentity;
 use ambientor_mesh::policy_collect::IstioPolicyObjects;
-use ambientor_mesh::{is_application_namespace, is_mesh_infrastructure_identity};
+use ambientor_mesh::{is_ambient_control_plane_namespace, is_application_namespace, is_mesh_infrastructure_identity};
 use ambientor_types::{
     Finding, FindingCategory, FindingSeverity, MeshInstance,
 };
@@ -127,16 +127,10 @@ pub fn build_cluster_assessment(
             let Some(ns_name) = ns.metadata.name.clone() else {
                 continue;
             };
-            if !is_application_namespace(&ns_name, mesh_instances) {
+            if !namespace_eligible_for_catalog(&ns_name, mesh_instances, identities) {
                 continue;
             }
             if !namespace_belongs_to_mesh(ns.metadata.labels.as_ref(), mesh) {
-                continue;
-            }
-            if identities
-                .get(&ns_name)
-                .is_some_and(is_mesh_infrastructure_identity)
-            {
                 continue;
             }
             if !seen.insert(ns_name.clone()) {
@@ -158,7 +152,9 @@ pub fn build_cluster_assessment(
     }
 
     for (ns_name, findings) in &by_ns {
-        if seen.contains(ns_name) || !is_application_namespace(ns_name, mesh_instances) {
+        if seen.contains(ns_name)
+            || !namespace_eligible_for_catalog(ns_name, mesh_instances, identities)
+        {
             continue;
         }
         let ns_obj = namespaces
@@ -190,15 +186,14 @@ pub fn build_cluster_assessment(
         let Some(ns_name) = ns.metadata.name.clone() else {
             continue;
         };
-        if !is_application_namespace(&ns_name, mesh_instances) || seen.contains(&ns_name) {
+        if !namespace_eligible_for_catalog(&ns_name, mesh_instances, identities)
+            || seen.contains(&ns_name)
+        {
             continue;
         }
         let identity = identities.get(&ns_name);
         let app_pods = identity.map(|i| i.app_pod_count).unwrap_or(0);
         if app_pods == 0 {
-            continue;
-        }
-        if identity.is_some_and(is_mesh_infrastructure_identity) {
             continue;
         }
         let has_sidecar = ctx.workloads.iter().any(|w| {
@@ -251,9 +246,7 @@ fn build_app_record(
     identity: Option<&NamespaceApplicationIdentity>,
     mesh_instances: &[MeshInstance],
 ) -> ApplicationAssessmentRecord {
-    let app_pod_count = identity.map(|i| i.app_pod_count).unwrap_or_else(|| {
-        workload_count(ctx, ns_name)
-    });
+    let app_pod_count = identity.map(|i| i.app_pod_count).unwrap_or(0);
     let application_name = identity
         .map(|i| i.application_name.clone())
         .unwrap_or_else(|| ns_name.to_string());
@@ -405,12 +398,22 @@ fn missing_hostname_suggestion(ns_name: &str) -> AssessmentSuggestion {
     }
 }
 
-fn workload_count(ctx: &RuleContext, ns: &str) -> u32 {
-    ctx.namespaces
-        .iter()
-        .find(|n| n.name == ns)
-        .map(|n| n.workload_count)
-        .unwrap_or(0)
+fn namespace_eligible_for_catalog(
+    ns_name: &str,
+    mesh_instances: &[MeshInstance],
+    identities: &std::collections::BTreeMap<String, NamespaceApplicationIdentity>,
+) -> bool {
+    if !is_application_namespace(ns_name, mesh_instances)
+        || is_ambient_control_plane_namespace(ns_name, mesh_instances)
+    {
+        return false;
+    }
+    match identities.get(ns_name) {
+        Some(id) if is_mesh_infrastructure_identity(id) => false,
+        Some(id) if id.app_pod_count == 0 => false,
+        Some(_) => true,
+        None => false,
+    }
 }
 
 pub fn derive_risk_level(summary: &ambientor_types::FindingSummary, readiness_pct: u8) -> RiskLevel {
@@ -538,6 +541,95 @@ mod tests {
                 .filter(|a| a.migration_candidate)
                 .map(|a| &a.application_name)
                 .collect::<Vec<_>>()
+        );
+        assert!(
+            run.applications.is_empty(),
+            "infra-only namespace should not appear in catalog, got {:?}",
+            run.applications
+                .iter()
+                .map(|a| &a.namespace)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ztunnel_only_enrolled_namespace_not_in_catalog() {
+        let mesh = MeshInstance {
+            revision: "ambient-v1-28-6".into(),
+            discovery_label: "mesh-ambient".into(),
+            control_plane_namespace: "ambient-v1-28-6-istio-system".into(),
+            version: Some("1.28.6".into()),
+            ambient: true,
+            enrolled_namespace_count: 1,
+            enrollment: MeshEnrollment {
+                mode: MeshEnrollmentMode::RevisionAndDiscovery,
+                revision: "ambient-v1-28-6".into(),
+                istio_revision: Some("ambient-v1-28-6".into()),
+                revision_tag: None,
+                discovery_label_key: Some("istio-discovery".into()),
+                discovery_label_value: Some("mesh-ambient".into()),
+                member_roll_namespace: None,
+                from_istiod_config: false,
+            },
+        };
+        // Non-standard namespace name (not *-istio-system) with only ztunnel pods.
+        let ns = Namespace {
+            metadata: ObjectMeta {
+                name: Some("mesh-dataplane".into()),
+                labels: Some(BTreeMap::from([(
+                    "istio-discovery".into(),
+                    "mesh-ambient".into(),
+                )])),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let ztunnel = Pod {
+            metadata: ObjectMeta {
+                namespace: Some("mesh-dataplane".into()),
+                name: Some("ztunnel-node-1".into()),
+                labels: Some(BTreeMap::from([("app".into(), "ztunnel".into())])),
+                ..Default::default()
+            },
+            spec: Some(PodSpec {
+                containers: vec![Container {
+                    name: "ztunnel".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let ctx = RuleContext {
+            mesh_version: None,
+            mesh_flavor: None,
+            ambient_installed: true,
+            gateway_api_present: false,
+            namespaces: vec![ambientor_core::rules::NamespaceContext {
+                name: "mesh-dataplane".into(),
+                injection_enabled: false,
+                ambient_enabled: false,
+                workload_count: 1,
+                has_vm_workloads: false,
+            }],
+            workloads: vec![],
+            policies: Default::default(),
+            platform: Default::default(),
+        };
+        let run = build_cluster_assessment(
+            "ambientor-system/cl02",
+            &ctx,
+            &[],
+            &[ns],
+            &[mesh],
+            &HashMap::new(),
+            &HashSet::new(),
+            &identities_by_namespace(&[ztunnel]),
+        );
+        assert!(
+            run.applications.is_empty(),
+            "ztunnel-only namespace must not be cataloged: {:?}",
+            run.applications
         );
     }
 }

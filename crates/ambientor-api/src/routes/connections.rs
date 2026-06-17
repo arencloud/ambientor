@@ -6,6 +6,7 @@ use ambientor_k8s::{
     K8sClient, client_for_connection, connection_cluster_ref, verify_connectivity,
 };
 use ambientor_mesh::backend::backend_for_flavor;
+use ambientor_mesh::inventory::collect_inventory_full;
 use ambientor_scan::default_registry;
 use ambientor_types::{ClusterConnection, FindingSummary};
 use axum::{
@@ -16,7 +17,7 @@ use axum::{
 use kube::Api;
 use serde::Serialize;
 
-use crate::routes::applications::persist_assessment_from_findings;
+use crate::routes::applications::persist_assessment_from_inventory;
 use crate::routes::assess::{application_count_for_cluster, AssessRequest, AssessResponse};
 use crate::state::AppState;
 
@@ -78,10 +79,10 @@ pub async fn assess_connection(
         .await
         .map_err(internal)?;
     let backend = backend_for_flavor(platform.mesh_flavor);
-    let mut ctx = backend
-        .build_rule_context(&remote.client)
+    let inventory = collect_inventory_full(&remote.client, platform.mesh_flavor, None)
         .await
         .map_err(internal)?;
+    let mut ctx = inventory.ctx.clone();
     if let Ok(Some(ver)) = backend.detect_version(&remote.client).await {
         ctx.mesh_version = Some(ver);
     }
@@ -117,11 +118,11 @@ pub async fn assess_connection(
         }
     }
 
-    if let Err(e) = persist_assessment_from_findings(
+    if let Err(e) = persist_assessment_from_inventory(
         state.as_ref(),
         &remote.client,
         &cluster_ref,
-        &ctx,
+        &inventory,
         &findings,
     )
     .await

@@ -104,17 +104,18 @@ pub async fn list_rollouts(
     Query(query): Query<RolloutsQuery>,
 ) -> Result<Json<Vec<RolloutListItem>>, (StatusCode, String)> {
     let k8s = k8s_client().await?;
-    let filter_cluster = query
-        .cluster_ref
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(cluster_ref_from_env);
+    let filter_cluster = query.cluster_ref.filter(|s| !s.is_empty());
     let api: Api<Rollout> = Api::all(k8s.client);
     let list = api.list(&ListParams::default()).await.map_err(internal)?;
     let mut items: Vec<RolloutListItem> = list
         .items
         .into_iter()
         .filter_map(|r| rollout_to_list_item(&r))
-        .filter(|item| rollout_matches_cluster(item, &filter_cluster))
+        .filter(|item| match filter_cluster.as_deref() {
+            Some("*") => true,
+            Some(cr) => rollout_matches_cluster(item, cr),
+            None => rollout_matches_cluster(item, &cluster_ref_from_env()),
+        })
         .collect();
     items.sort_by(|a, b| a.namespace.cmp(&b.namespace).then(a.name.cmp(&b.name)));
     Ok(Json(items))

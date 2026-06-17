@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use ambientor_mesh::application_identity::identities_by_namespace;
 use ambientor_mesh::mesh_instances::discover_mesh_instances;
-use ambientor_mesh::{is_application_namespace, namespace_enrolled_on_mesh};
+use ambientor_mesh::{
+    is_ambient_control_plane_namespace, is_application_namespace, is_mesh_infrastructure_identity,
+    namespace_enrolled_on_mesh,
+};
 use k8s_openapi::api::core::v1::Pod;
 
 use crate::dataplane::derive_dataplane_mode;
@@ -54,8 +57,18 @@ pub async fn build_dashboard(
             if !is_application_namespace(&ns_name, &mesh_instances) {
                 continue;
             }
+            if is_ambient_control_plane_namespace(&ns_name, &mesh_instances) {
+                continue;
+            }
             let labels = ns.metadata.labels.as_ref();
             if !namespace_belongs_to_mesh(labels, mesh) {
+                continue;
+            }
+            let identity = identities.get(&ns_name);
+            if identity.is_none_or(|id| id.app_pod_count == 0) {
+                continue;
+            }
+            if identity.is_some_and(is_mesh_infrastructure_identity) {
                 continue;
             }
 
@@ -80,15 +93,11 @@ pub async fn build_dashboard(
                 })
                 .unwrap_or(0);
 
-            let application_name = identities
-                .get(&ns_name)
+            let application_name = identity
                 .map(|i| i.application_name.clone())
                 .unwrap_or_else(|| ns_name.clone());
 
-            let workload_count = identities
-                .get(&ns_name)
-                .map(|i| i.app_pod_count)
-                .unwrap_or(0);
+            let workload_count = identity.map(|i| i.app_pod_count).unwrap_or(0);
 
             let row = ApplicationRow {
                 application_name,

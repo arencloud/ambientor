@@ -124,18 +124,28 @@ fn strip_pod_suffix(name: &str) -> String {
 
 /// Workload / application names that identify mesh control-plane or dataplane infra (not user apps).
 pub fn is_mesh_infrastructure_workload_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
     matches!(
-        name,
+        lower.as_str(),
         "ztunnel"
+            | "istio-ztunnel"
             | "istiod"
             | "istio-ingressgateway"
             | "istio-egressgateway"
             | "istio-cni-node"
             | "waypoint"
-    ) || name.starts_with("istiod-")
-        || name.starts_with("ztunnel-")
-        || name.starts_with("istio-ingressgateway-")
-        || name.starts_with("istio-egressgateway-")
+    ) || lower.starts_with("istiod-")
+        || lower.starts_with("ztunnel-")
+        || lower.starts_with("istio-ingressgateway-")
+        || lower.starts_with("istio-egressgateway-")
+}
+
+/// Count running user-facing pods in a namespace (mesh infra and terminal pods excluded).
+pub fn application_pod_count_for_namespace(pods: &[Pod], namespace: &str) -> u32 {
+    pods.iter()
+        .filter(|p| p.metadata.namespace.as_deref() == Some(namespace))
+        .filter(|p| !is_mesh_infrastructure_pod(p) && !pod_is_terminal(p))
+        .count() as u32
 }
 
 /// True when every counted pod in the namespace is mesh infrastructure (e.g. only ztunnel).
@@ -170,6 +180,12 @@ fn is_mesh_infrastructure_pod(pod: &Pod) -> bool {
     }
     if labels
         .get("app.kubernetes.io/name")
+        .is_some_and(|v| is_mesh_infrastructure_workload_name(v))
+    {
+        return true;
+    }
+    if labels
+        .get("app.kubernetes.io/component")
         .is_some_and(|v| is_mesh_infrastructure_workload_name(v))
     {
         return true;

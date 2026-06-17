@@ -84,10 +84,12 @@ async fn build_collected_inventory(
     });
 
     let ambient_installed = pods.iter().any(|p| {
-        p.metadata
-            .labels
-            .as_ref()
-            .is_some_and(|l| l.get("app").is_some_and(|v| v == "ztunnel"))
+        p.metadata.labels.as_ref().is_some_and(|l| {
+            l.get("app")
+                .is_some_and(|v| v == "ztunnel" || v == "istio-ztunnel")
+                || l.get("app.kubernetes.io/name")
+                    .is_some_and(|v| v == "ztunnel" || v == "istio-ztunnel")
+        })
     });
 
     let mut ns_contexts = Vec::new();

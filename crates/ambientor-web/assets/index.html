@@ -6,6 +6,9 @@
   <title>Ambientor — Ambient Mesh Migration</title>
   <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="icon" href="/logo/icon-64.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
   <script src="/config.js"></script>
 </head>
@@ -13,8 +16,28 @@
   <header class="app-header">
     <div class="header-left">
       <div class="brand">
-        <img class="logo" src="/logo/icon-64.png" width="36" height="36" alt="" />
-        <div>
+        <div class="logo-mark" aria-hidden="true">
+          <svg class="logo-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="logo-grad" x1="6" y1="4" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#c4b5fd" />
+                <stop offset="45%" stop-color="#38bdf8" />
+                <stop offset="100%" stop-color="#2dd4bf" />
+              </linearGradient>
+              <linearGradient id="logo-shine" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#fff" stop-opacity="0.35" />
+                <stop offset="100%" stop-color="#fff" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <rect x="3" y="3" width="42" height="42" rx="13" fill="url(#logo-grad)" />
+            <rect x="3" y="3" width="42" height="21" rx="13" fill="url(#logo-shine)" />
+            <circle cx="24" cy="17" r="3.2" fill="#fff" opacity="0.95" />
+            <circle cx="15" cy="31" r="2.6" fill="#fff" opacity="0.88" />
+            <circle cx="33" cy="31" r="2.6" fill="#fff" opacity="0.88" />
+            <path d="M24 20.5v4.5M18.5 28.5l5.5-4 5.5 4" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.75" />
+          </svg>
+        </div>
+        <div class="brand-text">
           <h1>Ambientor</h1>
           <p class="brand-tagline">Sidecar → Ambient migration</p>
         </div>
@@ -28,9 +51,15 @@
     </div>
     <div class="header-right">
       <div class="cluster-bar" id="cluster-bar">
-        <label for="cluster-select" class="cluster-bar-label">Cluster</label>
-        <select id="cluster-select" class="filter-select cluster-select" aria-label="Active cluster">
-          <option value="">Hub (local)</option>
+        <span class="cluster-bar-label">Scope</span>
+        <div class="cluster-switcher" id="cluster-switcher" role="tablist" aria-label="Cluster scope">
+          <button type="button" class="cluster-pill active" data-cluster="" role="tab" aria-selected="true">
+            <span class="cluster-pill-icon" aria-hidden="true">◈</span>
+            All clusters
+          </button>
+        </div>
+        <select id="cluster-select" class="cluster-select-sr" aria-label="Cluster scope (compact)" tabindex="-1">
+          <option value="">All clusters</option>
         </select>
       </div>
       <div id="auth-bar" class="auth-bar">
@@ -54,16 +83,33 @@
   <div id="status-banner" class="status-banner hidden" role="status"></div>
 
   <main class="app-main">
+    <div id="scope-banner" class="scope-banner scope-fleet" role="status">
+      <span class="scope-banner-glow" aria-hidden="true"></span>
+      <span class="scope-banner-icon" aria-hidden="true">◈</span>
+      <span class="scope-banner-text" id="scope-banner-text">Fleet view — all connected clusters</span>
+      <button type="button" id="scope-clear-btn" class="scope-banner-action hidden">Show all clusters</button>
+    </div>
+
     <!-- Dashboard -->
     <section id="dashboard" class="view-panel">
       <div class="view-hero">
         <div>
-          <p class="eyebrow">Fleet overview</p>
+          <p class="eyebrow" id="dash-eyebrow">Fleet overview</p>
           <h2 id="dash-cluster-name">Loading…</h2>
           <p class="view-meta" id="dash-cluster-meta">—</p>
         </div>
-        <button id="refresh-dashboard" class="btn btn-primary">Refresh</button>
+        <button id="refresh-dashboard" class="btn btn-primary">
+          <span class="btn-icon" aria-hidden="true">↻</span> Refresh
+        </button>
       </div>
+
+      <section id="dash-fleet-section" class="content-card fleet-overview-card">
+        <header class="content-card-head">
+          <h3>Clusters</h3>
+          <span class="hint" id="dash-fleet-hint">Select a cluster to drill down</span>
+        </header>
+        <div id="dash-fleet-grid" class="fleet-cluster-grid"></div>
+      </section>
 
       <section id="dash-savings-panel" class="savings-banner hidden" aria-label="Migration savings"></section>
 
@@ -95,9 +141,9 @@
         </div>
       </section>
 
-      <section class="content-card">
+      <section class="content-card" id="dash-mesh-section">
         <header class="content-card-head">
-          <h3>Control planes</h3>
+          <h3 id="dash-mesh-title">Control planes</h3>
           <span class="hint" id="dash-last-updated">—</span>
         </header>
         <div id="dash-mesh-instances" class="mesh-grid"></div>
@@ -157,6 +203,7 @@
               <tr>
                 <th class="col-check"></th>
                 <th>Application</th>
+                <th class="col-cluster fleet-only-col hidden">Cluster</th>
                 <th>Namespace</th>
                 <th>Pods</th>
                 <th>Control plane</th>
@@ -168,7 +215,7 @@
               </tr>
             </thead>
             <tbody id="app-assess-tbody">
-              <tr><td colspan="10" class="empty-cell">Run assessment to list migration candidates.</td></tr>
+              <tr><td colspan="11" class="empty-cell">Run assessment to list migration candidates.</td></tr>
             </tbody>
           </table>
         </div>

@@ -1,15 +1,19 @@
 use std::sync::Arc;
 
 use ambientor_core::scoring::compute_scores;
-use ambientor_db::{ApplicationListQuery, StoredAssessment, cluster_ref_from_env};
+use ambientor_db::{
+    ApplicationListQuery, StoredAssessment, assessment_sync::persist_full_assessment,
+    cluster_ref_from_env,
+};
 use ambientor_k8s::K8sClient;
 use ambientor_mesh::backend::backend_for_flavor;
+use ambientor_mesh::inventory::collect_inventory_full;
 use ambientor_scan::default_registry;
 use ambientor_types::FindingSummary;
 use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 
-use crate::routes::applications::persist_assessment_from_findings;
+use crate::routes::applications::persist_assessment_from_inventory;
 use crate::routes::assessment_crd::{direct_assess_enabled, trigger_and_wait};
 use crate::state::AppState;
 
@@ -102,11 +106,10 @@ async fn assess_direct(
         .map_err(internal)?;
 
     let backend = backend_for_flavor(platform.mesh_flavor);
-    let mut ctx = backend
-        .build_rule_context(&k8s.client)
+    let inventory = collect_inventory_full(&k8s.client, platform.mesh_flavor, None)
         .await
         .map_err(internal)?;
-
+    let mut ctx = inventory.ctx.clone();
     if let Ok(Some(ver)) = backend.detect_version(&k8s.client).await {
         ctx.mesh_version = Some(ver);
     }
@@ -134,11 +137,11 @@ async fn assess_direct(
         }
     }
 
-    let application_count = persist_assessment_from_findings(
+    let application_count = persist_assessment_from_inventory(
         state.as_ref(),
         &k8s.client,
         cluster_ref,
-        &ctx,
+        &inventory,
         &findings,
     )
     .await

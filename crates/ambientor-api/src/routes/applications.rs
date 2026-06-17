@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use ambientor_db::{
-    ApplicationListQuery, assessment_sync::persist_full_assessment_from_context, cluster_ref_from_env,
+    ApplicationListQuery, assessment_sync::persist_full_assessment, cluster_ref_from_env,
 };
+use ambientor_mesh::inventory::CollectedInventory;
 use ambientor_dashboard::ApplicationListPage;
 use axum::{
     Json,
@@ -103,11 +104,11 @@ pub async fn get_application(
     Ok(Json(detail))
 }
 
-pub async fn persist_assessment_from_findings(
+pub async fn persist_assessment_from_inventory(
     state: &AppState,
     client: &kube::Client,
     cluster_ref: &str,
-    ctx: &ambientor_core::rules::RuleContext,
+    inventory: &CollectedInventory,
     findings: &[ambientor_types::Finding],
 ) -> Result<usize, String> {
     let apps = state
@@ -117,7 +118,14 @@ pub async fn persist_assessment_from_findings(
         .dashboard_store()
         .ok_or_else(|| "DATABASE_URL not configured".to_string())?;
 
-    persist_full_assessment_from_context(apps.as_ref(), dash.as_ref(), client, cluster_ref, ctx, findings)
-        .await
-        .map_err(|e| e.to_string())
+    persist_full_assessment(
+        apps.as_ref(),
+        dash.as_ref(),
+        client,
+        cluster_ref,
+        inventory,
+        findings,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
