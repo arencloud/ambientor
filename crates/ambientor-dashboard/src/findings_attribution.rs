@@ -1,6 +1,6 @@
 //! Map cluster-scoped rule findings onto application namespaces for the catalog.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use ambientor_core::rules::RuleContext;
 use ambientor_types::Finding;
@@ -55,10 +55,10 @@ pub fn partition_findings_by_namespace(
 /// Namespaces affected by a finding with no explicit `namespace` field.
 fn cluster_finding_target_namespaces(f: &Finding, ctx: &RuleContext) -> Vec<String> {
     match f.id.as_str() {
-        "traffic.vs-httproute-conflict" => namespaces_from_policy_refs(
-            ctx.policies.virtual_services.iter(),
-            ctx.policies.http_routes.iter(),
-        ),
+        "traffic.vs-httproute-conflict" => {
+            // Findings are emitted per namespace by the rule; no cluster fan-out.
+            Vec::new()
+        }
         "traffic.mixed-mode-l7-bypass" => ctx
             .namespaces
             .iter()
@@ -76,23 +76,9 @@ fn cluster_finding_target_namespaces(f: &Finding, ctx: &RuleContext) -> Vec<Stri
     }
 }
 
-fn namespaces_from_policy_refs<'a>(
-    virtual_services: impl Iterator<Item = &'a String>,
-    http_routes: impl Iterator<Item = &'a String>,
-) -> Vec<String> {
-    let mut set = BTreeSet::new();
-    for r in virtual_services.chain(http_routes) {
-        if let Some(ns) = parse_resource_namespace(r) {
-            set.insert(ns);
-        }
-    }
-    set.into_iter().collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ambientor_core::rules::PolicyContext;
     use ambientor_types::{FindingCategory, FindingSeverity};
 
     #[test]
@@ -116,30 +102,23 @@ mod tests {
     }
 
     #[test]
-    fn fans_out_vs_httproute_blocker_to_policy_namespaces() {
+    fn vs_httproute_finding_stays_in_its_namespace() {
         let f = Finding {
             id: "traffic.vs-httproute-conflict".into(),
             severity: FindingSeverity::Warning,
             category: FindingCategory::TrafficCompatibility,
             title: String::new(),
             message: String::new(),
-            namespace: None,
+            namespace: Some("bookinfo".into()),
             resource: None,
             remediation: None,
             doc_url: None,
             evidence: None,
         };
-        let ctx = RuleContext {
-            policies: PolicyContext {
-                virtual_services: vec!["bookinfo/reviews".into()],
-                http_routes: vec!["mesh-sidecar-1/app-route".into()],
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let ctx = RuleContext::default();
         let (by_ns, cluster) = partition_findings_by_namespace(&[f], &ctx);
         assert!(cluster.is_empty());
+        assert_eq!(by_ns.len(), 1);
         assert!(by_ns.contains_key("bookinfo"));
-        assert!(by_ns.contains_key("mesh-sidecar-1"));
     }
 }

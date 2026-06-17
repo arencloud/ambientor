@@ -22,35 +22,58 @@ impl Rule for VsHttpRouteConflictRule {
     }
 
     fn evaluate(&self, ctx: &RuleContext) -> Vec<Finding> {
-        if ctx.policies.virtual_services.is_empty() || ctx.policies.http_routes.is_empty() {
-            return vec![];
+        use std::collections::HashMap;
+
+        let mut vs_by_ns: HashMap<String, Vec<&str>> = HashMap::new();
+        let mut hr_by_ns: HashMap<String, Vec<&str>> = HashMap::new();
+
+        for r in &ctx.policies.virtual_services {
+            if let Some(ns) = parse_resource_namespace(r) {
+                vs_by_ns.entry(ns).or_default().push(r.as_str());
+            }
         }
-        vec![{
+        for r in &ctx.policies.http_routes {
+            if let Some(ns) = parse_resource_namespace(r) {
+                hr_by_ns.entry(ns).or_default().push(r.as_str());
+            }
+        }
+
+        let mut findings = Vec::new();
+        for ns in vs_by_ns.keys() {
+            let Some(vs_list) = vs_by_ns.get(ns) else {
+                continue;
+            };
+            let Some(hr_list) = hr_by_ns.get(ns) else {
+                continue;
+            };
             let mut f = finding(
                 self.id(),
                 FindingSeverity::Warning,
                 self.category(),
-                "VirtualService and HTTPRoute must not coexist per workload",
-                "Istio documents this under known limitations (not a hard unsupported feature): \
-                 mixing VirtualService and HTTPRoute for the same workload causes undefined routing \
-                 behavior in ambient mode. The cluster has both resource types present.",
+                "VirtualService and HTTPRoute must not coexist in the same namespace",
+                format!(
+                    "Namespace `{ns}` defines both VirtualService and HTTPRoute resources. \
+                     Istio documents this under known limitations (not a hard unsupported feature): \
+                     mixing both APIs for routing in one namespace causes undefined behavior in ambient mode."
+                ),
             );
+            f.namespace = Some(ns.clone());
             f.doc_url = Some(MIGRATE_DOC.into());
-            f.remediation = Some(
-                "1. Inventory each application namespace: list VirtualServices and HTTPRoutes.\n\
+            f.remediation = Some(format!(
+                "1. In namespace `{ns}`, list VirtualServices and HTTPRoutes.\n\
                  2. For each workload, choose one API — migrate L7 rules to Gateway API HTTPRoute \
                  (recommended) or complete cutover on VirtualService only (alpha in ambient).\n\
                  3. Remove or narrow the conflicting resource so only one API governs routing.\n\
-                 4. Re-run assessment before labeling the namespace `istio.io/dataplane-mode=ambient`."
-                    .into(),
-            );
-            f.evidence = Some(format!(
-                "virtualServices: {}\nhttpRoutes: {}",
-                ctx.policies.virtual_services.len(),
-                ctx.policies.http_routes.len()
+                 4. Re-run assessment before labeling `{ns}` with `istio.io/dataplane-mode=ambient`."
             ));
-            f
-        }]
+            f.evidence = Some(format!(
+                "namespace: {ns}\nvirtualServices:\n{}\nhttpRoutes:\n{}",
+                vs_list.join("\n"),
+                hr_list.join("\n")
+            ));
+            findings.push(f);
+        }
+        findings
     }
 }
 
@@ -252,6 +275,25 @@ mod tests {
             ..Default::default()
         };
         let findings = VsHttpRouteConflictRule.evaluate(&ctx);
+        assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, FindingSeverity::Warning);
+        assert_eq!(findings[0].namespace.as_deref(), Some("bookinfo"));
+    }
+
+    #[test]
+    fn vs_httproute_no_conflict_when_types_in_different_namespaces() {
+        let ctx = RuleContext {
+            policies: PolicyContext {
+                virtual_services: vec!["bookinfo-direct-4/reviews".into()],
+                http_routes: vec![
+                    "bookinfo-direct-1/route".into(),
+                    "bookinfo-direct-2/route".into(),
+                ],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let findings = VsHttpRouteConflictRule.evaluate(&ctx);
+        assert!(findings.is_empty());
     }
 }
