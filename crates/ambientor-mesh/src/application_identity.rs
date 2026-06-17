@@ -122,21 +122,56 @@ fn strip_pod_suffix(name: &str) -> String {
     name.to_string()
 }
 
+/// Workload / application names that identify mesh control-plane or dataplane infra (not user apps).
+pub fn is_mesh_infrastructure_workload_name(name: &str) -> bool {
+    matches!(
+        name,
+        "ztunnel"
+            | "istiod"
+            | "istio-ingressgateway"
+            | "istio-egressgateway"
+            | "istio-cni-node"
+            | "waypoint"
+    ) || name.starts_with("istiod-")
+        || name.starts_with("ztunnel-")
+        || name.starts_with("istio-ingressgateway-")
+        || name.starts_with("istio-egressgateway-")
+}
+
+/// True when every counted pod in the namespace is mesh infrastructure (e.g. only ztunnel).
+pub fn is_mesh_infrastructure_identity(id: &NamespaceApplicationIdentity) -> bool {
+    if id.app_pod_count == 0 {
+        return false;
+    }
+    is_mesh_infrastructure_workload_name(&id.application_name)
+        || id.workload_components
+            .iter()
+            .all(|c| is_mesh_infrastructure_workload_name(c))
+}
+
 fn is_mesh_infrastructure_pod(pod: &Pod) -> bool {
+    if pod
+        .metadata
+        .name
+        .as_deref()
+        .is_some_and(|n| is_mesh_infrastructure_workload_name(n))
+    {
+        return true;
+    }
     let labels = match pod.metadata.labels.as_ref() {
         Some(l) => l,
         None => return false,
     };
-    if labels.get("app").is_some_and(|v| {
-        matches!(
-            v.as_str(),
-            "ztunnel"
-                | "istiod"
-                | "istio-ingressgateway"
-                | "istio-egressgateway"
-                | "waypoint"
-        )
-    }) {
+    if labels
+        .get("app")
+        .is_some_and(|v| is_mesh_infrastructure_workload_name(v))
+    {
+        return true;
+    }
+    if labels
+        .get("app.kubernetes.io/name")
+        .is_some_and(|v| is_mesh_infrastructure_workload_name(v))
+    {
         return true;
     }
     if labels
@@ -207,5 +242,26 @@ mod tests {
         let map = identities_by_namespace(&pods);
         assert!(!map.contains_key("istio-system"));
         assert_eq!(map["bookinfo"].application_name, "product");
+    }
+
+    #[test]
+    fn skips_ztunnel_by_app_kubernetes_io_name() {
+        let pods = vec![pod(
+            "ambient-v1-28-6-istio-system",
+            "ztunnel-abc",
+            vec![("app.kubernetes.io/name", "ztunnel")],
+        )];
+        assert!(identities_by_namespace(&pods).is_empty());
+    }
+
+    #[test]
+    fn detects_infra_identity() {
+        let id = NamespaceApplicationIdentity {
+            application_name: "ztunnel".into(),
+            workload_components: vec!["ztunnel".into()],
+            name_source: "app".into(),
+            app_pod_count: 3,
+        };
+        assert!(is_mesh_infrastructure_identity(&id));
     }
 }

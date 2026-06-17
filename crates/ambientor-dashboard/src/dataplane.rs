@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
+use ambientor_mesh::application_identity::NamespaceApplicationIdentity;
 use ambientor_mesh::namespace_enrolled_on_mesh;
+use ambientor_mesh::{is_ambient_control_plane_namespace, is_application_namespace};
 use ambientor_types::MeshInstance;
 
 /// Effective namespace dataplane mode for dashboard and application catalog.
@@ -100,13 +102,25 @@ pub fn namespace_is_migrated(labels: &BTreeMap<String, String>) -> bool {
 
 /// Whether the namespace should appear in the default migration-candidates catalog.
 ///
-/// Sidecar mesh members with running app pods that are not yet ambient-labeled.
+/// Sidecar mesh members with running user app pods that are not yet ambient-labeled.
+/// Mesh control-plane namespaces and infra workloads (ztunnel, istiod, gateways) are excluded.
 pub fn is_migration_candidate(
+    ns_name: &str,
     dataplane: DataplaneMode,
     app_pod_count: u32,
     namespace_labels: &BTreeMap<String, String>,
     _mesh: Option<&MeshInstance>,
+    mesh_instances: &[MeshInstance],
+    identity: Option<&NamespaceApplicationIdentity>,
 ) -> bool {
+    if !is_application_namespace(ns_name, mesh_instances)
+        || is_ambient_control_plane_namespace(ns_name, mesh_instances)
+    {
+        return false;
+    }
+    if identity.is_some_and(ambientor_mesh::is_mesh_infrastructure_identity) {
+        return false;
+    }
     if app_pod_count == 0 || namespace_is_migrated(namespace_labels) {
         return false;
     }
@@ -157,42 +171,95 @@ mod tests {
     #[test]
     fn migration_candidate_excludes_ambient_dataplane() {
         let ambient_labels = BTreeMap::from([("istio.io/dataplane-mode".into(), "ambient".into())]);
+        let meshes = vec![ambient_mesh()];
         assert!(!is_migration_candidate(
+            "bookinfo",
             DataplaneMode::Ambient,
             3,
             &ambient_labels,
-            None
+            Some(&meshes[0]),
+            &meshes,
+            None,
         ));
         assert!(is_migration_candidate(
+            "bookinfo",
             DataplaneMode::Sidecar,
             3,
             &BTreeMap::new(),
-            None
+            None,
+            &[],
+            None,
         ));
         assert!(!is_migration_candidate(
+            "bookinfo",
             DataplaneMode::Sidecar,
             0,
             &BTreeMap::new(),
-            None
+            None,
+            &[],
+            None,
         ));
         assert!(!is_migration_candidate(
+            "bookinfo",
             DataplaneMode::NotEnrolled,
             3,
             &BTreeMap::new(),
-            None
+            None,
+            &[],
+            None,
         ));
         let injected = BTreeMap::from([("istio-injection".into(), "enabled".into())]);
         assert!(is_migration_candidate(
+            "bookinfo",
             DataplaneMode::NotEnrolled,
             3,
             &injected,
-            None
+            None,
+            &[],
+            None,
         ));
         assert!(!is_migration_candidate(
+            "bookinfo",
             DataplaneMode::Sidecar,
             3,
             &ambient_labels,
-            None
+            None,
+            &[],
+            None,
+        ));
+    }
+
+    #[test]
+    fn migration_candidate_excludes_ztunnel_infra() {
+        let meshes = vec![ambient_mesh()];
+        let id = NamespaceApplicationIdentity {
+            application_name: "ztunnel".into(),
+            workload_components: vec!["ztunnel".into()],
+            name_source: "app".into(),
+            app_pod_count: 1,
+        };
+        assert!(!is_migration_candidate(
+            "ambient-v1-28-6-istio-system",
+            DataplaneMode::Sidecar,
+            1,
+            &BTreeMap::new(),
+            Some(&meshes[0]),
+            &meshes,
+            Some(&id),
+        ));
+    }
+
+    #[test]
+    fn migration_candidate_excludes_ambient_control_plane_namespace() {
+        let meshes = vec![ambient_mesh()];
+        assert!(!is_migration_candidate(
+            "ambient-v1-28-6-istio-system",
+            DataplaneMode::Sidecar,
+            3,
+            &BTreeMap::new(),
+            Some(&meshes[0]),
+            &meshes,
+            None,
         ));
     }
 

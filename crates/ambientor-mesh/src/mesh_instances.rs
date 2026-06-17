@@ -285,6 +285,13 @@ pub fn is_istiod_control_plane_namespace(ns: &str, mesh_instances: &[MeshInstanc
         .any(|m| m.control_plane_namespace == ns)
 }
 
+/// Ambient mesh control-plane namespace (hosts ztunnel/istiod for an ambient revision).
+pub fn is_ambient_control_plane_namespace(ns: &str, mesh_instances: &[MeshInstance]) -> bool {
+    mesh_instances
+        .iter()
+        .any(|m| m.ambient && m.control_plane_namespace == ns)
+}
+
 /// User-facing application namespaces eligible for assessment catalog and dashboard rows.
 pub fn is_application_namespace(ns: &str, mesh_instances: &[MeshInstance]) -> bool {
     !is_istiod_control_plane_namespace(ns, mesh_instances)

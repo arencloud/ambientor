@@ -4,7 +4,7 @@ use ambientor_core::rules::RuleContext;
 use ambientor_core::scoring::compute_scores;
 use ambientor_mesh::application_identity::NamespaceApplicationIdentity;
 use ambientor_mesh::policy_collect::IstioPolicyObjects;
-use ambientor_mesh::is_application_namespace;
+use ambientor_mesh::{is_application_namespace, is_mesh_infrastructure_identity};
 use ambientor_types::{
     Finding, FindingCategory, FindingSeverity, MeshInstance,
 };
@@ -133,6 +133,12 @@ pub fn build_cluster_assessment(
             if !namespace_belongs_to_mesh(ns.metadata.labels.as_ref(), mesh) {
                 continue;
             }
+            if identities
+                .get(&ns_name)
+                .is_some_and(is_mesh_infrastructure_identity)
+            {
+                continue;
+            }
             if !seen.insert(ns_name.clone()) {
                 continue;
             }
@@ -146,6 +152,7 @@ pub fn build_cluster_assessment(
                 hostnames_by_ns,
                 ingress_ns,
                 identities.get(&ns_name),
+                mesh_instances,
             ));
         }
     }
@@ -174,6 +181,7 @@ pub fn build_cluster_assessment(
             hostnames_by_ns,
             ingress_ns,
             identities.get(ns_name),
+            mesh_instances,
         ));
     }
 
@@ -188,6 +196,9 @@ pub fn build_cluster_assessment(
         let identity = identities.get(&ns_name);
         let app_pods = identity.map(|i| i.app_pod_count).unwrap_or(0);
         if app_pods == 0 {
+            continue;
+        }
+        if identity.is_some_and(is_mesh_infrastructure_identity) {
             continue;
         }
         let has_sidecar = ctx.workloads.iter().any(|w| {
@@ -210,6 +221,7 @@ pub fn build_cluster_assessment(
             hostnames_by_ns,
             ingress_ns,
             identity,
+            mesh_instances,
         ));
     }
 
@@ -237,6 +249,7 @@ fn build_app_record(
     hostnames_by_ns: &HashMap<String, BTreeSet<String>>,
     ingress_ns: &HashSet<String>,
     identity: Option<&NamespaceApplicationIdentity>,
+    mesh_instances: &[MeshInstance],
 ) -> ApplicationAssessmentRecord {
     let app_pod_count = identity.map(|i| i.app_pod_count).unwrap_or_else(|| {
         workload_count(ctx, ns_name)
@@ -291,8 +304,15 @@ fn build_app_record(
         );
     }
 
-    let migration_candidate =
-        is_migration_candidate(dataplane, app_pod_count, &label_map, mesh);
+    let migration_candidate = is_migration_candidate(
+        ns_name,
+        dataplane,
+        app_pod_count,
+        &label_map,
+        mesh,
+        mesh_instances,
+        identity,
+    );
 
     let scores = compute_scores(&app_findings);
     let summary = ambientor_types::FindingSummary::from_findings(&app_findings);
@@ -421,6 +441,11 @@ fn suggestions_from_findings(findings: &[Finding]) -> Vec<AssessmentSuggestion> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ambientor_core::rules::RuleContext;
+    use ambientor_mesh::application_identity::identities_by_namespace;
+    use ambientor_types::{MeshEnrollment, MeshEnrollmentMode, MeshInstance};
+    use k8s_openapi::api::core::v1::{Container, Pod, PodSpec};
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
     #[test]
     fn critical_risk_when_blockers() {
@@ -430,6 +455,90 @@ mod tests {
             info: 0,
         };
         assert_eq!(derive_risk_level(&summary, 90), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn ztunnel_not_migration_candidate() {
+        let mesh = MeshInstance {
+            revision: "ambient-v1-28-6".into(),
+            discovery_label: "mesh-ambient".into(),
+            control_plane_namespace: "ambient-v1-28-6-istio-system".into(),
+            version: Some("1.28.6".into()),
+            ambient: true,
+            enrolled_namespace_count: 0,
+            enrollment: MeshEnrollment {
+                mode: MeshEnrollmentMode::RevisionAndDiscovery,
+                revision: "ambient-v1-28-6".into(),
+                istio_revision: Some("ambient-v1-28-6".into()),
+                revision_tag: None,
+                discovery_label_key: Some("istio-discovery".into()),
+                discovery_label_value: Some("mesh-ambient".into()),
+                member_roll_namespace: None,
+                from_istiod_config: false,
+            },
+        };
+        let ns = Namespace {
+            metadata: ObjectMeta {
+                name: Some("ambient-v1-28-6-istio-system".into()),
+                labels: Some(BTreeMap::from([(
+                    "istio-discovery".into(),
+                    "mesh-ambient".into(),
+                )])),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let ztunnel = Pod {
+            metadata: ObjectMeta {
+                namespace: Some("ambient-v1-28-6-istio-system".into()),
+                name: Some("ztunnel-abc".into()),
+                labels: Some(BTreeMap::from([(
+                    "app.kubernetes.io/name".into(),
+                    "ztunnel".into(),
+                )])),
+                ..Default::default()
+            },
+            spec: Some(PodSpec {
+                containers: vec![Container {
+                    name: "ztunnel".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let ctx = RuleContext {
+            mesh_version: None,
+            mesh_flavor: None,
+            ambient_installed: true,
+            gateway_api_present: false,
+            namespaces: vec![],
+            workloads: vec![],
+            policies: Default::default(),
+            platform: Default::default(),
+        };
+        let run = build_cluster_assessment(
+            "ambientor-system/cl02",
+            &ctx,
+            &[],
+            &[ns],
+            &[mesh],
+            &HashMap::new(),
+            &HashSet::new(),
+            &identities_by_namespace(&[ztunnel]),
+        );
+        assert!(
+            run.applications
+                .iter()
+                .all(|a| !a.migration_candidate),
+            "expected no migration candidates, got {:?}",
+            run
+                .applications
+                .iter()
+                .filter(|a| a.migration_candidate)
+                .map(|a| &a.application_name)
+                .collect::<Vec<_>>()
+        );
     }
 }
 
