@@ -92,6 +92,7 @@
 .entity-list button {
   width: 100%; text-align: left; padding: 0.7rem 0.85rem; border: 1px solid var(--border);
   border-radius: 10px; background: var(--card); cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s;
+  color: var(--navy);
 }
 .entity-list li.selected button, .entity-list button:hover {
   border-color: var(--accent); box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
@@ -108,8 +109,8 @@
 .data-table tr.selected td { background: #eff6ff; }
 .data-table.compact td, .data-table.compact th { padding: 0.45rem 0.55rem; }
 .empty-cell { text-align: center; color: #64748b; padding: 2rem !important; }
-.btn-primary, .btn.primary { background: linear-gradient(135deg, var(--purple), var(--cyan)); color: #fff; border: none; }
-.btn-ghost { background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.25); }
+.btn-primary, .btn.btn-primary { background: linear-gradient(135deg, var(--purple), var(--cyan)); color: #fff; border: none; }
+.app-header .btn-ghost { background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.25); }
 .compose-grid { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 0.5rem 1rem; align-items: center; margin: 0.75rem 0; }
 .compose-actions, .action-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.75rem; }
 .pagination-bar { display: flex; align-items: center; justify-content: center; gap: 1rem; padding-top: 0.75rem; }
@@ -304,6 +305,24 @@ main { padding: 2rem; max-width: 1280px; margin: 0 auto; }
   cursor: pointer;
   font-weight: 600;
   background: #fff;
+  color: var(--navy);
+  font: inherit;
+}
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--navy);
+}
+.btn.btn-primary,
+.btn-primary {
+  background: linear-gradient(135deg, var(--purple), var(--cyan));
+  color: #fff;
+  border: none;
+}
+.btn.btn-primary:disabled,
+.btn-primary:disabled {
+  color: #fff;
 }
 .btn.primary {
   background: linear-gradient(135deg, var(--purple), var(--cyan));
@@ -360,6 +379,7 @@ main { padding: 2rem; max-width: 1280px; margin: 0 auto; }
   width: 100%; text-align: left;
   padding: 0.75rem; border: 1px solid #e8ecf4; border-radius: 8px;
   background: #fff; cursor: pointer;
+  color: var(--navy);
 }
 .assessment-item.selected button {
   border-color: var(--purple);
@@ -1131,7 +1151,9 @@ main { padding: 2rem; max-width: 1280px; margin: 0 auto; }
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  color: #fff;
 }
+.btn-icon { line-height: 1; }
 .rollout-approve-btn.pulse {
   animation: approve-pulse 2s ease-in-out infinite;
   box-shadow: 0 0 0 0 rgba(2, 132, 199, 0.45);
@@ -1384,6 +1406,7 @@ main { padding: 2rem; max-width: 1280px; margin: 0 auto; }
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+  color: var(--navy);
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
 }
 .rollout-list-item button:hover {
