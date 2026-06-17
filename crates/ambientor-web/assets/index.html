@@ -39,7 +39,7 @@
         </div>
         <div class="brand-text">
           <h1>Ambientor</h1>
-          <p class="brand-tagline">Sidecar → Ambient migration</p>
+          <p class="brand-tagline">Enterprise cluster migration</p>
         </div>
       </div>
       <nav class="main-nav" aria-label="Main">
@@ -51,30 +51,44 @@
     </div>
     <div class="header-right">
       <div class="cluster-bar" id="cluster-bar">
-        <span class="cluster-bar-label">Scope</span>
-        <div class="cluster-switcher" id="cluster-switcher" role="tablist" aria-label="Cluster scope">
-          <button type="button" class="cluster-pill active" data-cluster="" role="tab" aria-selected="true">
-            <span class="cluster-pill-icon" aria-hidden="true">◈</span>
-            All clusters
-          </button>
+        <label class="cluster-bar-label" for="cluster-select">Scope</label>
+        <div class="scope-select-wrap">
+          <span class="scope-select-icon" id="scope-select-icon" aria-hidden="true">◈</span>
+          <select id="cluster-select" class="cluster-scope-select" aria-label="Cluster scope">
+            <option value="">All clusters</option>
+          </select>
+          <span class="scope-select-chevron" aria-hidden="true">▾</span>
         </div>
-        <select id="cluster-select" class="cluster-select-sr" aria-label="Cluster scope (compact)" tabindex="-1">
-          <option value="">All clusters</option>
-        </select>
       </div>
       <div id="auth-bar" class="auth-bar">
         <p id="auth-disabled-hint" class="auth-hint">Auth optional</p>
-        <div id="auth-user-panel" class="auth-user hidden">
-          <span>Signed in as <strong id="auth-username"></strong></span>
-          <button type="button" id="auth-logout-btn" class="btn btn-ghost auth-btn">Sign out</button>
+        <div id="auth-user-panel" class="auth-user-card hidden" role="status" aria-live="polite">
+          <div class="auth-user-avatar-ring" aria-hidden="true">
+            <div class="auth-user-avatar" id="auth-user-avatar">?</div>
+          </div>
+          <div class="auth-user-meta">
+            <span class="auth-user-greeting">Welcome back</span>
+            <strong class="auth-user-name" id="auth-username" title="">user</strong>
+            <span class="auth-user-role">
+              <span class="auth-live-dot" aria-hidden="true"></span>
+              <span id="auth-user-role-text">Authenticated</span>
+            </span>
+          </div>
+          <button type="button" id="auth-logout-btn" class="auth-logout-btn" title="Sign out" aria-label="Sign out">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
         </div>
-        <div id="auth-login-panel" class="auth-login hidden">
+        <div id="auth-login-panel" class="auth-login-card hidden">
           <form id="auth-local-form" class="auth-local-form">
-            <input type="text" id="auth-username-input" placeholder="Username" autocomplete="username" />
-            <input type="password" id="auth-password-input" placeholder="Password" autocomplete="current-password" />
-            <button type="button" id="auth-login-btn" class="btn btn-ghost auth-btn">Sign in</button>
+            <input type="text" id="auth-username-input" placeholder="Username" autocomplete="username" aria-label="Username" />
+            <input type="password" id="auth-password-input" placeholder="Password" autocomplete="current-password" aria-label="Password" />
+            <button type="button" id="auth-login-btn" class="auth-submit-btn">Sign in</button>
           </form>
-          <button type="button" id="auth-oidc-login" class="btn btn-ghost auth-btn hidden">SSO</button>
+          <button type="button" id="auth-oidc-login" class="auth-sso-btn hidden">SSO</button>
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 ambientor-core = { workspace = true }
 ambientor-dashboard = { workspace = true }
+ambientor-k8s = { workspace = true }
 ambientor-mesh = { workspace = true }
 ambientor-types = { workspace = true }
 kube = { workspace = true }

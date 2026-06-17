@@ -108,6 +108,7 @@ async fn reconcile_inner(
             match persist_full_assessment(
                 apps.as_ref(),
                 dash.as_ref(),
+                Some(client),
                 client,
                 &cluster_ref,
                 &inventory,

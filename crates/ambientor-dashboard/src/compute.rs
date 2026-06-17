@@ -273,7 +273,11 @@ async fn list_assessments_map(
     findings_overrides: Option<&AssessmentFindingsOverrides>,
 ) -> anyhow::Result<HashMap<String, AssessmentNsInfo>> {
     let api: Api<AmbientAssessment> = Api::all(client.clone());
-    let list = api.list(&ListParams::default()).await?;
+    let list = match api.list(&ListParams::default()).await {
+        Ok(l) => l,
+        Err(kube::Error::Api(e)) if e.code == 404 => return Ok(HashMap::new()),
+        Err(e) => return Err(e.into()),
+    };
     let mut map = HashMap::new();
 
     for a in list.items {
@@ -329,7 +333,11 @@ async fn list_assessments_map(
 
 async fn list_rollout_ns_status(client: &Client) -> anyhow::Result<HashMap<String, String>> {
     let api: Api<Rollout> = Api::all(client.clone());
-    let list = api.list(&ListParams::default()).await?;
+    let list = match api.list(&ListParams::default()).await {
+        Ok(l) => l,
+        Err(kube::Error::Api(e)) if e.code == 404 => return Ok(HashMap::new()),
+        Err(e) => return Err(e.into()),
+    };
     let mut map = HashMap::new();
 
     for r in list.items {
@@ -349,7 +357,11 @@ async fn list_rollout_ns_status(client: &Client) -> anyhow::Result<HashMap<Strin
 
 async fn list_mesh_inventories(client: &Client) -> anyhow::Result<BTreeSet<String>> {
     let api: Api<MeshInventory> = Api::all(client.clone());
-    let list = api.list(&ListParams::default()).await?;
+    let list = match api.list(&ListParams::default()).await {
+        Ok(l) => l,
+        Err(kube::Error::Api(e)) if e.code == 404 => return Ok(BTreeSet::new()),
+        Err(e) => return Err(e.into()),
+    };
     let mut out = BTreeSet::new();
     for inv in list.items {
         if let Some(ns) = inv.metadata.namespace {
@@ -379,7 +391,7 @@ pub async fn load_cluster_display_name(client: &Client) -> String {
     std::env::var("POD_NAMESPACE")
         .ok()
         .map(|_| "Connected cluster".into())
-        .unwrap_or_else(|| "In-cluster".into())
+        .unwrap_or_else(|| "Hub cluster".into())
 }
 
 async fn list_namespaces(client: &Client) -> anyhow::Result<Vec<Namespace>> {

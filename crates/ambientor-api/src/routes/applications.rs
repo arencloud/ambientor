@@ -106,7 +106,8 @@ pub async fn get_application(
 
 pub async fn persist_assessment_from_inventory(
     state: &AppState,
-    client: &kube::Client,
+    hub: Option<&kube::Client>,
+    spoke: &kube::Client,
     cluster_ref: &str,
     inventory: &CollectedInventory,
     findings: &[ambientor_types::Finding],
@@ -121,7 +122,8 @@ pub async fn persist_assessment_from_inventory(
     persist_full_assessment(
         apps.as_ref(),
         dash.as_ref(),
-        client,
+        hub,
+        spoke,
         cluster_ref,
         inventory,
         findings,

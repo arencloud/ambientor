@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
-use ambientor_dashboard::{AssessmentFindingsOverrides, DashboardResponse, build_dashboard};
+use ambientor_dashboard::{
+    apply_cluster_ref_metadata, AssessmentFindingsOverrides, ClusterDashboard, DashboardResponse,
+    FleetClusterDashboard, FleetDashboardResponse, StatusCounts, build_dashboard,
+};
 use ambientor_db::{cluster_ref_from_env, load_assessment_findings_overrides};
 use ambientor_k8s::{
-    K8sClient, client_for_connection, parse_connection_cluster_ref, verify_connectivity,
+    K8sClient, client_for_connection, connection_cluster_ref, connection_display_names,
+    parse_connection_cluster_ref, resolve_cluster_display_name, verify_connectivity,
 };
 use ambientor_types::{AmbientAssessment, ClusterConnection};
 use axum::{
@@ -76,6 +80,9 @@ pub async fn get_fleet_dashboard(
         .await
         .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     {
+        let hub = k8s_client().await?;
+        let mut fleet = merge_fleet_with_connections(fleet, &hub.client).await;
+        enrich_fleet_display_names(&mut fleet, &hub.client).await;
         return Ok(Json(fleet));
     }
 
@@ -129,6 +136,9 @@ async fn compute_and_persist_live(
     let mut response = build_dashboard(&client, cluster_ref, overrides.as_ref())
         .await
         .map_err(internal)?;
+    response.cluster.name =
+        resolve_cluster_display_name(Some(&hub.client), cluster_ref, &response.cluster.name).await;
+    apply_cluster_ref_metadata(cluster_ref, &mut response);
     if let Some(meta) = spoke_meta {
         response.cluster.name = meta.display_name;
         response.connection_namespace = Some(meta.connection_namespace);
@@ -212,7 +222,11 @@ async fn empty_findings_assessment_names(
     client: &kube::Client,
 ) -> Result<Vec<String>, kube::Error> {
     let api: Api<AmbientAssessment> = Api::all(client.clone());
-    let list = api.list(&ListParams::default()).await?;
+    let list = match api.list(&ListParams::default()).await {
+        Ok(l) => l,
+        Err(kube::Error::Api(e)) if e.code == 404 => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
     Ok(list
         .items
         .into_iter()
@@ -225,4 +239,68 @@ async fn empty_findings_assessment_names(
             empty.then_some(name)
         })
         .collect())
+}
+
+async fn merge_fleet_with_connections(
+    mut fleet: FleetDashboardResponse,
+    hub: &kube::Client,
+) -> FleetDashboardResponse {
+    let api: Api<ClusterConnection> = Api::all(hub.clone());
+    let Ok(list) = api.list(&ListParams::default()).await else {
+        return fleet;
+    };
+    let hub_ref = cluster_ref_from_env();
+    let mut seen: std::collections::HashSet<String> = fleet
+        .clusters
+        .iter()
+        .map(|c| c.cluster_ref.clone())
+        .collect();
+
+    for conn in list.items {
+        let Some(name) = conn.metadata.name else {
+            continue;
+        };
+        let ns = conn
+            .metadata
+            .namespace
+            .unwrap_or_else(|| "default".into());
+        let cluster_ref = if conn.spec.hub {
+            hub_ref.clone()
+        } else {
+            connection_cluster_ref(&ns, &name)
+        };
+        if !seen.insert(cluster_ref.clone()) {
+            continue;
+        }
+        fleet.clusters.push(FleetClusterDashboard {
+            cluster_ref,
+            cluster: ClusterDashboard {
+                name: conn.spec.display_name.clone(),
+                platform: String::new(),
+                mesh_flavor: String::new(),
+                istio_version: None,
+                mesh_instance_count: 0,
+                ambient_mesh_count: 0,
+            },
+            summary: StatusCounts::default(),
+            mesh_instances: Vec::new(),
+            last_updated: fleet.last_updated.clone(),
+        });
+    }
+    fleet
+}
+
+async fn enrich_fleet_display_names(
+    fleet: &mut FleetDashboardResponse,
+    hub: &kube::Client,
+) {
+    let hub_ref = cluster_ref_from_env();
+    let Ok(names) = connection_display_names(hub, &hub_ref).await else {
+        return;
+    };
+    for entry in &mut fleet.clusters {
+        if let Some(display) = names.get(&entry.cluster_ref) {
+            entry.cluster.name = display.clone();
+        }
+    }
 }

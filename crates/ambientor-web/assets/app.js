@@ -53,6 +53,10 @@
   function setStatus(msg, isError) {
     const el = $('status-banner');
     if (!el) return;
+    if (msg && isError) {
+      const line = String(msg).split('\n')[0];
+      msg = line.length > 140 ? line.slice(0, 140) + '…' : line;
+    }
     el.textContent = msg || '';
     el.className = 'status-banner' + (msg ? (isError ? ' error' : ' info') : ' hidden');
   }
@@ -66,15 +70,85 @@
     else localStorage.removeItem(TOKEN_KEY);
   }
 
-  function parseJwtUsername(token) {
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  function parseJwtClaims(token) {
     try {
       const payload = token.split('.')[1];
       const padded = payload.replace(/-/g, '+').replace(/_/g, '/');
-      const json = JSON.parse(atob(padded));
-      return json.sub || json.username || null;
+      return JSON.parse(atob(padded));
     } catch {
       return null;
     }
+  }
+
+  function isUuid(value) {
+    return UUID_RE.test(String(value || '').trim());
+  }
+
+  function humanizeUsername(value) {
+    const s = String(value || '').trim();
+    if (!s) return 'User';
+    if (s.includes('@')) {
+      const local = s.split('@')[0];
+      if (local && !isUuid(local)) return humanizeUsername(local);
+    }
+    return s
+      .replace(/^oidc:/i, '')
+      .replace(/[._-]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function displayNameFromClaims(claims) {
+    if (!claims) return 'User';
+    const candidates = [
+      claims.username,
+      claims.preferred_username,
+      claims.name,
+      claims.email,
+    ].filter(Boolean);
+    for (const raw of candidates) {
+      let s = String(raw).trim();
+      if (!s || isUuid(s)) continue;
+      if (s.startsWith('oidc:')) s = s.slice(5);
+      if (isUuid(s)) continue;
+      return humanizeUsername(s);
+    }
+    return 'User';
+  }
+
+  function roleLabelFromClaims(claims) {
+    const roles = claims?.roles;
+    if (Array.isArray(roles) && roles.length) {
+      return roles
+        .map((r) => String(r).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()))
+        .join(' · ');
+    }
+    return 'Authenticated';
+  }
+
+  function parseJwtUsername(token) {
+    return displayNameFromClaims(parseJwtClaims(token));
+  }
+
+  function userInitials(name) {
+    const n = (name || 'user').trim();
+    if (!n) return '?';
+    const parts = n.split(/[@.\s_-]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return n.slice(0, 2).toUpperCase();
+  }
+
+  function matchesClusterScope(itemClusterRef) {
+    if (isFleetView()) return true;
+    const cr = itemClusterRef || '';
+    if (activeClusterRef === HUB_CLUSTER_REF) {
+      return !cr || cr === HUB_CLUSTER_REF;
+    }
+    return cr === activeClusterRef;
   }
 
   function authHeaders(extra) {
@@ -120,9 +194,18 @@
     $('auth-login-panel')?.classList.toggle('hidden', !authOn || loggedIn);
     $('auth-user-panel')?.classList.toggle('hidden', !loggedIn);
 
-    if (loggedIn && $('auth-username')) {
-      $('auth-username').textContent = parseJwtUsername(getToken()) || 'user';
+    const token = loggedIn ? getToken() : null;
+    const claims = token ? parseJwtClaims(token) : null;
+    const username = loggedIn ? displayNameFromClaims(claims) : '';
+    const nameEl = $('auth-username');
+    if (loggedIn && nameEl) {
+      nameEl.textContent = username;
+      nameEl.title = claims?.username || username;
     }
+    const roleEl = $('auth-user-role-text');
+    if (roleEl) roleEl.textContent = loggedIn ? roleLabelFromClaims(claims) : '';
+    const avatar = $('auth-user-avatar');
+    if (avatar) avatar.textContent = loggedIn ? userInitials(username) : '?';
 
     const oidcBtn = $('auth-oidc-login');
     if (oidcBtn) {
@@ -593,12 +676,51 @@
     return !activeClusterRef;
   }
 
+  const HUB_CLUSTER_REF = 'in-cluster';
+
+  function connectionForRef(ref) {
+    return clusterConnections.find((c) => {
+      const cr =
+        c.clusterRef ||
+        c.cluster_ref ||
+        (c.hub ? HUB_CLUSTER_REF : c.namespace + '/' + c.name);
+      return cr === ref;
+    });
+  }
+
+  function mergeFleetFromConnections() {
+    clusterConnections.forEach((c) => {
+      const ref =
+        c.clusterRef ||
+        c.cluster_ref ||
+        (c.hub ? HUB_CLUSTER_REF : c.namespace + '/' + c.name);
+      const label = c.displayName || c.display_name || c.name;
+      const existing = fleetClusters.find((x) => (x.clusterRef || x.cluster_ref) === ref);
+      if (existing) {
+        if (!existing.cluster) existing.cluster = {};
+        existing.cluster.name = label;
+        return;
+      }
+      fleetClusters.push({
+        cluster_ref: ref,
+        cluster: { name: label },
+        summary: {},
+        mesh_instances: [],
+      });
+    });
+  }
+
   function clusterLabelForRef(ref) {
     if (!ref) return 'All clusters';
-    const fleet = fleetClusters.find((c) => (c.clusterRef || c.cluster_ref) === ref);
-    if (fleet?.cluster?.name) return fleet.cluster.name;
-    const conn = clusterConnections.find((c) => !c.hub && c.namespace + '/' + c.name === ref);
+    const conn = connectionForRef(ref);
     if (conn) return conn.displayName || conn.display_name || conn.name;
+    const fleet = fleetClusters.find((c) => (c.clusterRef || c.cluster_ref) === ref);
+    const fleetName = fleet?.cluster?.name;
+    if (fleetName && fleetName !== 'In-cluster' && fleetName !== 'Connected cluster') {
+      return fleetName;
+    }
+    if (ref === HUB_CLUSTER_REF) return 'Hub cluster';
+    if (ref.includes('/')) return ref.split('/').pop();
     return ref;
   }
 
@@ -638,12 +760,12 @@
     if (eyebrow) eyebrow.textContent = isFleetView() ? 'Fleet overview' : 'Cluster dashboard';
     const meshTitle = $('dash-mesh-title');
     if (meshTitle) meshTitle.textContent = isFleetView() ? 'Control planes' : 'Control planes';
-    document.querySelectorAll('.cluster-pill').forEach((btn) => {
-      const ref = btn.getAttribute('data-cluster') ?? '';
-      const active = ref === activeClusterRef;
-      btn.classList.toggle('active', active);
-      btn.setAttribute('aria-selected', active ? 'true' : 'false');
-    });
+    const scopeIcon = $('scope-select-icon');
+    if (scopeIcon) {
+      if (isFleetView()) scopeIcon.textContent = '◈';
+      else if (isRemoteConnectionRef(activeClusterRef)) scopeIcon.textContent = '⬡';
+      else scopeIcon.textContent = '◎';
+    }
   }
 
   function selectCluster(ref) {
@@ -654,67 +776,115 @@
   }
 
   function renderClusterSwitcher() {
-    const switcher = $('cluster-switcher');
     const select = $('cluster-select');
-    if (!switcher) return;
+    if (!select) return;
 
-    const entries = [];
-    entries.push({ ref: '', label: 'All clusters', icon: '◈', remote: false });
+    mergeFleetFromConnections();
 
+    const entries = [{ ref: '', label: 'All clusters', icon: '◈', remote: false }];
     const seen = new Set(['']);
+
+    if (!seen.has(HUB_CLUSTER_REF)) {
+      seen.add(HUB_CLUSTER_REF);
+      entries.push({
+        ref: HUB_CLUSTER_REF,
+        label: clusterLabelForRef(HUB_CLUSTER_REF),
+        icon: '◎',
+        remote: false,
+      });
+    }
+
+    clusterConnections.forEach((c) => {
+      const ref =
+        c.clusterRef ||
+        c.cluster_ref ||
+        (c.hub ? HUB_CLUSTER_REF : c.namespace + '/' + c.name);
+      if (seen.has(ref)) return;
+      seen.add(ref);
+      entries.push({
+        ref,
+        label: c.displayName || c.display_name || c.name,
+        icon: c.hub ? '◎' : '⬡',
+        remote: !c.hub,
+      });
+    });
+
     fleetClusters.forEach((c) => {
       const ref = c.clusterRef || c.cluster_ref;
       if (!ref || seen.has(ref)) return;
       seen.add(ref);
-      const name = c.cluster?.name || ref;
-      entries.push({ ref, label: name, icon: '◎', remote: ref.includes('/') });
-    });
-
-    clusterConnections
-      .filter((c) => !c.hub)
-      .forEach((c) => {
-        const ref = c.namespace + '/' + c.name;
-        if (seen.has(ref)) return;
-        seen.add(ref);
-        const label = c.displayName || c.display_name || c.name;
-        entries.push({ ref, label, icon: '⬡', remote: true });
+      entries.push({
+        ref,
+        label: clusterLabelForRef(ref),
+        icon: ref.includes('/') ? '⬡' : '◎',
+        remote: ref.includes('/'),
       });
-
-    switcher.innerHTML = entries
-      .map(
-        (e) =>
-          `<button type="button" class="cluster-pill${e.remote ? ' remote' : ''}${e.ref === activeClusterRef ? ' active' : ''}" data-cluster="${escapeHtml(e.ref)}" role="tab" aria-selected="${e.ref === activeClusterRef}">
-            <span class="cluster-pill-icon" aria-hidden="true">${e.icon}</span>${escapeHtml(e.label)}
-          </button>`
-      )
-      .join('');
-
-    switcher.querySelectorAll('.cluster-pill').forEach((btn) => {
-      btn.addEventListener('click', () => selectCluster(btn.getAttribute('data-cluster') || ''));
     });
 
-    if (select) {
-      select.innerHTML = entries
-        .map((e) => `<option value="${escapeHtml(e.ref)}">${escapeHtml(e.label)}</option>`)
-        .join('');
-      select.value = activeClusterRef;
-    }
+    select.innerHTML = entries
+      .map((e, i) => {
+        const prefix = e.ref === '' ? '◈ ' : e.remote ? '⬡ ' : '◎ ';
+        const label =
+          i === 0 && entries.length > 1
+            ? `All clusters (${entries.length - 1})`
+            : e.label;
+        return `<option value="${escapeHtml(e.ref)}">${escapeHtml(prefix + label)}</option>`;
+      })
+      .join('');
+    select.value = activeClusterRef;
+    updateScopeUi();
   }
 
   function filteredPlans() {
-    if (isFleetView()) return plans;
-    return plans.filter((p) => {
-      const cr = p.clusterRef || p.cluster_ref;
-      return !cr || cr === activeClusterRef;
-    });
+    return plans.filter((p) => matchesClusterScope(p.clusterRef || p.cluster_ref));
   }
 
   function filteredRollouts() {
-    if (isFleetView()) return rollouts;
-    return rollouts.filter((r) => {
-      const cr = r.clusterRef || r.cluster_ref;
-      return !cr || cr === activeClusterRef;
-    });
+    return rollouts.filter((r) => matchesClusterScope(r.clusterRef || r.cluster_ref));
+  }
+
+  function clearPlanDetail() {
+    $('plan-detail-title').textContent = 'Select a plan';
+    $('plan-detail-phase').textContent = '—';
+    $('plan-detail-phase').className = 'phase-badge';
+    const meta = $('plan-meta-grid');
+    if (meta) meta.innerHTML = '';
+    const waves = $('plan-waves');
+    if (waves) waves.innerHTML = '';
+    const translations = $('plan-translations');
+    if (translations) translations.innerHTML = '';
+    const syncPanel = $('plan-sync-panel');
+    if (syncPanel) syncPanel.classList.add('hidden');
+    $('export-plan')?.setAttribute('disabled', 'true');
+    $('start-rollout')?.setAttribute('disabled', 'true');
+    $('execute-migration')?.setAttribute('disabled', 'true');
+  }
+
+  function syncScopeBoundSelection() {
+    const panel = document.querySelector('.view-panel:not(.hidden)')?.id;
+    if (panel === 'plans') {
+      const list = filteredPlans();
+      if (selectedPlanKey && !list.some((p) => planKey(p) === selectedPlanKey)) {
+        selectedPlanKey = null;
+        clearPlanDetail();
+      }
+      renderPlanList();
+      if (selectedPlanKey) {
+        const p = plans.find((x) => planKey(x) === selectedPlanKey);
+        if (p) refreshPlanDetail(p, true);
+      }
+    } else if (panel === 'rollouts') {
+      const list = filteredRollouts();
+      if (selectedRolloutKey && !list.some((r) => rolloutKey(r) === selectedRolloutKey)) {
+        selectedRolloutKey = null;
+        rolloutDetail = null;
+      }
+      renderRolloutList();
+      if (selectedRolloutKey) {
+        const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
+        if (r) selectRollout(rolloutKey(r));
+      }
+    }
   }
 
   function clusterQuerySuffix() {
@@ -760,7 +930,10 @@
     }
     list.innerHTML = remote
       .map((c) => {
-        const ref = c.namespace + '/' + c.name;
+        const ref =
+          c.clusterRef ||
+          c.cluster_ref ||
+          c.namespace + '/' + c.name;
         const label = escapeHtml(c.displayName || c.display_name || c.name);
         const phase = escapeHtml(c.phase || 'Unknown');
         const msg = c.readyMessage || c.ready_message;
@@ -795,15 +968,12 @@
     if (bar) bar.classList.toggle('cluster-active', !!activeClusterRef);
     updateScopeUi();
     renderConnectionsList();
-    loadDashboard();
-    if (!$('assessments')?.classList.contains('hidden')) loadApplications();
-    if (!$('rollouts')?.classList.contains('hidden')) loadRollouts();
-    if (!$('plans')?.classList.contains('hidden')) {
-      renderPlanList();
-      if (selectedPlanKey && !filteredPlans().some((p) => planKey(p) === selectedPlanKey)) {
-        selectedPlanKey = null;
-      }
-    }
+    const panel = document.querySelector('.view-panel:not(.hidden)')?.id;
+    if (panel === 'dashboard' || !panel) loadDashboard();
+    else if (panel === 'assessments') loadApplications();
+    else if (panel === 'rollouts') loadRollouts();
+    else if (panel === 'plans') loadPlans(true);
+    syncScopeBoundSelection();
   }
 
   function applicationsQueryString() {
@@ -1175,48 +1345,68 @@
     }
   }
 
+  function renderDashboardData(data, quiet) {
+    const container = $('dash-mesh-instances');
+    const cluster = data.cluster || {};
+    const displayName = cluster.name && cluster.name !== 'In-cluster'
+      ? cluster.name
+      : clusterLabelForRef(activeClusterRef);
+    $('dash-cluster-name').textContent = displayName || 'Connected cluster';
+    const meta = [
+      cluster.platform,
+      cluster.meshFlavor || cluster.mesh_flavor,
+      cluster.istioVersion || cluster.istio_version
+        ? 'Istio ' + (cluster.istioVersion || cluster.istio_version)
+        : null,
+      (cluster.meshInstanceCount ?? cluster.mesh_instance_count ?? 0) +
+        ' control plane(s)',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    $('dash-cluster-meta').textContent = meta || '—';
+    if (data.lastUpdated || data.last_updated) {
+      $('dash-last-updated').textContent =
+        'Updated ' + new Date(data.lastUpdated || data.last_updated).toLocaleString();
+    }
+    renderStatusSummary(data.summary);
+    renderMigrationSavings(data.migrationSavings || data.migration_savings);
+    if (container) {
+      container.innerHTML = '';
+      (data.meshInstances || data.mesh_instances || []).forEach((m) => {
+        container.appendChild(renderIstiodCard(m));
+      });
+      if (!(data.meshInstances || data.mesh_instances || []).length) {
+        container.innerHTML =
+          '<p class="hint">No Istio control planes discovered. Run assessment to populate this cluster.</p>';
+      }
+    }
+    if (!quiet) setStatus('Dashboard loaded');
+  }
+
   async function loadDashboard(quiet) {
     if (isFleetView()) return loadFleetDashboard(quiet);
     if (!quiet) setStatus('Loading dashboard…');
     const container = $('dash-mesh-instances');
+    const suffix = clusterQuerySuffix();
     try {
-      const res = await fetch(
-        API() + '/api/v1/dashboard?fresh=true' + clusterQuerySuffix()
-      );
+      const res = await fetch(API() + '/api/v1/dashboard?fresh=true' + suffix);
       if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      const cluster = data.cluster || {};
-      $('dash-cluster-name').textContent = cluster.name || 'Connected cluster';
-      const meta = [
-        cluster.platform,
-        cluster.meshFlavor || cluster.mesh_flavor,
-        cluster.istioVersion || cluster.istio_version
-          ? 'Istio ' + (cluster.istioVersion || cluster.istio_version)
-          : null,
-        (cluster.meshInstanceCount ?? cluster.mesh_instance_count ?? 0) +
-          ' control plane(s)',
-      ]
-        .filter(Boolean)
-        .join(' · ');
-      $('dash-cluster-meta').textContent = meta || '—';
-      if (data.lastUpdated || data.last_updated) {
-        $('dash-last-updated').textContent =
-          'Updated ' + new Date(data.lastUpdated || data.last_updated).toLocaleString();
-      }
-      renderStatusSummary(data.summary);
-      renderMigrationSavings(data.migrationSavings || data.migration_savings);
-      if (container) {
-        container.innerHTML = '';
-        (data.meshInstances || data.mesh_instances || []).forEach((m) => {
-          container.appendChild(renderIstiodCard(m));
-        });
-        if (!(data.meshInstances || data.mesh_instances || []).length) {
-          container.innerHTML = '<p class="hint">No Istio control planes discovered.</p>';
-        }
-      }
-      if (!quiet) setStatus('Dashboard loaded');
+      renderDashboardData(await res.json(), quiet);
     } catch (e) {
-      if (container) container.innerHTML = '';
+      try {
+        const cached = await fetch(API() + '/api/v1/dashboard' + suffix);
+        if (cached.ok) {
+          renderDashboardData(await cached.json(), quiet);
+          if (!quiet) setStatus('Dashboard loaded from cache (live refresh failed)');
+          return;
+        }
+      } catch (_) {}
+      $('dash-cluster-name').textContent = clusterLabelForRef(activeClusterRef);
+      $('dash-cluster-meta').textContent = activeClusterRef || '—';
+      if (container) {
+        container.innerHTML =
+          '<p class="hint">Could not refresh live dashboard. Run <strong>Assessment</strong> on this cluster, or try Refresh again.</p>';
+      }
       if (!quiet) setStatus('Dashboard failed: ' + e.message, true);
     }
   }
@@ -1441,9 +1631,15 @@
           ? 'assessment'
           : '';
       const approved = p.approved ? '<span class="badge-status success">Approved</span>' : '';
+      const planCluster = p.clusterRef || p.cluster_ref;
+      const clusterChip =
+        isFleetView() && planCluster
+          ? `<span class="entity-cluster-chip">${escapeHtml(clusterLabelForRef(planCluster))}</span>`
+          : '';
       li.innerHTML = `
         <button type="button" data-key="${escapeHtml(key)}">
           <span class="name">${escapeHtml(p.displayName || p.display_name || p.name)}</span>
+          ${clusterChip}
           <span class="phase">${escapeHtml(p.phase)}</span>
           ${approved}
           <span class="score-mini">${p.waveCount ?? p.wave_count ?? 0} wave(s)${subtitle ? ' · ' + escapeHtml(subtitle) : ''}</span>
@@ -1626,6 +1822,11 @@
       const res = await fetch(API() + '/api/v1/plans');
       if (!res.ok) return;
       plans = await res.json();
+      const visible = filteredPlans();
+      if (selectedPlanKey && !visible.some((p) => planKey(p) === selectedPlanKey)) {
+        selectedPlanKey = null;
+        clearPlanDetail();
+      }
       renderPlanList();
       if (selectedPlanKey) {
         const p = plans.find((x) => planKey(x) === selectedPlanKey);
@@ -1640,16 +1841,26 @@
       const res = await fetch(API() + '/api/v1/plans');
       if (!res.ok) throw new Error(await res.text());
       plans = await res.json();
+      const visible = filteredPlans();
       renderPlanList();
       if (!quiet) {
         setStatus(
-          plans.length
-            ? `Loaded ${plans.length} migration plan(s)`
-            : 'No migration plans in cluster'
+          visible.length
+            ? `Loaded ${visible.length} migration plan(s) for this scope`
+            : isFleetView()
+              ? 'No migration plans in the fleet'
+              : 'No migration plans for this cluster'
         );
       }
-      if (plans.length && !selectedPlanKey) {
-        await selectPlan(planKey(plans[0]));
+      if (visible.length && !selectedPlanKey) {
+        await selectPlan(planKey(visible[0]));
+      } else if (
+        selectedPlanKey &&
+        !visible.some((p) => planKey(p) === selectedPlanKey)
+      ) {
+        selectedPlanKey = null;
+        clearPlanDetail();
+        renderPlanList();
       } else {
         startMigrationPolling();
       }

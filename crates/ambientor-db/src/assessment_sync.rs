@@ -1,8 +1,10 @@
 use ambientor_core::rules::RuleContext;
 use ambientor_dashboard::{
-    build_cluster_assessment_from_context, build_cluster_assessment_from_inventory,
-    cluster_dashboard_meta_with_meshes, dashboard_from_assessment_run,
+    apply_cluster_ref_metadata, build_cluster_assessment_from_context,
+    build_cluster_assessment_from_inventory, cluster_dashboard_meta_with_meshes,
+    dashboard_from_assessment_run,
 };
+use ambientor_k8s::resolve_cluster_display_name;
 use ambientor_mesh::inventory::CollectedInventory;
 use ambientor_mesh::mesh_instances::discover_mesh_instances;
 use ambientor_types::Finding;
@@ -15,12 +17,13 @@ use crate::traits::{ApplicationAssessmentStore, DashboardStore};
 pub async fn persist_full_assessment(
     applications: &dyn ApplicationAssessmentStore,
     dashboard: &dyn DashboardStore,
-    client: &Client,
+    hub: Option<&Client>,
+    spoke: &Client,
     cluster_ref: &str,
     inventory: &CollectedInventory,
     findings: &[Finding],
 ) -> Result<usize, DbError> {
-    let mesh_instances = discover_mesh_instances(client)
+    let mesh_instances = discover_mesh_instances(spoke)
         .await
         .map_err(|e| DbError::Serialize(e.to_string()))?;
 
@@ -37,10 +40,14 @@ pub async fn persist_full_assessment(
     let count = run.applications.len();
     applications.replace_run(&run).await?;
 
-    let cluster_meta = cluster_dashboard_meta_with_meshes(client, &mesh_instances)
+    let mut cluster_meta = cluster_dashboard_meta_with_meshes(spoke, &mesh_instances)
         .await
         .map_err(|e| DbError::Serialize(e.to_string()))?;
-    let snapshot = dashboard_from_assessment_run(&run, cluster_meta);
+    cluster_meta.name =
+        resolve_cluster_display_name(hub, cluster_ref, &cluster_meta.name).await;
+
+    let mut snapshot = dashboard_from_assessment_run(&run, cluster_meta);
+    apply_cluster_ref_metadata(cluster_ref, &mut snapshot);
     dashboard.sync_snapshot(&snapshot).await?;
 
     Ok(count)
@@ -50,22 +57,30 @@ pub async fn persist_full_assessment(
 pub async fn persist_full_assessment_from_context(
     applications: &dyn ApplicationAssessmentStore,
     dashboard: &dyn DashboardStore,
-    client: &Client,
+    hub: Option<&Client>,
+    spoke: &Client,
     cluster_ref: &str,
     ctx: &RuleContext,
     findings: &[Finding],
 ) -> Result<usize, DbError> {
-    let run = build_cluster_assessment_from_context(client, cluster_ref, ctx, findings)
+    let run = build_cluster_assessment_from_context(spoke, cluster_ref, ctx, findings)
         .await
         .map_err(|e| DbError::Serialize(e.to_string()))?;
 
     let count = run.applications.len();
     applications.replace_run(&run).await?;
 
-    let cluster_meta = ambientor_dashboard::cluster_dashboard_meta(client)
+    let mesh_instances = discover_mesh_instances(spoke)
         .await
         .map_err(|e| DbError::Serialize(e.to_string()))?;
-    let snapshot = dashboard_from_assessment_run(&run, cluster_meta);
+    let mut cluster_meta = cluster_dashboard_meta_with_meshes(spoke, &mesh_instances)
+        .await
+        .map_err(|e| DbError::Serialize(e.to_string()))?;
+    cluster_meta.name =
+        resolve_cluster_display_name(hub, cluster_ref, &cluster_meta.name).await;
+
+    let mut snapshot = dashboard_from_assessment_run(&run, cluster_meta);
+    apply_cluster_ref_metadata(cluster_ref, &mut snapshot);
     dashboard.sync_snapshot(&snapshot).await?;
 
     Ok(count)

@@ -3,6 +3,7 @@
 mod application_types;
 mod applications;
 mod assess_run;
+mod cluster_ref_meta;
 mod compute;
 mod dashboard_from_run;
 mod dataplane;
@@ -16,6 +17,7 @@ pub use assess_run::{
     build_cluster_assessment_from_context, build_cluster_assessment_from_inventory,
     cluster_dashboard_meta, cluster_dashboard_meta_with_meshes, dashboard_from_assessment_run,
 };
+pub use cluster_ref_meta::apply_cluster_ref_metadata;
 pub use compute::{
     aggregate_fleet_summary, build_dashboard, compute_migration_savings_from_dashboard,
     namespace_belongs_to_mesh, AssessmentFindingsOverrides,

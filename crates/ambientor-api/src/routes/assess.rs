@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use ambientor_core::scoring::compute_scores;
 use ambientor_db::{
-    ApplicationListQuery, StoredAssessment, assessment_sync::persist_full_assessment,
-    cluster_ref_from_env,
+    ApplicationListQuery, StoredAssessment, cluster_ref_from_env,
 };
 use ambientor_k8s::K8sClient;
 use ambientor_mesh::backend::backend_for_flavor;
@@ -139,6 +138,7 @@ async fn assess_direct(
 
     let application_count = persist_assessment_from_inventory(
         state.as_ref(),
+        Some(&k8s.client),
         &k8s.client,
         cluster_ref,
         &inventory,

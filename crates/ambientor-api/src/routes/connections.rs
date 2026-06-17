@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ambientor_core::scoring::compute_scores;
 use ambientor_db::StoredAssessment;
 use ambientor_k8s::{
-    K8sClient, client_for_connection, connection_cluster_ref, verify_connectivity,
+    client_for_connection, connection_cluster_ref, verify_connectivity, K8sClient,
 };
 use ambientor_mesh::backend::backend_for_flavor;
 use ambientor_mesh::inventory::collect_inventory_full;
@@ -27,6 +27,7 @@ pub struct ConnectionListItem {
     pub name: String,
     pub namespace: String,
     pub display_name: String,
+    pub cluster_ref: String,
     pub phase: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_sync_time: Option<String>,
@@ -120,6 +121,7 @@ pub async fn assess_connection(
 
     if let Err(e) = persist_assessment_from_inventory(
         state.as_ref(),
+        Some(&hub.client),
         &remote.client,
         &cluster_ref,
         &inventory,
@@ -150,6 +152,11 @@ pub async fn assess_connection(
 fn connection_to_item(conn: ClusterConnection) -> Option<ConnectionListItem> {
     let name = conn.metadata.name?;
     let namespace = conn.metadata.namespace.unwrap_or_else(|| "default".into());
+    let cluster_ref = if conn.spec.hub {
+        ambientor_db::cluster_ref_from_env()
+    } else {
+        connection_cluster_ref(&namespace, &name)
+    };
     let status = conn.status.unwrap_or_default();
     let ready_message = status
         .conditions
@@ -160,6 +167,7 @@ fn connection_to_item(conn: ClusterConnection) -> Option<ConnectionListItem> {
         name,
         namespace,
         display_name: conn.spec.display_name,
+        cluster_ref,
         phase: status.phase,
         last_sync_time: status.last_sync_time.map(|t| t.to_rfc3339()),
         ready_message,
