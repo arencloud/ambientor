@@ -39,24 +39,22 @@ pub async fn get_dashboard(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(cluster_ref_from_env);
 
-    if query.fresh {
-        let response = compute_and_persist_live(&state, &cluster_ref).await?;
-        return Ok(Json(response));
-    }
-
     if let Some(store) = state.dashboard_store() {
-        let stale = store
-            .is_snapshot_stale(&cluster_ref)
-            .await
-            .unwrap_or(true);
-
-        if !stale {
-            if let Ok(Some(cached)) = store.load_by_cluster_ref(&cluster_ref).await {
+        if let Ok(Some(cached)) = store.load_by_cluster_ref(&cluster_ref).await {
+            if query.fresh {
+                spawn_background_cluster_refresh(state.clone(), cluster_ref.clone());
+                return Ok(Json(cached));
+            }
+            if !store
+                .is_snapshot_stale(&cluster_ref)
+                .await
+                .unwrap_or(true)
+            {
                 return Ok(Json(cached));
             }
         }
 
-        if stale {
+        if !query.fresh {
             if let Ok(Some(rebuilt)) = store.rebuild_from_latest_assessment(&cluster_ref).await {
                 if let Err(e) = store.sync_snapshot(&rebuilt).await {
                     tracing::warn!(error = %e, "failed to refresh dashboard snapshot from assessment");
@@ -81,40 +79,42 @@ pub async fn get_fleet_dashboard(
     State(state): State<Arc<AppState>>,
     Query(query): Query<FleetDashboardQuery>,
 ) -> Result<Json<ambientor_dashboard::FleetDashboardResponse>, (axum::http::StatusCode, String)> {
-    if query.fresh {
-        refresh_fleet_live(&state).await?;
-    }
-
     let store = state.dashboard_store().ok_or((
         axum::http::StatusCode::SERVICE_UNAVAILABLE,
         "DATABASE_URL not configured".into(),
     ))?;
 
-    if let Some(fleet) = store
+    let fleet = if let Some(fleet) = store
         .load_fleet()
         .await
         .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     {
-        let hub = k8s_client().await?;
-        let mut fleet = merge_fleet_with_connections(fleet, &hub.client).await;
-        enrich_fleet_display_names(&mut fleet, &hub.client).await;
-        return Ok(Json(fleet));
+        fleet
+    } else {
+        let cluster_ref = cluster_ref_from_env();
+        let response = compute_and_persist_live(&state, &cluster_ref).await?;
+        let summary = response.summary.clone();
+        FleetDashboardResponse {
+            summary: summary.clone(),
+            clusters: vec![FleetClusterDashboard {
+                cluster_ref: response.cluster_ref,
+                cluster: response.cluster,
+                summary,
+                mesh_instances: response.mesh_instances,
+                last_updated: response.last_updated.clone(),
+            }],
+            last_updated: response.last_updated,
+        }
+    };
+
+    let hub = k8s_client().await?;
+    let mut fleet = merge_fleet_with_connections(fleet, &hub.client).await;
+    enrich_fleet_display_names(&mut fleet, &hub.client).await;
+
+    if query.fresh {
+        spawn_background_fleet_refresh(state);
     }
 
-    let cluster_ref = cluster_ref_from_env();
-    let response = compute_and_persist_live(&state, &cluster_ref).await?;
-    let summary = response.summary.clone();
-    let fleet = ambientor_dashboard::FleetDashboardResponse {
-        summary: summary.clone(),
-        clusters: vec![ambientor_dashboard::FleetClusterDashboard {
-            cluster_ref: response.cluster_ref,
-            cluster: response.cluster,
-            summary,
-            mesh_instances: response.mesh_instances,
-            last_updated: response.last_updated.clone(),
-        }],
-        last_updated: response.last_updated,
-    };
     Ok(Json(fleet))
 }
 
@@ -138,12 +138,12 @@ pub async fn refresh_and_notify(state: &AppState, cluster_ref: &str) {
     }
 }
 
-async fn refresh_fleet_live(
-    state: &AppState,
-) -> Result<(), (axum::http::StatusCode, String)> {
-    let hub = k8s_client().await?;
+async fn refresh_fleet_live(state: &AppState) -> Result<(), String> {
+    let hub = k8s_client().await.map_err(|(_, msg)| msg)?;
     let hub_ref = cluster_ref_from_env();
-    let _ = compute_and_persist_live(state, &hub_ref).await?;
+    compute_and_persist_live(state, &hub_ref)
+        .await
+        .map_err(|(_, msg)| msg)?;
     let api: Api<ClusterConnection> = Api::all(hub.client.clone());
     if let Ok(list) = api.list(&ListParams::default()).await {
         for conn in list.items {
@@ -158,10 +158,34 @@ async fn refresh_fleet_live(
                 .namespace
                 .unwrap_or_else(|| "default".into());
             let cluster_ref = connection_cluster_ref(&ns, &name);
-            let _ = compute_and_persist_live(state, &cluster_ref).await;
+            if let Err((_, msg)) = compute_and_persist_live(state, &cluster_ref).await {
+                tracing::warn!(cluster_ref = %cluster_ref, error = %msg, "spoke dashboard refresh failed");
+            }
         }
     }
     Ok(())
+}
+
+fn spawn_background_fleet_refresh(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        match refresh_fleet_live(&state).await {
+            Ok(()) => {
+                state.sse.write().await.publish(
+                    "dashboard",
+                    &serde_json::json!({ "scope": "fleet" }),
+                );
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "background fleet dashboard refresh failed");
+            }
+        }
+    });
+}
+
+fn spawn_background_cluster_refresh(state: Arc<AppState>, cluster_ref: String) {
+    tokio::spawn(async move {
+        refresh_and_notify(&state, &cluster_ref).await;
+    });
 }
 
 async fn compute_and_persist_live(

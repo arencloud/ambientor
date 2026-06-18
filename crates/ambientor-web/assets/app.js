@@ -1314,12 +1314,13 @@
     return card;
   }
 
-  async function loadFleetDashboard(quiet) {
+  async function loadFleetDashboard(quiet, opts) {
     if (!quiet) setStatus('Loading fleet dashboard…');
     const grid = $('dash-fleet-grid');
     const container = $('dash-mesh-instances');
+    const fresh = opts && opts.fresh;
     try {
-      const res = await fetch(API() + '/api/v1/dashboard/fleet?fresh=true');
+      const res = await fetch(API() + '/api/v1/dashboard/fleet' + (fresh ? '?fresh=true' : ''));
       if (!res.ok) throw new Error(await res.text());
       const fleet = await res.json();
       fleetClusters = fleet.clusters || fleet.Clusters || fleetClusters;
@@ -1347,7 +1348,13 @@
       if (container) container.innerHTML = '';
       const hint = $('dash-fleet-hint');
       if (hint) hint.textContent = 'Click a cluster to view control planes and run assessments';
-      if (!quiet) setStatus(`Fleet dashboard · ${clusterCount} cluster(s)`);
+      if (!quiet) {
+        setStatus(
+          fresh
+            ? 'Fleet dashboard loaded · refreshing clusters in background'
+            : `Fleet dashboard · ${clusterCount} cluster(s)`
+        );
+      }
     } catch (e) {
       if (grid) grid.innerHTML = '<p class="hint">Failed to load fleet data.</p>';
       if (container) container.innerHTML = '';
@@ -1393,8 +1400,8 @@
     if (!quiet) setStatus('Dashboard loaded');
   }
 
-  async function loadDashboard(quiet) {
-    if (isFleetView()) return loadFleetDashboard(quiet);
+  async function loadDashboard(quiet, opts) {
+    if (isFleetView()) return loadFleetDashboard(quiet, opts);
     if (!quiet) setStatus('Loading dashboard…');
     const container = $('dash-mesh-instances');
     const suffix = clusterQuerySuffix();
@@ -2548,7 +2555,13 @@
       try {
         const parsed = JSON.parse(e.data);
         if (parsed.channel === 'dashboard') {
-          if (!$('dashboard')?.classList.contains('hidden')) loadDashboard(true);
+          if (!$('dashboard')?.classList.contains('hidden')) {
+            if (isFleetView() || parsed.payload?.scope === 'fleet') {
+              loadFleetDashboard(true);
+            } else {
+              loadDashboard(true);
+            }
+          }
           ensureMigrationPolling();
           return;
         }
@@ -2578,7 +2591,7 @@
     $('auth-logout-btn')?.addEventListener('click', logout);
     $('auth-oidc-login')?.addEventListener('click', startOidcLogin);
     $('run-assess')?.addEventListener('click', runAssessment);
-    $('refresh-dashboard')?.addEventListener('click', loadDashboard);
+    $('refresh-dashboard')?.addEventListener('click', () => loadDashboard(false, { fresh: true }));
     $('refresh-assessments')?.addEventListener('click', loadAssessments);
     $('app-detail-close')?.addEventListener('click', closeApplicationDetail);
     $('app-page-prev')?.addEventListener('click', () => {
