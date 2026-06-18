@@ -59,6 +59,7 @@ pub fn build_plan(assessment: &AssessmentResult, namespaces: &[String]) -> Migra
         display_name: None,
         target_mesh_mode: "ambient".into(),
         mesh_target: None,
+        ambient_ingress_gateway: None,
         waves,
     }
 }
@@ -95,6 +96,7 @@ pub fn build_plan_from_selection(
         display_name,
         target_mesh_mode: "ambient".into(),
         mesh_target,
+        ambient_ingress_gateway: None,
         waves,
     }
 }
@@ -267,6 +269,12 @@ pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
             requires_approval: false,
         });
         stages.push(RolloutStage {
+            name: format!("{}-migrate-ingress", wave.name),
+            r#type: RolloutStageType::MigrateIngress,
+            namespaces: wave.namespaces.clone(),
+            requires_approval: false,
+        });
+        stages.push(RolloutStage {
             name: format!("{}-restart-final", wave.name),
             r#type: RolloutStageType::RollingRestart,
             namespaces: wave.namespaces.clone(),
@@ -285,6 +293,7 @@ pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
         cluster_ref: plan.cluster_ref.clone(),
         auto_rollback: true,
         mesh_target: plan.mesh_target.clone(),
+        ambient_ingress_gateway: plan.ambient_ingress_gateway.clone(),
         stages,
     }
 }
@@ -350,6 +359,11 @@ mod tests {
             .position(|t| *t == RolloutStageType::TranslatePolicy)
             .expect("translate stage");
         assert!(wp < tr);
+        let mig = types
+            .iter()
+            .position(|t| *t == RolloutStageType::MigrateIngress)
+            .expect("migrate ingress stage");
+        assert!(tr < mig);
     }
 
     #[test]

@@ -8,6 +8,15 @@ use crate::dto::{Finding, FindingSummary};
 pub const GROUP: &str = "ambientor.io";
 pub const VERSION: &str = "v1alpha1";
 
+/// Shared ambient north–south Gateway API `Gateway` to attach app HTTPRoutes during migration.
+/// When omitted, Ambientor creates a per-namespace ingress Gateway in each app namespace.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AmbientIngressGateway {
+    pub namespace: String,
+    pub name: String,
+}
+
 /// Selects which Istio / OSSM control plane a rollout or plan targets.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -345,6 +354,9 @@ pub struct MigrationPlanSpec {
     pub target_mesh_mode: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mesh_target: Option<MeshTarget>,
+    /// Optional shared ambient ingress Gateway; when unset, each wave namespace gets its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ambient_ingress_gateway: Option<AmbientIngressGateway>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub waves: Vec<MigrationWave>,
 }
@@ -394,6 +406,8 @@ pub enum RolloutStageType {
     /// Enroll namespaces on the rollout mesh target (labels, OSSM MemberRoll, etc.).
     EnrollNamespace,
     DeployWaypoint,
+    /// Create or select ambient ingress Gateway and repoint HTTPRoutes (and OpenShift Routes).
+    MigrateIngress,
     LabelNamespace,
     TranslatePolicy,
     RollingRestart,
@@ -422,6 +436,8 @@ pub struct RolloutSpec {
     /// When omitted and exactly one ambient control plane exists, it is selected automatically.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mesh_target: Option<MeshTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ambient_ingress_gateway: Option<AmbientIngressGateway>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stages: Vec<RolloutStage>,
 }

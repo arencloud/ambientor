@@ -118,6 +118,7 @@ mod tests {
                 display_name: None,
                 target_mesh_mode: "ambient".into(),
                 mesh_target: None,
+                ambient_ingress_gateway: None,
                 waves: vec![MigrationWave {
                     name: "wave-1".into(),
                     namespaces: vec!["bookinfo".into()],

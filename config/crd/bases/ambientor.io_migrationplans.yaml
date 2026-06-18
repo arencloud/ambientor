@@ -43,6 +43,14 @@ spec:
                       type: string
                     controlPlaneNamespace:
                       type: string
+                ambientIngressGateway:
+                  type: object
+                  description: Shared ambient ingress Gateway; when omitted each app namespace gets its own.
+                  properties:
+                    namespace:
+                      type: string
+                    name:
+                      type: string
                 waves:
                   type: array
                   items:

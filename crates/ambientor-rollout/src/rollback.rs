@@ -3,6 +3,7 @@ use kube::Client;
 use tracing::warn;
 
 use crate::engine::RolloutError;
+use crate::ingress::revert_ambient_ingress;
 use crate::labels::{restore_namespace_injection, unlabel_namespace_ambient};
 use crate::policy::revert_translations_in_namespace;
 use crate::waypoint::revert_waypoint;
@@ -26,7 +27,7 @@ pub async fn revert_completed_stages(
 ) -> Result<Vec<String>, RolloutError> {
     let mut messages = Vec::new();
     for stage in stages_to_revert(spec, failed_at) {
-        let msg = revert_stage(client, stage, mesh).await?;
+        let msg = revert_stage(client, stage, mesh, spec).await?;
         messages.push(msg);
     }
     Ok(messages)
@@ -36,6 +37,7 @@ async fn revert_stage(
     client: &Client,
     stage: &RolloutStage,
     mesh: Option<&MeshInstance>,
+    spec: &RolloutSpec,
 ) -> Result<String, RolloutError> {
     match stage.r#type {
         RolloutStageType::LabelNamespace => {
@@ -62,6 +64,19 @@ async fn revert_stage(
                 total += revert_translations_in_namespace(client, ns).await?;
             }
             Ok(format!("Removed {total} applied translation(s)"))
+        }
+        RolloutStageType::MigrateIngress => {
+            let mut notes = Vec::new();
+            for ns in &stage.namespaces {
+                let msg = revert_ambient_ingress(
+                    client,
+                    ns,
+                    spec.ambient_ingress_gateway.as_ref(),
+                )
+                .await?;
+                notes.push(msg);
+            }
+            Ok(notes.join("; "))
         }
         RolloutStageType::RollingRestart => {
             warn!(
@@ -124,6 +139,7 @@ mod tests {
             cluster_ref: None,
             auto_rollback: true,
             mesh_target: None,
+            ambient_ingress_gateway: None,
             stages: vec![
                 stage("dry", RolloutStageType::DryRun),
                 stage("label", RolloutStageType::LabelNamespace),

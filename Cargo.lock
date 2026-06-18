@@ -253,6 +253,7 @@ name = "ambientor-rollout"
 version = "0.1.4"
 dependencies = [
  "ambientor-analyze",
+ "ambientor-core",
  "ambientor-mesh",
  "ambientor-plan",
  "ambientor-types",

@@ -6,6 +6,7 @@ use tracing::warn;
 
 use crate::events::{RolloutEvent, RolloutEventType};
 use crate::labels::{label_namespace_ambient, remove_namespace_injection};
+use crate::ingress::migrate_ambient_ingress;
 use crate::policy::translate_policies_in_namespace;
 use crate::preflight::{
     dry_run_namespace, namespaces_in_rollout, preflight_namespace_for_ambient_rollout,
@@ -228,6 +229,20 @@ impl RolloutEngine {
                     total += translate_policies_in_namespace(client, ns).await?;
                 }
                 Ok(format!("Applied {total} HTTPRoute translation(s)"))
+            }
+            RolloutStageType::MigrateIngress => {
+                let mut notes = Vec::new();
+                for ns in &stage.namespaces {
+                    let msg = migrate_ambient_ingress(
+                        client,
+                        ns,
+                        mesh,
+                        spec.ambient_ingress_gateway.as_ref(),
+                    )
+                    .await?;
+                    notes.push(msg);
+                }
+                Ok(notes.join("; "))
             }
             RolloutStageType::RollingRestart => {
                 let mut total = 0usize;

@@ -5,6 +5,7 @@ pub mod audit;
 pub mod engine;
 pub mod events;
 pub mod labels;
+pub mod ingress;
 pub mod policy;
 pub mod preflight;
 pub mod restart;

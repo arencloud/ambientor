@@ -38,6 +38,13 @@ spec:
                       type: string
                     controlPlaneNamespace:
                       type: string
+                ambientIngressGateway:
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                    name:
+                      type: string
                 stages:
                   type: array
                   items:
@@ -51,6 +58,7 @@ spec:
                           - InstallAmbientComponents
                           - EnrollNamespace
                           - DeployWaypoint
+                          - MigrateIngress
                           - LabelNamespace
                           - TranslatePolicy
                           - RollingRestart

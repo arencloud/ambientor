@@ -253,6 +253,7 @@ async fn reconcile_assessment_plan(
         display_name: plan.spec.display_name.clone(),
         target_mesh_mode: built.target_mesh_mode,
         mesh_target: plan.spec.mesh_target.clone().or(built.mesh_target),
+        ambient_ingress_gateway: plan.spec.ambient_ingress_gateway.clone(),
         waves: built.waves,
     })
 }
@@ -386,6 +387,7 @@ pub async fn ensure_plan_for_assessment(
             display_name: None,
             target_mesh_mode: "ambient".into(),
             mesh_target: None,
+            ambient_ingress_gateway: None,
             waves: vec![],
         },
     );
