@@ -332,7 +332,8 @@ async fn list_assessments_map(
     Ok(map)
 }
 
-async fn list_rollout_ns_status(
+/// Hub Rollout CR phases keyed by target namespace (for overlaying cached assessment snapshots).
+pub async fn list_rollout_ns_status(
     client: &Client,
     cluster_ref: &str,
 ) -> anyhow::Result<HashMap<String, String>> {
@@ -448,4 +449,100 @@ pub fn aggregate_fleet_summary(parts: &[StatusCounts]) -> StatusCounts {
         + summary.scanned
         + summary.not_scanned;
     summary
+}
+
+/// Apply hub Rollout phases onto a dashboard snapshot (DB cache / assessment rebuild).
+pub fn overlay_rollout_status(
+    response: &mut DashboardResponse,
+    rollouts: &HashMap<String, String>,
+) {
+    if rollouts.is_empty() {
+        return;
+    }
+    for mesh in &mut response.mesh_instances {
+        let mut counts = StatusCounts::default();
+        for app in &mut mesh.applications {
+            if let Some(phase) = rollouts.get(&app.namespace) {
+                app.rollout_phase = Some(phase.clone());
+                app.status = status_from_rollout_phase(phase, mesh.ambient, app.dataplane_mode.as_str());
+            }
+            increment_count(&mut counts, app.status);
+        }
+        counts.total = mesh.applications.len();
+        mesh.counts = counts;
+    }
+    response.summary = StatusCounts::default();
+    for mesh in &response.mesh_instances {
+        aggregate_counts(&mut response.summary, &mesh.counts);
+    }
+    response.summary.total = response.summary.migrated
+        + response.summary.processing
+        + response.summary.blocker
+        + response.summary.failed
+        + response.summary.scanned
+        + response.summary.not_scanned;
+}
+
+/// Overlay rollout phases on each fleet cluster entry and re-aggregate fleet summary.
+pub fn overlay_fleet_rollout_status(
+    fleet: &mut crate::types::FleetDashboardResponse,
+    rollouts_by_cluster: &HashMap<String, HashMap<String, String>>,
+) {
+    let mut summaries = Vec::with_capacity(fleet.clusters.len());
+    for cluster in &mut fleet.clusters {
+        if let Some(rollouts) = rollouts_by_cluster.get(&cluster.cluster_ref) {
+            overlay_rollout_status_parts(
+                &mut cluster.mesh_instances,
+                &mut cluster.summary,
+                rollouts,
+            );
+        }
+        summaries.push(cluster.summary.clone());
+    }
+    fleet.summary = aggregate_fleet_summary(&summaries);
+}
+
+fn overlay_rollout_status_parts(
+    mesh_instances: &mut [MeshInstanceDashboard],
+    summary: &mut StatusCounts,
+    rollouts: &HashMap<String, String>,
+) {
+    for mesh in &mut *mesh_instances {
+        let mut counts = StatusCounts::default();
+        for app in &mut mesh.applications {
+            if let Some(phase) = rollouts.get(&app.namespace) {
+                app.rollout_phase = Some(phase.clone());
+                app.status = status_from_rollout_phase(phase, mesh.ambient, app.dataplane_mode.as_str());
+            }
+            increment_count(&mut counts, app.status);
+        }
+        counts.total = mesh.applications.len();
+        mesh.counts = counts;
+    }
+    *summary = StatusCounts::default();
+    for mesh in mesh_instances {
+        aggregate_counts(summary, &mesh.counts);
+    }
+    summary.total = summary.migrated
+        + summary.processing
+        + summary.blocker
+        + summary.failed
+        + summary.scanned
+        + summary.not_scanned;
+}
+
+fn status_from_rollout_phase(
+    phase: &str,
+    mesh_ambient: bool,
+    dataplane_mode: &str,
+) -> ApplicationMigrationStatus {
+    match phase {
+        "Failed" | "RolledBack" => ApplicationMigrationStatus::Failed,
+        "Completed" if mesh_ambient && dataplane_mode == "ambient" => {
+            ApplicationMigrationStatus::Migrated
+        }
+        "Completed" => ApplicationMigrationStatus::Scanned,
+        "Running" | "AwaitingApproval" | "Pending" => ApplicationMigrationStatus::Processing,
+        _ => ApplicationMigrationStatus::Processing,
+    }
 }

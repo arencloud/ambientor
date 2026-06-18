@@ -3,6 +3,7 @@ use std::sync::Arc;
 use ambientor_dashboard::{
     apply_cluster_ref_metadata, AssessmentFindingsOverrides, ClusterDashboard, DashboardResponse,
     FleetClusterDashboard, FleetDashboardResponse, StatusCounts, build_dashboard,
+    list_rollout_ns_status, overlay_fleet_rollout_status, overlay_rollout_status,
 };
 use ambientor_db::{cluster_ref_from_env, load_assessment_findings_overrides};
 use ambientor_k8s::{
@@ -40,7 +41,14 @@ pub async fn get_dashboard(
         .unwrap_or_else(cluster_ref_from_env);
 
     if let Some(store) = state.dashboard_store() {
-        if let Ok(Some(cached)) = store.load_by_cluster_ref(&cluster_ref).await {
+        if let Ok(Some(mut cached)) = store.load_by_cluster_ref(&cluster_ref).await {
+            if let Ok(hub) = k8s_client().await {
+                if let Ok(rollouts) =
+                    list_rollout_ns_status(&hub.client, &cluster_ref).await
+                {
+                    overlay_rollout_status(&mut cached, &rollouts);
+                }
+            }
             if query.fresh {
                 spawn_background_cluster_refresh(state.clone(), cluster_ref.clone());
                 return Ok(Json(cached));
@@ -55,7 +63,15 @@ pub async fn get_dashboard(
         }
 
         if !query.fresh {
-            if let Ok(Some(rebuilt)) = store.rebuild_from_latest_assessment(&cluster_ref).await {
+            if let Ok(Some(mut rebuilt)) = store.rebuild_from_latest_assessment(&cluster_ref).await
+            {
+                if let Ok(hub) = k8s_client().await {
+                    if let Ok(rollouts) =
+                        list_rollout_ns_status(&hub.client, &cluster_ref).await
+                    {
+                        overlay_rollout_status(&mut rebuilt, &rollouts);
+                    }
+                }
                 if let Err(e) = store.sync_snapshot(&rebuilt).await {
                     tracing::warn!(error = %e, "failed to refresh dashboard snapshot from assessment");
                 } else {
@@ -84,7 +100,8 @@ pub async fn get_fleet_dashboard(
         "DATABASE_URL not configured".into(),
     ))?;
 
-    let fleet = if let Some(fleet) = store
+    let hub = k8s_client().await?;
+    let mut fleet = if let Some(fleet) = store
         .load_fleet()
         .await
         .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -107,8 +124,17 @@ pub async fn get_fleet_dashboard(
         }
     };
 
-    let hub = k8s_client().await?;
-    let mut fleet = merge_fleet_with_connections(fleet, &hub.client).await;
+    let mut rollouts_by_cluster = std::collections::HashMap::new();
+    for cluster in &fleet.clusters {
+        if let Ok(rollouts) = list_rollout_ns_status(&hub.client, &cluster.cluster_ref).await {
+            if !rollouts.is_empty() {
+                rollouts_by_cluster.insert(cluster.cluster_ref.clone(), rollouts);
+            }
+        }
+    }
+    overlay_fleet_rollout_status(&mut fleet, &rollouts_by_cluster);
+
+    fleet = merge_fleet_with_connections(fleet, &hub.client).await;
     enrich_fleet_display_names(&mut fleet, &hub.client).await;
 
     if query.fresh {

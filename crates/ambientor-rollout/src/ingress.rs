@@ -53,6 +53,7 @@ pub async fn migrate_ambient_ingress(
     let target = resolve_ingress_gateway(client, namespace, mesh, shared).await?;
     let mut migrated_routes = 0usize;
     let mut legacy_services = Vec::new();
+    let mut route_errors = Vec::new();
 
     for route in &public_routes {
         if route_already_on_target(route, &target, &ingress_gateways) {
@@ -63,20 +64,32 @@ pub async fn migrate_ambient_ingress(
         } else if let Some(gname) = route.parent_gateway_name.as_ref() {
             legacy_services.push(istio_gateway_service_name(gname));
         }
-        patch_httproute_parent_refs(
+        if let Err(e) = patch_httproute_parent_refs(
             client,
             namespace,
             &route.name,
             &target.namespace,
             &target.name,
         )
-        .await?;
+        .await
+        {
+            route_errors.push(e);
+            continue;
+        }
         migrated_routes += 1;
     }
 
     let new_service = istio_gateway_service_name(&target.name);
     let routes_updated =
         migrate_openshift_routes(client, &legacy_services, &target.namespace, &new_service).await?;
+
+    if !route_errors.is_empty() {
+        let _ = revert_ambient_ingress(client, namespace, shared).await;
+        return Err(route_errors
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| RolloutError::ExecutionFailed("HTTPRoute migration failed".into())));
+    }
 
     Ok(format!(
         "ambient ingress {}/{} (created={}); migrated {migrated_routes} HTTPRoute(s); updated {routes_updated} OpenShift Route(s)",

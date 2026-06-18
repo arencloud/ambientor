@@ -10,7 +10,7 @@ use crate::labels::{
     snapshot_namespace_pre_migration,
 };
 use crate::restart::rolling_restart_namespace;
-use crate::ingress::migrate_ambient_ingress;
+use crate::ingress::{migrate_ambient_ingress, revert_ambient_ingress};
 use crate::policy::translate_policies_in_namespace;
 use crate::preflight::{
     dry_run_namespace, namespaces_in_rollout, preflight_namespace_for_ambient_rollout,
@@ -324,6 +324,19 @@ impl RolloutEngine {
         let namespaces = namespaces_in_rollout(&spec.stages);
         let mut notes = Vec::new();
         for ns in namespaces {
+            // MigrateIngress may fail after creating a Gateway without completing the stage;
+            // stage revert skips failed stages, so always tear down partial ingress migration.
+            match revert_ambient_ingress(
+                client,
+                &ns,
+                spec.ambient_ingress_gateway.as_ref(),
+            )
+            .await
+            {
+                Ok(msg) if msg != "no ingress migration resources to revert" => notes.push(msg),
+                Ok(_) => {}
+                Err(e) => warn!(namespace = %ns, error = %e, "ingress cleanup during rollback skipped"),
+            }
             if restore_namespace_pre_migration(client, &ns).await? {
                 notes.push(format!("restored labels on {ns}"));
             }
