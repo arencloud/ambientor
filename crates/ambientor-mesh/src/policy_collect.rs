@@ -3,8 +3,18 @@ use kube::api::DynamicObject;
 use serde_json::Value;
 
 use crate::dynamic::resource_ref;
+use crate::ingress_collect::build_ingress_context;
 
-pub fn build_policy_context(objects: &IstioPolicyObjects) -> PolicyContext {
+pub fn build_policy_context(
+    objects: &IstioPolicyObjects,
+    namespaces: &[k8s_openapi::api::core::v1::Namespace],
+) -> PolicyContext {
+    let (ingress_gateways, external_routes) = build_ingress_context(
+        &objects.gateways,
+        namespaces,
+        &objects.http_routes,
+        &objects.virtual_services,
+    );
     PolicyContext {
         peer_auth_disable: objects
             .peer_authentications
@@ -34,6 +44,8 @@ pub fn build_policy_context(objects: &IstioPolicyObjects) -> PolicyContext {
             .filter(|o| envoy_filter_targets_waypoint(o))
             .map(resource_ref)
             .collect(),
+        ingress_gateways,
+        external_routes,
     }
 }
 
@@ -82,6 +94,7 @@ pub struct IstioPolicyObjects {
     pub virtual_services: Vec<DynamicObject>,
     pub envoy_filters: Vec<DynamicObject>,
     pub http_routes: Vec<DynamicObject>,
+    pub gateways: Vec<DynamicObject>,
     pub wasm_plugins: Vec<DynamicObject>,
     pub destination_rules: Vec<DynamicObject>,
 }
@@ -190,15 +203,19 @@ mod tests {
         });
         let o: DynamicObject = serde_json::from_value(data).expect("dr");
         assert!(destination_rule_has_subsets(&o));
-        let ctx = build_policy_context(&IstioPolicyObjects {
+        let ctx = build_policy_context(
+            &IstioPolicyObjects {
             peer_authentications: vec![],
             authorization_policies: vec![],
             virtual_services: vec![],
             envoy_filters: vec![],
             http_routes: vec![],
+            gateways: vec![],
             wasm_plugins: vec![],
             destination_rules: vec![o],
-        });
+        },
+            &[],
+        );
         assert_eq!(ctx.destination_rules_with_subsets.len(), 1);
     }
 
@@ -217,15 +234,19 @@ mod tests {
         });
         let o: DynamicObject = serde_json::from_value(data).expect("ef");
         assert!(envoy_filter_targets_waypoint(&o));
-        let ctx = build_policy_context(&IstioPolicyObjects {
+        let ctx = build_policy_context(
+            &IstioPolicyObjects {
             peer_authentications: vec![],
             authorization_policies: vec![],
             virtual_services: vec![],
             envoy_filters: vec![o],
             http_routes: vec![],
+            gateways: vec![],
             wasm_plugins: vec![],
             destination_rules: vec![],
-        });
+        },
+            &[],
+        );
         assert_eq!(ctx.envoy_filters_waypoint.len(), 1);
     }
 

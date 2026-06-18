@@ -25,6 +25,7 @@ pub async fn collect_istio_policies(client: &Client) -> anyhow::Result<IstioPoli
     let ef_ar = api_resource("networking.istio.io", "v1", "EnvoyFilter", "envoyfilters");
     let wasm_ar = api_resource("extensions.istio.io", "v1", "WasmPlugin", "wasmplugins");
     let hr_ar = api_resource("gateway.networking.k8s.io", "v1", "HTTPRoute", "httproutes");
+    let gw_ar = api_resource("gateway.networking.k8s.io", "v1", "Gateway", "gateways");
     let dr_ar = api_resource(
         "networking.istio.io",
         "v1",
@@ -45,6 +46,7 @@ pub async fn collect_istio_policies(client: &Client) -> anyhow::Result<IstioPoli
             .await
             .unwrap_or_default(),
         http_routes: list_namespaced_cr(client, &hr_ar).await.unwrap_or_default(),
+        gateways: list_namespaced_cr(client, &gw_ar).await.unwrap_or_default(),
         destination_rules: list_namespaced_cr(client, &dr_ar).await.unwrap_or_default(),
     })
 }

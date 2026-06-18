@@ -130,7 +130,7 @@ async fn build_collected_inventory(
     let workloads = scan_workloads(&pods, &injected_ns);
 
     let istio_objects = collect_istio_policies(client).await?;
-    let policies = build_policy_context(&istio_objects);
+    let policies = build_policy_context(&istio_objects, &namespaces);
     let mesh_version = detect_istio_version(client).await;
     let platform = scan_platform(client, flavor, Some(&pods)).await;
 

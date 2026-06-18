@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 ambientor-core = { workspace = true }
+ambientor-mesh = { workspace = true }
 ambientor-types = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

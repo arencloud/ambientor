@@ -75,6 +75,36 @@ pub struct PolicyContext {
     pub destination_rules_with_subsets: Vec<String>,
     #[serde(default)]
     pub envoy_filters_waypoint: Vec<String>,
+    #[serde(default)]
+    pub ingress_gateways: Vec<IngressGatewayInfo>,
+    #[serde(default)]
+    pub external_routes: Vec<ExternalRouteInfo>,
+}
+
+/// Gateway API `Gateway` used for north–south ingress (shared or dedicated).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngressGatewayInfo {
+    pub namespace: String,
+    pub name: String,
+    pub istio_revision: Option<String>,
+    pub discovery_label: Option<String>,
+    pub programmed: bool,
+    pub gateway_class: Option<String>,
+}
+
+/// HTTPRoute or VirtualService that exposes an app externally via a gateway.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalRouteInfo {
+    pub namespace: String,
+    pub name: String,
+    pub kind: String,
+    pub hostnames: Vec<String>,
+    pub parent_gateway_namespace: Option<String>,
+    pub parent_gateway_name: Option<String>,
+    /// When known from HTTPRoute status: route accepted by parent gateway.
+    pub parents_attached: Option<bool>,
 }
 
 pub struct RuleRegistry {

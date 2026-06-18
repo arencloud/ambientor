@@ -24,7 +24,88 @@ pub async fn verify_namespace_traffic(
     verify_namespace_labels(client, namespace, mesh).await?;
     verify_waypoint_gateway(client, namespace).await?;
     verify_no_pending_virtual_services(client, namespace).await?;
+    verify_external_ingress_routes(client, namespace).await?;
     Ok(())
+}
+
+/// Fail when the namespace exposes public hostnames but north–south routes are not attached
+/// to a programmed ambient ingress Gateway (common after sidecar→ambient without gateway cutover).
+pub async fn verify_external_ingress_routes(
+    client: &Client,
+    namespace: &str,
+) -> Result<(), RolloutError> {
+    use ambientor_mesh::dynamic::{api_resource, list_cr_in_namespace};
+    use ambientor_mesh::ingress_collect::{
+        build_ingress_context, has_programmed_ambient_ingress, route_uses_sidecar_ingress,
+    };
+
+    let hr_ar = api_resource("gateway.networking.k8s.io", "v1", "HTTPRoute", "httproutes");
+    let gw_ar = api_resource("gateway.networking.k8s.io", "v1", "Gateway", "gateways");
+    let vs_ar = api_resource(
+        "networking.istio.io",
+        "v1",
+        "VirtualService",
+        "virtualservices",
+    );
+    let routes = list_cr_in_namespace(client, &hr_ar, namespace)
+        .await
+        .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+    let virtual_services = list_cr_in_namespace(client, &vs_ar, namespace)
+        .await
+        .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+    if routes.is_empty() && virtual_services.is_empty() {
+        return Ok(());
+    }
+    let gateways = list_cr_in_namespace(client, &gw_ar, namespace)
+        .await
+        .unwrap_or_default();
+    // Include cluster-wide ingress gateways referenced by parentRefs.
+    let all_gateways = list_cluster_gateways(client, &gw_ar)
+        .await
+        .unwrap_or(gateways);
+    let (_, external_routes) =
+        build_ingress_context(&all_gateways, &[], &routes, &virtual_services);
+    let public_routes: Vec<_> = external_routes
+        .into_iter()
+        .filter(|r| r.namespace == namespace)
+        .filter(|r| !r.hostnames.is_empty() || r.parent_gateway_name.is_some())
+        .collect();
+    if public_routes.is_empty() {
+        return Ok(());
+    }
+    let ingress_gateways: Vec<_> = build_ingress_context(&all_gateways, &[], &[], &[])
+        .0
+        .into_iter()
+        .filter(|g| g.gateway_class.as_deref() != Some("istio-waypoint"))
+        .collect();
+    if !has_programmed_ambient_ingress(&ingress_gateways) {
+        return Err(RolloutError::ExecutionFailed(format!(
+            "namespace {namespace} has external routes but no programmed ambient ingress Gateway \
+             exists; public URLs will break. Create an ambient Gateway in the ingress namespace \
+             and update HTTPRoute parentRefs (see assessment finding traffic.ambient-ingress-gateway)"
+        )));
+    }
+    for route in &public_routes {
+        if route.parents_attached == Some(false) || route_uses_sidecar_ingress(route, &ingress_gateways)
+        {
+            let hosts = route.hostnames.join(", ");
+            return Err(RolloutError::ExecutionFailed(format!(
+                "external route {}/{} (hosts: {hosts}) is not attached to a programmed ambient \
+                 ingress Gateway; verify with kubectl get httproute -n {namespace} {} -o yaml",
+                route.kind, route.name, route.name
+            )));
+        }
+    }
+    Ok(())
+}
+
+async fn list_cluster_gateways(
+    client: &Client,
+    ar: &kube::api::ApiResource,
+) -> Result<Vec<kube::api::DynamicObject>, kube::Error> {
+    use kube::Api;
+    let api = Api::<kube::api::DynamicObject>::all_with(client.clone(), ar);
+    Ok(api.list(&kube::api::ListParams::default()).await?.items)
 }
 
 async fn verify_namespace_labels(

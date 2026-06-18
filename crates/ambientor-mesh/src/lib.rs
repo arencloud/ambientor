@@ -4,6 +4,7 @@ pub mod application_identity;
 pub mod revision_tags;
 pub mod backend;
 pub mod dynamic;
+pub mod ingress_collect;
 pub mod inventory;
 pub mod istio;
 pub mod mesh_enrollment;

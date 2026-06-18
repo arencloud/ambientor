@@ -36,6 +36,7 @@ name = "ambientor-analyze"
 version = "0.1.4"
 dependencies = [
  "ambientor-core",
+ "ambientor-mesh",
  "ambientor-types",
  "serde",
  "serde_json",
