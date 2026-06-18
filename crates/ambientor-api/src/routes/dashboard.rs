@@ -39,12 +39,16 @@ pub async fn get_dashboard(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(cluster_ref_from_env);
 
+    if query.fresh {
+        let response = compute_and_persist_live(&state, &cluster_ref).await?;
+        return Ok(Json(response));
+    }
+
     if let Some(store) = state.dashboard_store() {
-        let stale = query.fresh
-            || store
-                .is_snapshot_stale(&cluster_ref)
-                .await
-                .unwrap_or(true);
+        let stale = store
+            .is_snapshot_stale(&cluster_ref)
+            .await
+            .unwrap_or(true);
 
         if !stale {
             if let Ok(Some(cached)) = store.load_by_cluster_ref(&cluster_ref).await {
@@ -67,9 +71,20 @@ pub async fn get_dashboard(
     Ok(Json(response))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct FleetDashboardQuery {
+    #[serde(default)]
+    pub fresh: bool,
+}
+
 pub async fn get_fleet_dashboard(
     State(state): State<Arc<AppState>>,
+    Query(query): Query<FleetDashboardQuery>,
 ) -> Result<Json<ambientor_dashboard::FleetDashboardResponse>, (axum::http::StatusCode, String)> {
+    if query.fresh {
+        refresh_fleet_live(&state).await?;
+    }
+
     let store = state.dashboard_store().ok_or((
         axum::http::StatusCode::SERVICE_UNAVAILABLE,
         "DATABASE_URL not configured".into(),
@@ -123,6 +138,32 @@ pub async fn refresh_and_notify(state: &AppState, cluster_ref: &str) {
     }
 }
 
+async fn refresh_fleet_live(
+    state: &AppState,
+) -> Result<(), (axum::http::StatusCode, String)> {
+    let hub = k8s_client().await?;
+    let hub_ref = cluster_ref_from_env();
+    let _ = compute_and_persist_live(state, &hub_ref).await?;
+    let api: Api<ClusterConnection> = Api::all(hub.client.clone());
+    if let Ok(list) = api.list(&ListParams::default()).await {
+        for conn in list.items {
+            if conn.spec.hub {
+                continue;
+            }
+            let Some(name) = conn.metadata.name else {
+                continue;
+            };
+            let ns = conn
+                .metadata
+                .namespace
+                .unwrap_or_else(|| "default".into());
+            let cluster_ref = connection_cluster_ref(&ns, &name);
+            let _ = compute_and_persist_live(state, &cluster_ref).await;
+        }
+    }
+    Ok(())
+}
+
 async fn compute_and_persist_live(
     state: &AppState,
     cluster_ref: &str,
@@ -133,9 +174,14 @@ async fn compute_and_persist_live(
         .map_err(internal)?;
 
     let overrides = load_findings_overrides(state, &client, cluster_ref).await;
-    let mut response = build_dashboard(&client, cluster_ref, overrides.as_ref())
-        .await
-        .map_err(internal)?;
+    let mut response = build_dashboard(
+        &client,
+        cluster_ref,
+        overrides.as_ref(),
+        Some(&hub.client),
+    )
+    .await
+    .map_err(internal)?;
     response.cluster.name =
         resolve_cluster_display_name(Some(&hub.client), cluster_ref, &response.cluster.name).await;
     apply_cluster_ref_metadata(cluster_ref, &mut response);

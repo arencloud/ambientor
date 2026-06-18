@@ -278,7 +278,12 @@ pub(super) async fn approve_rollout_stage(
 
     let updated = fetch_rollout(k8s, namespace, name).await?;
     let new_status = updated.status.as_ref().unwrap();
-    let cluster_ref = cluster_ref_from_env();
+    let cluster_ref = updated
+        .spec
+        .cluster_ref
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(cluster_ref_from_env);
     refresh_and_notify(state, &cluster_ref).await;
     Ok(ApproveRolloutResponse {
         name: name.into(),

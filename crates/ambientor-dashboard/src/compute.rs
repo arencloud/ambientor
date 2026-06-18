@@ -28,6 +28,7 @@ pub async fn build_dashboard(
     client: &Client,
     cluster_ref: &str,
     findings_overrides: Option<&AssessmentFindingsOverrides>,
+    rollout_client: Option<&Client>,
 ) -> anyhow::Result<DashboardResponse> {
     let platform = ambientor_k8s::detect_platform(client).await?;
     let istio_version = detect_istio_version(client).await;
@@ -37,7 +38,7 @@ pub async fn build_dashboard(
     let mesh_instances = discover_mesh_instances(client).await?;
 
     let assessments = list_assessments_map(client, findings_overrides).await?;
-    let rollouts = list_rollout_ns_status(client).await?;
+    let rollouts = list_rollout_ns_status(rollout_client.unwrap_or(client), cluster_ref).await?;
     let inventories = list_mesh_inventories(client).await?;
     let pod_api: Api<Pod> = Api::all(client.clone());
     let pods = pod_api.list(&ListParams::default()).await?.items;
@@ -331,7 +332,10 @@ async fn list_assessments_map(
     Ok(map)
 }
 
-async fn list_rollout_ns_status(client: &Client) -> anyhow::Result<HashMap<String, String>> {
+async fn list_rollout_ns_status(
+    client: &Client,
+    cluster_ref: &str,
+) -> anyhow::Result<HashMap<String, String>> {
     let api: Api<Rollout> = Api::all(client.clone());
     let list = match api.list(&ListParams::default()).await {
         Ok(l) => l,
@@ -339,8 +343,21 @@ async fn list_rollout_ns_status(client: &Client) -> anyhow::Result<HashMap<Strin
         Err(e) => return Err(e.into()),
     };
     let mut map = HashMap::new();
+    let hub_local = ambientor_k8s::parse_connection_cluster_ref(cluster_ref).is_none();
 
     for r in list.items {
+        let rollout_cluster = r
+            .spec
+            .cluster_ref
+            .as_deref()
+            .filter(|s| !s.is_empty());
+        let targets_cluster = match rollout_cluster {
+            Some(rc) if !rc.is_empty() => rc == cluster_ref,
+            _ => hub_local,
+        };
+        if !targets_cluster {
+            continue;
+        }
         let phase = r
             .status
             .as_ref()

@@ -8,6 +8,71 @@ use tracing::info;
 
 use crate::engine::RolloutError;
 
+pub const PRE_MIGRATION_LABELS_ANNOTATION: &str = "ambientor.io/pre-migration-labels";
+
+/// Capture namespace labels before the first mutating rollout stage so rollback can restore exactly.
+pub async fn snapshot_namespace_pre_migration(
+    client: &Client,
+    name: &str,
+) -> Result<(), RolloutError> {
+    let api: Api<Namespace> = Api::all(client.clone());
+    let ns = api.get(name).await.map_err(RolloutError::Kube)?;
+    if ns
+        .metadata
+        .annotations
+        .as_ref()
+        .is_some_and(|a| a.contains_key(PRE_MIGRATION_LABELS_ANNOTATION))
+    {
+        return Ok(());
+    }
+    let labels = ns.metadata.labels.unwrap_or_default();
+    let encoded = serde_json::to_string(&labels)
+        .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+    let patch = json!({
+        "metadata": {
+            "annotations": {
+                PRE_MIGRATION_LABELS_ANNOTATION: encoded
+            }
+        }
+    });
+    api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await?;
+    info!(namespace = %name, "snapshotted pre-migration namespace labels");
+    Ok(())
+}
+
+/// Restore labels from the pre-migration snapshot and clear the annotation.
+pub async fn restore_namespace_pre_migration(
+    client: &Client,
+    name: &str,
+) -> Result<bool, RolloutError> {
+    let api: Api<Namespace> = Api::all(client.clone());
+    let ns = api.get(name).await.map_err(RolloutError::Kube)?;
+    let Some(encoded) = ns
+        .metadata
+        .annotations
+        .as_ref()
+        .and_then(|a| a.get(PRE_MIGRATION_LABELS_ANNOTATION))
+    else {
+        return Ok(false);
+    };
+    let labels: serde_json::Value = serde_json::from_str(encoded)
+        .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+    let patch = json!({
+        "metadata": {
+            "labels": labels,
+            "annotations": {
+                PRE_MIGRATION_LABELS_ANNOTATION: null,
+                "istio.io/use-waypoint": null
+            }
+        }
+    });
+    api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await?;
+    info!(namespace = %name, "restored pre-migration namespace labels");
+    Ok(true)
+}
+
 pub async fn label_namespace_ambient(client: &Client, name: &str) -> Result<(), RolloutError> {
     patch_namespace_labels(
         client,

@@ -26,7 +26,7 @@ pub async fn run(
     let interval_secs = std::env::var("AMBIENTOR_DASHBOARD_SYNC_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(120);
+        .unwrap_or(60);
     info!(interval_secs, "dashboard sync loop started");
     let store = store.clone();
     loop {
@@ -70,7 +70,7 @@ async fn sync_hub_dashboard(
     scan_repo: Option<&dyn ScanStore>,
 ) {
     let cluster_ref = cluster_ref_from_env();
-    match build_dashboard_response(client, &cluster_ref, scan_repo).await {
+    match build_dashboard_response(client, &cluster_ref, scan_repo, client).await {
         Ok(mut response) => {
             response.is_hub = Some(true);
             response.reachable = Some(true);
@@ -175,7 +175,7 @@ async fn sync_spoke_dashboard(
         return;
     }
 
-    match build_dashboard_response(&remote.client, cluster_ref, scan_repo).await {
+    match build_dashboard_response(&remote.client, cluster_ref, scan_repo, hub).await {
         Ok(mut response) => {
             response.cluster.name = display_name;
             response.connection_namespace = Some(ns.to_string());
@@ -204,9 +204,11 @@ async fn build_dashboard_response(
     client: &Client,
     cluster_ref: &str,
     scan_repo: Option<&dyn ScanStore>,
+    rollout_client: &Client,
 ) -> anyhow::Result<DashboardResponse> {
     let overrides = load_findings_overrides(client, scan_repo, cluster_ref).await;
-    let mut response = build_dashboard(client, cluster_ref, overrides.as_ref()).await?;
+    let mut response =
+        build_dashboard(client, cluster_ref, overrides.as_ref(), Some(rollout_client)).await?;
     if response.connection_namespace.is_none()
         && let Some((ns, name)) = parse_connection_cluster_ref(cluster_ref)
     {

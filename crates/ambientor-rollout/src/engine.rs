@@ -5,13 +5,16 @@ use thiserror::Error;
 use tracing::warn;
 
 use crate::events::{RolloutEvent, RolloutEventType};
-use crate::labels::{label_namespace_ambient, remove_namespace_injection};
+use crate::labels::{
+    label_namespace_ambient, remove_namespace_injection, restore_namespace_pre_migration,
+    snapshot_namespace_pre_migration,
+};
+use crate::restart::rolling_restart_namespace;
 use crate::ingress::migrate_ambient_ingress;
 use crate::policy::translate_policies_in_namespace;
 use crate::preflight::{
     dry_run_namespace, namespaces_in_rollout, preflight_namespace_for_ambient_rollout,
 };
-use crate::restart::rolling_restart_namespace;
 use crate::rollback::revert_completed_stages;
 use crate::verify::{verify_application_reachability, verify_namespace_traffic};
 use crate::waypoint::deploy_waypoint;
@@ -193,6 +196,7 @@ impl RolloutEngine {
             RolloutStageType::EnrollNamespace => {
                 let mut actions = Vec::new();
                 for ns in &stage.namespaces {
+                    snapshot_namespace_pre_migration(client, ns).await?;
                     let mut step = enroll_namespace_on_mesh(client, ns, mesh)
                         .await
                         .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
@@ -289,7 +293,12 @@ impl RolloutEngine {
 
         let revert_messages =
             revert_completed_stages(client, spec, failed_at, Some(mesh)).await?;
-        let summary = revert_messages.join("; ");
+        let finalize = self.finalize_rollback_namespaces(client, spec).await?;
+        let mut summary = revert_messages;
+        if !finalize.is_empty() {
+            summary.push(finalize);
+        }
+        let summary = summary.join("; ");
         status.current_stage = 0;
         status.approved_stage = -1;
         status.phase = "RolledBack".into();
@@ -303,6 +312,28 @@ impl RolloutEngine {
             timestamp: Utc::now(),
         });
         Ok(())
+    }
+
+    /// After stage reverts, restore pre-migration label snapshots and restart workloads so
+    /// sidecar injection matches the reverted namespace labels.
+    async fn finalize_rollback_namespaces(
+        &self,
+        client: &Client,
+        spec: &RolloutSpec,
+    ) -> Result<String, RolloutError> {
+        let namespaces = namespaces_in_rollout(&spec.stages);
+        let mut notes = Vec::new();
+        for ns in namespaces {
+            if restore_namespace_pre_migration(client, &ns).await? {
+                notes.push(format!("restored labels on {ns}"));
+            }
+            match rolling_restart_namespace(client, &ns).await {
+                Ok(n) if n > 0 => notes.push(format!("restarted {n} Deployment(s) in {ns}")),
+                Ok(_) => {}
+                Err(e) => warn!(namespace = %ns, error = %e, "post-rollback restart skipped"),
+            }
+        }
+        Ok(notes.join("; "))
     }
 }
 

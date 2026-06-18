@@ -1220,7 +1220,7 @@
         <div>
           <p class="dash-eyebrow">After migration</p>
           <h3>Estimated resource savings</h3>
-          <p class="hint">Based on ${workloads} migrated workload(s) with ambient dataplane (sidecar proxies removed).</p>
+          <p class="hint">Based on ${workloads} migrated pod(s) across namespaces marked Migrated (summary tiles count applications/namespaces).</p>
         </div>
         <div class="savings-metrics" role="list">
           <div class="savings-metric" role="listitem">
@@ -1319,7 +1319,7 @@
     const grid = $('dash-fleet-grid');
     const container = $('dash-mesh-instances');
     try {
-      const res = await fetch(API() + '/api/v1/dashboard/fleet');
+      const res = await fetch(API() + '/api/v1/dashboard/fleet?fresh=true');
       if (!res.ok) throw new Error(await res.text());
       const fleet = await res.json();
       fleetClusters = fleet.clusters || fleet.Clusters || fleetClusters;

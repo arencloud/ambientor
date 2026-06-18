@@ -104,6 +104,13 @@ pub async fn revert_ambient_ingress(
                 "deleted per-namespace ingress Gateway {namespace}/{PER_NAMESPACE_INGRESS_NAME}"
             ));
         }
+    } else if let Some(shared) = shared {
+        if delete_managed_gateway(client, &shared.namespace, &shared.name).await? {
+            notes.push(format!(
+                "deleted shared ingress Gateway {}/{}",
+                shared.namespace, shared.name
+            ));
+        }
     }
     if notes.is_empty() {
         Ok("no ingress migration resources to revert".into())
@@ -201,6 +208,7 @@ fn ambient_gateway_labels(mesh: &MeshInstance) -> BTreeMap<String, String> {
     let mut labels = BTreeMap::new();
     labels.insert(MANAGED_BY_LABEL.into(), MANAGED_BY_VALUE.into());
     labels.insert("ambientor.io/ingress-role".into(), "ambient".into());
+    labels.insert("ambientor.io/ingress-created".into(), "true".into());
     let rev = mesh
         .enrollment
         .revision_tag
@@ -424,9 +432,10 @@ async fn delete_managed_gateway(
         .metadata
         .labels
         .as_ref()
-        .and_then(|l| l.get(MANAGED_BY_LABEL))
-        .map(String::as_str)
-        == Some(MANAGED_BY_VALUE);
+        .is_some_and(|l| {
+            l.get(MANAGED_BY_LABEL).map(String::as_str) == Some(MANAGED_BY_VALUE)
+                || l.get("ambientor.io/ingress-created").map(String::as_str) == Some("true")
+        });
     if !managed {
         return Ok(false);
     }
