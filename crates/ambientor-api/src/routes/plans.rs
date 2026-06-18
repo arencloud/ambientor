@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ambientor_db::{ApplicationListQuery, cluster_ref_from_env};
+use ambientor_k8s::client_for_cluster_ref;
 use ambientor_k8s::K8sClient;
 use ambientor_mesh::mesh_instances::{discover_mesh_instances, resolve_mesh_target};
 use ambientor_plan::{build_export_yaml, build_plan_from_selection, plan_to_rollout};
@@ -227,8 +228,16 @@ pub async fn create_plan(
         }
     }
 
+    let cluster_ref = body
+        .cluster_ref
+        .filter(|s| !s.is_empty())
+        .or_else(|| Some(cluster_ref_from_env()));
+
     let k8s = k8s_client().await?;
-    let instances = discover_mesh_instances(&k8s.client)
+    let exec_client = client_for_cluster_ref(&k8s.client, cluster_ref.as_deref())
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("target cluster client: {e}")))?;
+    let instances = discover_mesh_instances(&exec_client)
         .await
         .map_err(internal)?;
     let mesh = resolve_mesh_target(&instances, body.mesh_target.as_ref())
@@ -243,11 +252,6 @@ pub async fn create_plan(
         },
         control_plane_namespace: Some(mesh.control_plane_namespace.clone()),
     };
-
-    let cluster_ref = body
-        .cluster_ref
-        .filter(|s| !s.is_empty())
-        .or_else(|| Some(cluster_ref_from_env()));
 
     let spec = build_plan_from_selection(
         &selected,

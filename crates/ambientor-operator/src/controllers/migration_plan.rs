@@ -6,6 +6,7 @@ use ambientor_plan::{
     plan_name_for_assessment,
 };
 use ambientor_db::{ScanStore, cluster_ref_from_env};
+use ambientor_k8s::client_for_cluster_ref;
 use ambientor_types::{AmbientAssessment, AmbientAssessmentStatus, MeshInventory, MigrationPlan, MigrationPlanSpec};
 use futures::StreamExt;
 use kube::{
@@ -49,6 +50,9 @@ async fn reconcile(plan: Arc<MigrationPlan>, ctx: Arc<PlanContext>) -> Reconcile
 }
 
 async fn reconcile_inner(ctx: &PlanContext, plan: &MigrationPlan) -> anyhow::Result<()> {
+    let work_client = client_for_cluster_ref(&ctx.client, plan.spec.cluster_ref.as_deref())
+        .await
+        .map_err(|e| anyhow::anyhow!("plan target cluster client: {e}"))?;
     let client = &ctx.client;
     let ns = plan
         .metadata
@@ -78,14 +82,14 @@ async fn reconcile_inner(ctx: &PlanContext, plan: &MigrationPlan) -> anyhow::Res
             plan.spec.cluster_ref.clone(),
         )
         .await?;
-        ensure_translations_for_plan(client, plan).await;
+        ensure_translations_for_plan(&work_client, plan).await;
         return Ok(());
     }
 
     let spec = if has_selection {
         reconcile_selection_plan(ctx, plan, &ns).await?
     } else if plan.spec.assessment_ref.is_some() {
-        reconcile_assessment_plan(ctx, plan, &ns).await?
+        reconcile_assessment_plan(ctx, plan, &ns, &work_client).await?
     } else if has_waves {
         return Ok(());
     } else {
@@ -127,7 +131,7 @@ async fn reconcile_inner(ctx: &PlanContext, plan: &MigrationPlan) -> anyhow::Res
     )
     .await?;
 
-    ensure_translations_for_plan(client, &plan).await;
+    ensure_translations_for_plan(&work_client, &plan).await;
 
     info!(
         plan = %plan_name,
@@ -186,6 +190,7 @@ async fn reconcile_assessment_plan(
     ctx: &PlanContext,
     plan: &MigrationPlan,
     assessment_namespace: &str,
+    work_client: &Client,
 ) -> anyhow::Result<MigrationPlanSpec> {
     let client = &ctx.client;
     let plan_name = plan.metadata.name.clone().unwrap_or_default();
@@ -235,9 +240,10 @@ async fn reconcile_assessment_plan(
 
     let assessment_result =
         assessment_result_for_assessment(ctx, &assessment, status).await;
-    let inventory_namespaces = inventory_target_namespaces(client, &assessment, assessment_namespace)
-        .await
-        .unwrap_or_default();
+    let inventory_namespaces =
+        inventory_target_namespaces(work_client, &assessment, assessment_namespace)
+            .await
+            .unwrap_or_default();
     let namespaces = namespaces_for_planning(&assessment_result.findings, &inventory_namespaces);
     let built = build_plan(&assessment_result, &namespaces);
     Ok(MigrationPlanSpec {

@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
             (None, None, None, None)
         };
 
-    let rollout_engine = Arc::new(RolloutEngine::new(client.clone()));
+    let rollout_engine = Arc::new(RolloutEngine::new());
     let resource_cache = Arc::new(ClusterResourceCache::spawn(client.clone()));
 
     controllers::run_all(

@@ -28,17 +28,16 @@ pub enum RolloutError {
     Kube(#[from] kube::Error),
 }
 
-pub struct RolloutEngine {
-    pub client: Client,
-}
+pub struct RolloutEngine;
 
 impl RolloutEngine {
-    pub fn new(client: Client) -> Self {
-        Self { client }
+    pub fn new() -> Self {
+        Self
     }
 
     pub async fn reconcile(
         &self,
+        client: &Client,
         spec: &RolloutSpec,
         status: &mut RolloutStatus,
         mesh: &MeshInstance,
@@ -102,7 +101,7 @@ impl RolloutEngine {
             });
 
             let stage = spec.stages[stage_idx].clone();
-            let result = self.execute_stage(spec, &stage, mesh).await;
+            let result = self.execute_stage(client, spec, &stage, mesh).await;
             let finished = Utc::now();
 
             match result {
@@ -146,6 +145,7 @@ impl RolloutEngine {
                     });
                     if spec.auto_rollback && status.current_stage > 0 {
                         self.rollback(
+                            client,
                             spec,
                             status,
                             status.current_stage as usize,
@@ -164,6 +164,7 @@ impl RolloutEngine {
 
     async fn execute_stage(
         &self,
+        client: &Client,
         spec: &RolloutSpec,
         stage: &ambientor_types::RolloutStage,
         mesh: &MeshInstance,
@@ -172,7 +173,7 @@ impl RolloutEngine {
             RolloutStageType::DryRun => {
                 let namespaces = namespaces_in_rollout(&spec.stages);
                 for ns in &namespaces {
-                    dry_run_namespace(&self.client, ns, mesh, &spec.stages).await?;
+                    dry_run_namespace(client, ns, mesh, &spec.stages).await?;
                 }
                 let enroll_note = if namespaces.iter().any(|ns| {
                     crate::preflight::rollout_will_enroll_namespace(&spec.stages, ns)
@@ -191,7 +192,7 @@ impl RolloutEngine {
             RolloutStageType::EnrollNamespace => {
                 let mut actions = Vec::new();
                 for ns in &stage.namespaces {
-                    let mut step = enroll_namespace_on_mesh(&self.client, ns, mesh)
+                    let mut step = enroll_namespace_on_mesh(client, ns, mesh)
                         .await
                         .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
                     actions.append(&mut step);
@@ -200,21 +201,21 @@ impl RolloutEngine {
             }
             RolloutStageType::RemoveInjection => {
                 for ns in &stage.namespaces {
-                    remove_namespace_injection(&self.client, ns).await?;
+                    remove_namespace_injection(client, ns).await?;
                 }
                 Ok("Removed sidecar injection from namespace(s)".into())
             }
             RolloutStageType::LabelNamespace => {
                 for ns in &stage.namespaces {
-                    preflight_namespace_for_ambient_rollout(&self.client, ns, mesh, &spec.stages)
+                    preflight_namespace_for_ambient_rollout(client, ns, mesh, &spec.stages)
                         .await?;
-                    label_namespace_ambient(&self.client, ns).await?;
+                    label_namespace_ambient(client, ns).await?;
                 }
                 Ok(format!("Labeled {} namespace(s)", stage.namespaces.len()))
             }
             RolloutStageType::DeployWaypoint => {
                 for ns in &stage.namespaces {
-                    deploy_waypoint(&self.client, ns, mesh, &spec.stages).await?;
+                    deploy_waypoint(client, ns, mesh, &spec.stages).await?;
                 }
                 Ok(format!(
                     "Deployed waypoint Gateway for {} namespace(s)",
@@ -224,14 +225,14 @@ impl RolloutEngine {
             RolloutStageType::TranslatePolicy => {
                 let mut total = 0usize;
                 for ns in &stage.namespaces {
-                    total += translate_policies_in_namespace(&self.client, ns).await?;
+                    total += translate_policies_in_namespace(client, ns).await?;
                 }
                 Ok(format!("Applied {total} HTTPRoute translation(s)"))
             }
             RolloutStageType::RollingRestart => {
                 let mut total = 0usize;
                 for ns in &stage.namespaces {
-                    total += rolling_restart_namespace(&self.client, ns).await?;
+                    total += rolling_restart_namespace(client, ns).await?;
                 }
                 Ok(format!(
                     "Triggered rolling restart on {total} Deployment(s)"
@@ -239,8 +240,8 @@ impl RolloutEngine {
             }
             RolloutStageType::VerifyTraffic => {
                 for ns in &stage.namespaces {
-                    verify_namespace_traffic(&self.client, ns, mesh).await?;
-                    verify_application_reachability(&self.client, ns).await?;
+                    verify_namespace_traffic(client, ns, mesh).await?;
+                    verify_application_reachability(client, ns).await?;
                 }
                 Ok(format!(
                     "Verified ambient enrollment, waypoint, policy, and workload reachability for {} namespace(s)",
@@ -255,6 +256,7 @@ impl RolloutEngine {
 
     async fn rollback(
         &self,
+        client: &Client,
         spec: &RolloutSpec,
         status: &mut RolloutStatus,
         failed_at: usize,
@@ -271,7 +273,7 @@ impl RolloutEngine {
         });
 
         let revert_messages =
-            revert_completed_stages(&self.client, spec, failed_at, Some(mesh)).await?;
+            revert_completed_stages(client, spec, failed_at, Some(mesh)).await?;
         let summary = revert_messages.join("; ");
         status.current_stage = 0;
         status.approved_stage = -1;
@@ -286,5 +288,11 @@ impl RolloutEngine {
             timestamp: Utc::now(),
         });
         Ok(())
+    }
+}
+
+impl Default for RolloutEngine {
+    fn default() -> Self {
+        Self::new()
     }
 }

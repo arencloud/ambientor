@@ -5,7 +5,7 @@ use http::Uri;
 use http::uri::InvalidUri;
 use k8s_openapi::api::core::v1::Secret;
 use kube::{
-    Client,
+    Api, Client,
     config::{AuthInfo, KubeConfigOptions, Kubeconfig},
 };
 use secrecy::SecretString;
@@ -62,6 +62,35 @@ pub async fn client_from_secret(
     }
 
     client_from_token_secret(data, api_server_override).await
+}
+
+/// True when `cluster_ref` selects a remote spoke (`{namespace}/{name}`), not hub-local.
+pub fn is_remote_cluster_ref(cluster_ref: &str) -> bool {
+    parse_connection_cluster_ref(cluster_ref).is_some()
+}
+
+/// Resolve the Kubernetes API client for plan/rollout execution.
+///
+/// Hub-local refs (`in-cluster`, empty, or non-connection strings) use `hub`.
+/// Spoke refs load credentials from `ClusterConnection` on the hub.
+pub async fn client_for_cluster_ref(
+    hub: &Client,
+    cluster_ref: Option<&str>,
+) -> Result<Client, RemoteClientError> {
+    let Some(cluster_ref) = cluster_ref.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(hub.clone());
+    };
+    if cluster_ref == "in-cluster" || !is_remote_cluster_ref(cluster_ref) {
+        return Ok(hub.clone());
+    }
+    let (ns, name) = parse_connection_cluster_ref(cluster_ref).expect("checked above");
+    let api: Api<ClusterConnection> = Api::namespaced(hub.clone(), ns);
+    let conn = api.get(name).await?;
+    if conn.spec.hub {
+        return Ok(hub.clone());
+    }
+    let remote = client_for_connection(hub, &conn).await?;
+    Ok(remote.client)
 }
 
 /// Load connection credentials from the hub cluster and return a client to the remote API.
@@ -206,6 +235,13 @@ mod tests {
             Some(("ambientor-system", "cl02"))
         );
         assert_eq!(parse_connection_cluster_ref("in-cluster"), None);
+    }
+
+    #[test]
+    fn remote_cluster_ref_detection() {
+        assert!(is_remote_cluster_ref("ambientor-system/cl02"));
+        assert!(!is_remote_cluster_ref("in-cluster"));
+        assert!(!is_remote_cluster_ref("cl02"));
     }
 
     #[test]

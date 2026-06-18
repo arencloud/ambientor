@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ambientor_mesh::mesh_instances::{discover_mesh_instances, resolve_mesh_target};
+use ambientor_k8s::client_for_cluster_ref;
 use ambientor_rollout::audit::audit_from_rollout_event;
 use ambientor_types::Rollout;
 use futures::StreamExt;
@@ -32,14 +33,14 @@ pub async fn run(ctx: Arc<OperatorContext>) {
 async fn reconcile(obj: Arc<Rollout>, ctx: Arc<OperatorContext>) -> ReconcileResult {
     let phase = obj.status.as_ref().map(|s| s.phase.as_str()).unwrap_or("");
     if phase == "Completed" || phase == "Failed" || phase == "RolledBack" {
-        sync_dashboard(&ctx).await;
+        sync_dashboard(&ctx, obj.spec.cluster_ref.as_deref()).await;
         return Ok(Action::await_change());
     }
     let mut status = obj.status.clone().unwrap_or_default();
     reconcile_inner(&ctx, &obj, &mut status)
         .await
         .map_err(ReconcileError::Other)?;
-    sync_dashboard(&ctx).await;
+    sync_dashboard(&ctx, obj.spec.cluster_ref.as_deref()).await;
     if status.phase == "AwaitingApproval" {
         Ok(Action::await_change())
     } else {
@@ -47,14 +48,15 @@ async fn reconcile(obj: Arc<Rollout>, ctx: Arc<OperatorContext>) -> ReconcileRes
     }
 }
 
-async fn sync_dashboard(ctx: &OperatorContext) {
+async fn sync_dashboard(ctx: &OperatorContext, cluster_ref: Option<&str>) {
     let Some(store) = ctx.dashboard_repo.as_ref() else {
         return;
     };
-    dashboard::sync_hub_now(
+    dashboard::sync_cluster_ref_now(
         &ctx.client,
         store.as_ref(),
         ctx.scan_repo.as_deref(),
+        cluster_ref,
     )
     .await;
 }
@@ -64,7 +66,12 @@ async fn reconcile_inner(
     obj: &Rollout,
     status: &mut ambientor_types::RolloutStatus,
 ) -> anyhow::Result<()> {
-    let instances = discover_mesh_instances(&ctx.client)
+    let cluster_ref = obj.spec.cluster_ref.as_deref();
+    let target_client = client_for_cluster_ref(&ctx.client, cluster_ref)
+        .await
+        .map_err(|e| anyhow::anyhow!("rollout target cluster client: {e}"))?;
+
+    let instances = discover_mesh_instances(&target_client)
         .await
         .map_err(|e| anyhow::anyhow!("discover mesh instances: {e}"))?;
     let mesh = resolve_mesh_target(&instances, obj.spec.mesh_target.as_ref())
@@ -72,7 +79,7 @@ async fn reconcile_inner(
 
     let events = ctx
         .rollout_engine
-        .reconcile(&obj.spec, status, &mesh)
+        .reconcile(&target_client, &obj.spec, status, &mesh)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 

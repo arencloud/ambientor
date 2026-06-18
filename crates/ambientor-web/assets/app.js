@@ -505,7 +505,8 @@
   async function loadMeshInstancesForPlans() {
     if (!API()) return;
     try {
-      const res = await fetch(API() + '/api/v1/mesh-instances');
+      const q = clusterQueryPrefix();
+      const res = await fetch(API() + '/api/v1/mesh-instances' + q);
       if (!res.ok) throw new Error(await res.text());
       meshInstancesForPlan = await res.json();
       renderPlanMeshSelect();

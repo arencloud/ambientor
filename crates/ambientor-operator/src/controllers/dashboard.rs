@@ -6,8 +6,8 @@ use ambientor_db::{
     DashboardStore, ScanStore, cluster_ref_from_env, load_assessment_findings_overrides,
 };
 use ambientor_k8s::{
-    client_for_connection, connection_cluster_ref, parse_connection_cluster_ref,
-    verify_connectivity,
+    client_for_connection, connection_cluster_ref, is_remote_cluster_ref,
+    parse_connection_cluster_ref, verify_connectivity,
 };
 use ambientor_types::{AmbientAssessment, ClusterConnection};
 use kube::{Api, Client, api::ListParams};
@@ -36,13 +36,32 @@ pub async fn run(
     }
 }
 
-/// Recompute hub dashboard and persist to Postgres (used after rollout reconcile).
+/// Recompute hub dashboard and persist to Postgres.
+#[allow(dead_code)]
 pub async fn sync_hub_now(
     client: &Client,
     store: &dyn DashboardStore,
     scan_repo: Option<&dyn ScanStore>,
 ) {
     sync_hub_dashboard(client, store, scan_repo).await;
+}
+
+/// Refresh dashboard snapshot for hub or a single spoke `cluster_ref` after rollout.
+pub async fn sync_cluster_ref_now(
+    hub: &Client,
+    store: &dyn DashboardStore,
+    scan_repo: Option<&dyn ScanStore>,
+    cluster_ref: Option<&str>,
+) {
+    let Some(cluster_ref) = cluster_ref.map(str::trim).filter(|s| !s.is_empty()) else {
+        sync_hub_dashboard(hub, store, scan_repo).await;
+        return;
+    };
+    if is_remote_cluster_ref(cluster_ref) {
+        sync_spoke_dashboard(hub, store, scan_repo, cluster_ref).await;
+    } else {
+        sync_hub_dashboard(hub, store, scan_repo).await;
+    }
 }
 
 async fn sync_hub_dashboard(
@@ -100,59 +119,83 @@ async fn sync_spoke_dashboards(
             .clone()
             .unwrap_or_else(|| "default".into());
         let cluster_ref = connection_cluster_ref(&ns, &name);
-        let display_name = conn.spec.display_name.clone();
+        sync_spoke_dashboard(hub, store, scan_repo, &cluster_ref).await;
+    }
+}
 
-        let remote = match client_for_connection(hub, &conn).await {
-            Ok(remote) => remote,
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    cluster_ref = %cluster_ref,
-                    "spoke dashboard sync skipped: invalid connection"
-                );
-                let response = unreachable_spoke_response(&cluster_ref, &display_name, &ns, &name);
-                if let Err(e) = store.sync_snapshot(&response).await {
-                    tracing::warn!(error = %e, cluster_ref = %cluster_ref, "spoke unreachable registry update failed");
-                }
-                continue;
-            }
-        };
-
-        if let Err(e) = verify_connectivity(&remote.client).await {
+async fn sync_spoke_dashboard(
+    hub: &Client,
+    store: &dyn DashboardStore,
+    scan_repo: Option<&dyn ScanStore>,
+    cluster_ref: &str,
+) {
+    let Some((ns, name)) = parse_connection_cluster_ref(cluster_ref) else {
+        return;
+    };
+    let api: Api<ClusterConnection> = Api::namespaced(hub.clone(), ns);
+    let conn = match api.get(name).await {
+        Ok(conn) => conn,
+        Err(e) => {
             tracing::warn!(
                 error = %e,
                 cluster_ref = %cluster_ref,
-                "spoke dashboard sync skipped: unreachable"
+                "spoke dashboard sync skipped: connection not found"
             );
-            let response = unreachable_spoke_response(&cluster_ref, &display_name, &ns, &name);
+            return;
+        }
+    };
+    let display_name = conn.spec.display_name.clone();
+
+    let remote = match client_for_connection(hub, &conn).await {
+        Ok(remote) => remote,
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                cluster_ref = %cluster_ref,
+                "spoke dashboard sync skipped: invalid connection"
+            );
+            let response = unreachable_spoke_response(cluster_ref, &display_name, ns, name);
             if let Err(e) = store.sync_snapshot(&response).await {
                 tracing::warn!(error = %e, cluster_ref = %cluster_ref, "spoke unreachable registry update failed");
             }
-            continue;
+            return;
         }
+    };
 
-        match build_dashboard_response(&remote.client, &cluster_ref, scan_repo).await {
-            Ok(mut response) => {
-                response.cluster.name = display_name;
-                response.connection_namespace = Some(ns);
-                response.connection_name = Some(name);
-                response.is_hub = Some(false);
-                response.reachable = Some(true);
-                if let Err(e) = store.sync_snapshot(&response).await {
-                    tracing::warn!(
-                        error = %e,
-                        cluster_ref = %cluster_ref,
-                        "spoke dashboard sync to database failed"
-                    );
-                }
-            }
-            Err(e) => {
+    if let Err(e) = verify_connectivity(&remote.client).await {
+        tracing::warn!(
+            error = %e,
+            cluster_ref = %cluster_ref,
+            "spoke dashboard sync skipped: unreachable"
+        );
+        let response = unreachable_spoke_response(cluster_ref, &display_name, ns, name);
+        if let Err(e) = store.sync_snapshot(&response).await {
+            tracing::warn!(error = %e, cluster_ref = %cluster_ref, "spoke unreachable registry update failed");
+        }
+        return;
+    }
+
+    match build_dashboard_response(&remote.client, cluster_ref, scan_repo).await {
+        Ok(mut response) => {
+            response.cluster.name = display_name;
+            response.connection_namespace = Some(ns.to_string());
+            response.connection_name = Some(name.to_string());
+            response.is_hub = Some(false);
+            response.reachable = Some(true);
+            if let Err(e) = store.sync_snapshot(&response).await {
                 tracing::warn!(
                     error = %e,
                     cluster_ref = %cluster_ref,
-                    "spoke dashboard compute failed"
+                    "spoke dashboard sync to database failed"
                 );
             }
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                cluster_ref = %cluster_ref,
+                "spoke dashboard compute failed"
+            );
         }
     }
 }
