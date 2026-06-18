@@ -1,12 +1,12 @@
 # Example spoke registration on the hub (multi-cluster assess from portal).
 #
-# Recommended: permanent read-only SA on the spoke:
+# Recommended: permanent hub remote SA on the spoke (assess + rollout):
 #   oc login <spoke>
 #   ./scripts/spoke-export-hub-credentials.sh --apply --write-hub-secret /tmp/spoke-cl02-secret.yaml
 #   oc login <hub>
 #   oc apply -f /tmp/spoke-cl02-secret.yaml
 #
-# Or apply RBAC only: docs/lab/spoke-hub-reader-rbac.yaml
+# Or apply RBAC only: docs/lab/spoke-hub-remote-rbac.yaml
 #
 # 1. On spoke: credentials secret (kubeconfig or token+server+ca.crt)
 # 2. On hub: apply this ClusterConnection (adjust namespace/name/displayName)

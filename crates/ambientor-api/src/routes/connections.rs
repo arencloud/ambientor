@@ -33,6 +33,10 @@ pub struct ConnectionListItem {
     pub last_sync_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ready_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rollout_access: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rollout_access_message: Option<String>,
     pub hub: bool,
 }
 
@@ -163,6 +167,12 @@ fn connection_to_item(conn: ClusterConnection) -> Option<ConnectionListItem> {
         .iter()
         .find(|c| c.r#type == "Ready")
         .and_then(|c| c.message.clone());
+    let rollout_condition = status
+        .conditions
+        .iter()
+        .find(|c| c.r#type == "RolloutAccess");
+    let rollout_access = rollout_condition.map(|c| c.status == "True");
+    let rollout_access_message = rollout_condition.and_then(|c| c.message.clone());
     Some(ConnectionListItem {
         name,
         namespace,
@@ -171,6 +181,8 @@ fn connection_to_item(conn: ClusterConnection) -> Option<ConnectionListItem> {
         phase: status.phase,
         last_sync_time: status.last_sync_time.map(|t| t.to_rfc3339()),
         ready_message,
+        rollout_access,
+        rollout_access_message,
         hub: conn.spec.hub,
     })
 }

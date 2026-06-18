@@ -1,9 +1,19 @@
-# Deprecated filename — applies the same manifest as spoke-hub-remote-rbac.yaml.
-# Kept so older docs and bookmarks keep working.
+# Hub remote access on a spoke cluster (assess + hub-orchestrated rollout).
 #
-#   kubectl apply -f docs/lab/spoke-hub-reader-rbac.yaml
+# Apply on the SPOKE (not the hub):
+#   oc apply -f docs/lab/spoke-hub-remote-rbac.yaml
 #
-# Canonical copy: docs/lab/spoke-hub-remote-rbac.yaml
+# Safe to re-apply on clusters that already have read-only hub-reader RBAC:
+# the ClusterRole is upgraded in place; the ServiceAccount token is unchanged.
+#
+# Helper (on spoke context):
+#   ./scripts/spoke-export-hub-credentials.sh --apply
+#
+# Export hub ClusterConnection credentials:
+#   ./scripts/spoke-export-hub-credentials.sh --write-hub-secret /tmp/spoke-secret.yaml
+#
+# Rules mirror deploy/helm/ambientor/templates/rbac.yaml (hub operator) for
+# mesh scan + migration stages, excluding hub-only ambientor.io control-plane CRs.
 ---
 apiVersion: v1
 kind: Namespace

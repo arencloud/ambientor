@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply spoke hub-reader RBAC (optional) and print a hub ClusterConnection credentials secret.
+# Apply spoke hub remote RBAC (assess + rollout) and print a hub ClusterConnection credentials secret.
 #
 # Usage (on spoke context):
 #   ./scripts/spoke-export-hub-credentials.sh
@@ -63,7 +63,8 @@ if ! command -v kubectl >/dev/null 2>&1; then
 fi
 
 if [[ "$APPLY" == true ]]; then
-  kubectl apply -f docs/lab/spoke-hub-reader-rbac.yaml
+  kubectl apply -f docs/lab/spoke-hub-remote-rbac.yaml
+  echo "Applied spoke hub remote RBAC (assess + rollout). Existing tokens are unchanged." >&2
 fi
 
 if [[ -z "$API_SERVER" ]]; then

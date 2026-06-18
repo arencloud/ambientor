@@ -938,6 +938,14 @@
         const label = escapeHtml(c.displayName || c.display_name || c.name);
         const phase = escapeHtml(c.phase || 'Unknown');
         const msg = c.readyMessage || c.ready_message;
+        const rolloutOk = c.rolloutAccess ?? c.rollout_access;
+        const rolloutMsg = c.rolloutAccessMessage || c.rollout_access_message;
+        const rolloutHint =
+          rolloutOk === false
+            ? `<p class="hint small warn">Rollout RBAC: ${escapeHtml(rolloutMsg || 'apply docs/lab/spoke-hub-remote-rbac.yaml on spoke')}</p>`
+            : rolloutOk === true
+              ? '<p class="hint small ok">Rollout RBAC ready</p>'
+              : '';
         const hint = msg ? `<p class="hint small">${escapeHtml(msg)}</p>` : '';
         const active = ref === activeClusterRef ? ' connection-row-active' : '';
         return `<article class="connection-row${active}" data-cluster-ref="${escapeHtml(ref)}" role="button" tabindex="0">
@@ -945,6 +953,7 @@
             <strong>${label}</strong>
             <span class="mono small">${escapeHtml(ref)}</span>
             ${hint}
+            ${rolloutHint}
           </div>
           <span class="badge-status ${statusCssClass(phase)}">${phase}</span>
         </article>`;
