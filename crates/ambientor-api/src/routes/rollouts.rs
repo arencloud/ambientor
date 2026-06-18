@@ -382,6 +382,7 @@ fn stage_type_label(t: &RolloutStageType) -> &'static str {
         RolloutStageType::DeployWaypoint => "Deploy waypoint",
         RolloutStageType::LabelNamespace => "Label namespace",
         RolloutStageType::TranslatePolicy => "Translate policy",
+        RolloutStageType::MigrateIngress => "Migrate ingress",
         RolloutStageType::RollingRestart => "Rolling restart",
         RolloutStageType::RemoveInjection => "Remove injection",
         RolloutStageType::VerifyTraffic => "Verify traffic",
