@@ -27,5 +27,6 @@ openshift:
       host: ""
 
 auth:
-  createSecret: true
-  jwtSecret: ""  # set via --set auth.jwtSecret=... on install
+  # Image-only dev upgrades use --reuse-values when the release exists; do not
+  # force createSecret here or helm fails without auth.jwtSecret on every upgrade.
+  createSecret: false

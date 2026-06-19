@@ -7,7 +7,7 @@
 #
 # Usage:
 #   ./scripts/dev-build-push.sh
-#   ./scripts/dev-build-push.sh --helm-upgrade   # also helm upgrade on current kubectl context
+#   ./scripts/dev-build-push.sh --helm-upgrade   # upgrade images on current context (reuses release values when present)
 #   API_URL=https://ambientor-api-.... ./scripts/dev-build-push.sh --helm-upgrade
 #
 set -euo pipefail
@@ -73,8 +73,13 @@ EOF
 
 if [[ "${HELM_UPGRADE}" == true ]]; then
   API_URL="${API_URL:-}"
+  HELM_REUSE=()
+  if helm status ambientor -n ambientor-system >/dev/null 2>&1; then
+    HELM_REUSE+=(--reuse-values)
+  fi
   helm upgrade --install ambientor deploy/helm/ambientor/ \
     -n ambientor-system --create-namespace \
+    "${HELM_REUSE[@]}" \
     -f deploy/helm/ambientor/values-openshift-dev.yaml \
     --set image.pullPolicy=Always \
     --set operator.image.repository="${REGISTRY}/ambientor-operator-dev" \

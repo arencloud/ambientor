@@ -105,7 +105,6 @@ pub async fn label_namespace_ambient(client: &Client, name: &str) -> Result<(), 
         json!({
             "istio.io/dataplane-mode": "ambient",
             "istio-injection": null,
-            "istio.io/rev": null,
         }),
     )
     .await?;
@@ -138,15 +137,14 @@ pub async fn remove_namespace_injection(client: &Client, name: &str) -> Result<(
     let patch = json!({
         "metadata": {
             "labels": {
-                "istio-injection": null,
-                "istio.io/rev": null
+                "istio-injection": null
             },
             "annotations": { "sidecar.istio.io/inject": null }
         }
     });
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
-    info!(namespace = %name, "removed sidecar injection and revision labels");
+    info!(namespace = %name, "removed sidecar injection labels and annotations");
     Ok(())
 }
 
