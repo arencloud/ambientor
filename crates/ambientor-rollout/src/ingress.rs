@@ -21,7 +21,7 @@ use crate::labels::{
     ensure_mesh_enrollment_labels, label_namespace_ambient, remove_namespace_injection,
     snapshot_namespace_pre_migration,
 };
-use crate::verify::{gateway_ready, verify_namespace_labels};
+use crate::verify::{gateway_accepted, gateway_ready, verify_namespace_labels};
 
 pub const PER_NAMESPACE_INGRESS_NAME: &str = "ambient-ingress";
 const MANAGED_BY_LABEL: &str = "app.kubernetes.io/managed-by";
@@ -67,12 +67,14 @@ pub async fn migrate_ambient_ingress(
     }
     ensure_mesh_enrollment_labels(client, &ingress_namespace, mesh).await?;
 
+    let listener_hostname = infer_wildcard_hostname(&public_routes);
     let target = match resolve_ingress_gateway(
         client,
         namespace,
         mesh,
         shared,
         &ingress_namespace,
+        listener_hostname.as_deref(),
     )
     .await
     {
@@ -181,12 +183,20 @@ pub async fn cleanup_ingress_for_app(
     Ok(())
 }
 
-/// Namespace for the ambient ingress Gateway CR.
-///
-/// Default: application namespace (per-app ingress). Legacy HTTPRoutes may still
-/// parentRef a shared sidecar gateway in another namespace; we never relabel that
-/// shared namespace. Use rollout `ambientIngressGateway` only for an explicit
-/// dedicated ambient ingress namespace.
+/// Build `*.apps.example.com` listener hostname from route hostnames (e.g. demo1.apps.cl02...).
+fn infer_wildcard_hostname(routes: &[&ambientor_core::rules::ExternalRouteInfo]) -> Option<String> {
+    for route in routes {
+        for host in &route.hostnames {
+            if let Some((_, rest)) = host.split_once('.') {
+                return Some(format!("*.{rest}"));
+            }
+        }
+    }
+    None
+}
+
+/// Per-app ingress lives in the application namespace; never relabel a legacy shared gateway ns.
+/// Use rollout `ambientIngressGateway` only for an explicit dedicated ambient ingress namespace.
 fn ambient_ingress_namespace(app_namespace: &str, shared: Option<&AmbientIngressGateway>) -> String {
     shared
         .map(|g| g.namespace.clone())
@@ -302,6 +312,7 @@ async fn resolve_ingress_gateway(
     mesh: &MeshInstance,
     shared: Option<&AmbientIngressGateway>,
     ingress_namespace: &str,
+    listener_hostname: Option<&str>,
 ) -> Result<ResolvedIngressGateway, RolloutError> {
     if let Some(shared) = shared {
         let existing = get_gateway(client, &shared.namespace, &shared.name).await?;
@@ -322,7 +333,14 @@ async fn resolve_ingress_gateway(
             });
         }
         ensure_mesh_enrollment_labels(client, &shared.namespace, mesh).await?;
-        deploy_ingress_gateway(client, &shared.namespace, &shared.name, mesh).await?;
+        deploy_ingress_gateway(
+            client,
+            &shared.namespace,
+            &shared.name,
+            mesh,
+            listener_hostname,
+        )
+        .await?;
         wait_or_cleanup_gateway(client, &shared.namespace, &shared.name, &shared.name).await?;
         return Ok(ResolvedIngressGateway {
             namespace: shared.namespace.clone(),
@@ -367,7 +385,14 @@ async fn resolve_ingress_gateway(
     }
 
     ensure_mesh_enrollment_labels(client, &ingress_namespace, mesh).await?;
-    deploy_ingress_gateway(client, &ingress_namespace, PER_NAMESPACE_INGRESS_NAME, mesh).await?;
+    deploy_ingress_gateway(
+        client,
+        &ingress_namespace,
+        PER_NAMESPACE_INGRESS_NAME,
+        mesh,
+        listener_hostname,
+    )
+    .await?;
     wait_or_cleanup_gateway(
         client,
         &ingress_namespace,
@@ -388,52 +413,62 @@ async fn wait_or_cleanup_gateway(
     gateway_name: &str,
     log_name: &str,
 ) -> Result<(), RolloutError> {
-    if let Err(e) = wait_gateway_programmed(client, namespace, gateway_name).await {
+    if let Err(e) = wait_ambient_ingress_ready(client, namespace, gateway_name).await {
         let _ = cleanup_ingress_gateway(client, namespace, gateway_name).await;
         return Err(e);
     }
-    if let Err(e) = wait_ingress_workload_ready(client, namespace, gateway_name).await {
-        let _ = cleanup_ingress_gateway(client, namespace, gateway_name).await;
-        return Err(e);
-    }
-    info!(namespace = %namespace, gateway = %log_name, "ambient ingress Gateway programmed");
+    info!(namespace = %namespace, gateway = %log_name, "ambient ingress Gateway ready");
     Ok(())
 }
 
-async fn wait_ingress_workload_ready(
+/// OpenShift ingress Gateways often stay Programmed=False (LB pending) while Accepted + deployment ready.
+async fn wait_ambient_ingress_ready(
     client: &Client,
     namespace: &str,
     gateway_name: &str,
 ) -> Result<(), RolloutError> {
+    let gw_ar = api_resource("gateway.networking.k8s.io", "v1", "Gateway", "gateways");
+    let gw_api = Api::<DynamicObject>::namespaced_with(client.clone(), namespace, &gw_ar);
     let deploy_name = istio_gateway_service_name(gateway_name);
-    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    let dep_api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
     let deadline = Duration::from_secs(GATEWAY_READY_TIMEOUT_SECS);
     let started = std::time::Instant::now();
     while started.elapsed() < deadline {
-        match api.get(&deploy_name).await {
-            Ok(dep) => {
-                let ready = dep
-                    .status
-                    .as_ref()
-                    .and_then(|s| s.ready_replicas)
-                    .unwrap_or(0);
-                let desired = dep
-                    .status
-                    .as_ref()
-                    .and_then(|s| s.replicas)
-                    .unwrap_or(1);
-                if ready >= 1 && ready >= desired {
-                    return Ok(());
-                }
-            }
-            Err(kube::Error::Api(e)) if e.code == 404 => {}
+        let gw_ok = match gw_api.get(gateway_name).await {
+            Ok(gw) if gateway_ready(&gw.data) => true,
+            Ok(gw) => gateway_accepted(&gw.data) && deployment_ready(&dep_api, &deploy_name).await?,
+            Err(kube::Error::Api(e)) if e.code == 404 => false,
             Err(e) => return Err(RolloutError::Kube(e)),
+        };
+        if gw_ok {
+            return Ok(());
         }
         sleep(Duration::from_secs(GATEWAY_POLL_INTERVAL_SECS)).await;
     }
     Err(RolloutError::ExecutionFailed(format!(
-        "ambient ingress Deployment {namespace}/{deploy_name} not ready within {GATEWAY_READY_TIMEOUT_SECS}s"
+        "ambient ingress Gateway {namespace}/{gateway_name} not ready within {GATEWAY_READY_TIMEOUT_SECS}s \
+         (need Programmed=True or Accepted=True with gateway Deployment ready)"
     )))
+}
+
+async fn deployment_ready(dep_api: &Api<Deployment>, name: &str) -> Result<bool, RolloutError> {
+    match dep_api.get(name).await {
+        Ok(dep) => {
+            let ready = dep
+                .status
+                .as_ref()
+                .and_then(|s| s.ready_replicas)
+                .unwrap_or(0);
+            let desired = dep
+                .status
+                .as_ref()
+                .and_then(|s| s.replicas)
+                .unwrap_or(1);
+            Ok(ready >= 1 && ready >= desired)
+        }
+        Err(kube::Error::Api(e)) if e.code == 404 => Ok(false),
+        Err(e) => Err(RolloutError::Kube(e)),
+    }
 }
 
 async fn deploy_ingress_gateway(
@@ -441,8 +476,23 @@ async fn deploy_ingress_gateway(
     namespace: &str,
     name: &str,
     mesh: &MeshInstance,
+    listener_hostname: Option<&str>,
 ) -> Result<(), RolloutError> {
     let labels = ambient_gateway_labels(mesh);
+    let mut listener = json!({
+        "name": "http",
+        "port": 8080,
+        "protocol": "HTTP",
+        "allowedRoutes": {
+            "namespaces": { "from": "All" }
+        }
+    });
+    if let Some(hostname) = listener_hostname {
+        listener
+            .as_object_mut()
+            .expect("listener object")
+            .insert("hostname".into(), json!(hostname));
+    }
     let manifest = json!({
         "apiVersion": "gateway.networking.k8s.io/v1",
         "kind": "Gateway",
@@ -453,14 +503,7 @@ async fn deploy_ingress_gateway(
         },
         "spec": {
             "gatewayClassName": "istio",
-            "listeners": [{
-                "name": "http",
-                "port": 8080,
-                "protocol": "HTTP",
-                "allowedRoutes": {
-                    "namespaces": { "from": "All" }
-                }
-            }]
+            "listeners": [listener]
         }
     });
     apply_namespaced_manifest(client, namespace, &manifest).await?;
@@ -559,29 +602,6 @@ async fn get_gateway(
         Err(kube::Error::Api(e)) if e.code == 404 => Ok(None),
         Err(e) => Err(RolloutError::Kube(e)),
     }
-}
-
-async fn wait_gateway_programmed(
-    client: &Client,
-    namespace: &str,
-    name: &str,
-) -> Result<(), RolloutError> {
-    let ar = api_resource("gateway.networking.k8s.io", "v1", "Gateway", "gateways");
-    let api = Api::<DynamicObject>::namespaced_with(client.clone(), namespace, &ar);
-    let deadline = Duration::from_secs(GATEWAY_READY_TIMEOUT_SECS);
-    let started = std::time::Instant::now();
-    while started.elapsed() < deadline {
-        match api.get(name).await {
-            Ok(gw) if gateway_ready(&gw.data) => return Ok(()),
-            Ok(_) => {}
-            Err(kube::Error::Api(e)) if e.code == 404 => {}
-            Err(e) => return Err(RolloutError::Kube(e)),
-        }
-        sleep(Duration::from_secs(GATEWAY_POLL_INTERVAL_SECS)).await;
-    }
-    Err(RolloutError::ExecutionFailed(format!(
-        "ambient ingress Gateway {namespace}/{name} not programmed within {GATEWAY_READY_TIMEOUT_SECS}s"
-    )))
 }
 
 async fn patch_httproute_parent_refs(
@@ -958,6 +978,24 @@ mod tests {
         assert_eq!(
             istio_gateway_service_name("bookinfo-demo-gateway"),
             "bookinfo-demo-gateway-istio"
+        );
+    }
+
+    #[test]
+    fn infer_wildcard_hostname_from_route_host() {
+        let route = ExternalRouteInfo {
+            namespace: "bookinfo-demo1".into(),
+            name: "bookinfo".into(),
+            kind: "HTTPRoute".into(),
+            hostnames: vec!["demo1.apps.cl02.arencloud.com".into()],
+            parent_gateway_namespace: None,
+            parent_gateway_name: None,
+            parents_attached: None,
+        };
+        let routes = vec![&route];
+        assert_eq!(
+            infer_wildcard_hostname(&routes),
+            Some("*.apps.cl02.arencloud.com".into())
         );
     }
 }

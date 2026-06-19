@@ -39,16 +39,16 @@ metadata:
   labels:
     app.kubernetes.io/name: ambientor
     app.kubernetes.io/component: hub-remote-access
-    ambientor.io/hub-access-version: v2-rollout
+    ambientor.io/hub-access-version: v3-openshift-routes
 rules:
   - nonResourceURLs: ["/version", "/healthz", "/livez", "/readyz"]
     verbs: ["get"]
   - apiGroups: [""]
     resources: ["namespaces", "pods", "services", "configmaps"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+    verbs: ["get", "list", "watch", "patch", "update", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+    verbs: ["get", "list", "watch", "patch", "update", "delete"]
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["get", "list", "watch"]
@@ -71,6 +71,9 @@ rules:
   - apiGroups: [security.openshift.io]
     resources: ["securitycontextconstraints"]
     verbs: ["get", "list"]
+  - apiGroups: [route.openshift.io]
+    resources: ["routes"]
+    verbs: ["get", "list", "watch", "patch", "update"]
   - apiGroups: [ambientor.io]
     resources: ["policytranslations"]
     verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]

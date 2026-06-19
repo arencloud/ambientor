@@ -54,6 +54,12 @@ const ROLLOUT_CHECKS: &[AccessCheck] = &[
         verb: "patch",
         label: "servicemeshmemberrolls patch (OSSM)",
     },
+    AccessCheck {
+        group: "route.openshift.io",
+        resource: "routes",
+        verb: "list",
+        label: "routes list (OpenShift ingress migration)",
+    },
 ];
 
 /// Returns human-readable labels for permissions the spoke credentials lack.

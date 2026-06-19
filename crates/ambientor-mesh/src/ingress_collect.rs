@@ -85,15 +85,19 @@ fn gateway_programmed(data: &Value) -> bool {
     {
         return true;
     }
-    data.get("status")
+    let conditions = data
+        .get("status")
         .and_then(|s| s.get("conditions"))
-        .and_then(|c| c.as_array())
-        .is_some_and(|conds| {
-            conds.iter().any(|c| {
-                c.get("type").and_then(|t| t.as_str()) == Some("Programmed")
-                    && c.get("status").and_then(|s| s.as_str()) == Some("True")
-            })
-        })
+        .and_then(|c| c.as_array());
+    let Some(conds) = conditions else {
+        return false;
+    };
+    conds.iter().any(|c| {
+        let t = c.get("type").and_then(|t| t.as_str());
+        let s = c.get("status").and_then(|s| s.as_str());
+        (t == Some("Programmed") && s == Some("True"))
+            || (t == Some("Accepted") && s == Some("True"))
+    })
 }
 
 fn parse_http_route(route: &DynamicObject) -> Option<ExternalRouteInfo> {
@@ -260,5 +264,28 @@ mod tests {
         assert_eq!(routes.len(), 1);
         assert!(route_uses_sidecar_ingress(&routes[0], &gateways));
         assert_eq!(routes[0].parents_attached, Some(false));
+    }
+
+    #[test]
+    fn accepted_ambient_gateway_counts_as_operational() {
+        let gw: DynamicObject = serde_json::from_value(json!({
+            "apiVersion": "gateway.networking.k8s.io/v1",
+            "kind": "Gateway",
+            "metadata": {
+                "name": "ambient-ingress",
+                "namespace": "bookinfo-demo1",
+                "labels": { "istio-discovery": "mesh-ambient", "istio.io/rev": "ambient-v1-28-6" }
+            },
+            "spec": { "gatewayClassName": "istio" },
+            "status": {
+                "conditions": [
+                    { "type": "Accepted", "status": "True" },
+                    { "type": "Programmed", "status": "False" }
+                ]
+            }
+        }))
+        .unwrap();
+        let (gateways, _) = build_ingress_context(&[gw], &[], &[], &[]);
+        assert!(has_programmed_ambient_ingress(&gateways));
     }
 }

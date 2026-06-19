@@ -174,6 +174,19 @@ pub fn gateway_ready(data: &Value) -> bool {
         })
 }
 
+/// Gateway controller has accepted the resource (may still show Programmed=False on OpenShift).
+pub fn gateway_accepted(data: &Value) -> bool {
+    data.get("status")
+        .and_then(|s| s.get("conditions"))
+        .and_then(|c| c.as_array())
+        .is_some_and(|conds| {
+            conds.iter().any(|c| {
+                c.get("type").and_then(|t| t.as_str()) == Some("Accepted")
+                    && c.get("status").and_then(|s| s.as_str()) == Some("True")
+            })
+        })
+}
+
 async fn verify_no_pending_virtual_services(
     client: &Client,
     namespace: &str,

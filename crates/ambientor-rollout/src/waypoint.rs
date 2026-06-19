@@ -59,19 +59,6 @@ pub async fn deploy_waypoint(
     apply_namespaced_manifest(client, namespace, &manifest).await?;
     label_namespace_use_waypoint(client, namespace).await?;
     wait_gateway_programmed(client, namespace, mesh).await?;
-    // Ambient waypoint programming can require `istio.io/rev` to route to the correct istiod.
-    // Clear it afterwards to reduce risk of sidecar injection while keeping verification
-    // based on `istio.io/dataplane-mode=ambient` + discovery labels.
-    if mesh.ambient {
-        let api: Api<Namespace> = Api::all(client.clone());
-        let patch = json!({
-            "metadata": {
-                "labels": { "istio.io/rev": null }
-            }
-        });
-        api.patch(namespace, &PatchParams::default(), &Patch::Merge(&patch))
-            .await?;
-    }
     info!(namespace = %namespace, waypoint = %WAYPOINT_GATEWAY_NAME, "deployed ambient waypoint");
     Ok(())
 }

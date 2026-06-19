@@ -260,7 +260,7 @@ pub(super) async fn approve_rollout_stage(
     let patch = serde_json::json!({
         "status": {
             "approvedStage": pipeline_approved,
-            "phase": status.phase,
+            "phase": "Pending",
         }
     });
     api.patch_status(name, &Default::default(), &Patch::Merge(&patch))
