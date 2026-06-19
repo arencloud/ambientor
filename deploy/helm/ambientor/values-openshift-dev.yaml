@@ -18,7 +18,8 @@ web:
     tag: ""
 
 openshift:
-  apiUrl: ""
+  # Set by scripts/dev-build-push.sh from the OpenShift API Route (do not leave empty on cl01).
+  apiUrl: "https://ambientor-ambientor-api-ambientor-system.apps.cl01.arencloud.com"
   routes:
     enabled: true
     api:

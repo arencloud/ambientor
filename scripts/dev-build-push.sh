@@ -77,6 +77,14 @@ if [[ "${HELM_UPGRADE}" == true ]]; then
   if helm status ambientor -n ambientor-system >/dev/null 2>&1; then
     HELM_REUSE+=(--reuse-values)
   fi
+  API_URL_SET=()
+  if command -v oc >/dev/null 2>&1; then
+    API_HOST="$(oc get route ambientor-ambientor-api -n ambientor-system -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+    if [[ -n "${API_HOST}" ]]; then
+      API_URL="https://${API_HOST}"
+      API_URL_SET+=(--set "openshift.apiUrl=${API_URL}")
+    fi
+  fi
   helm upgrade --install ambientor deploy/helm/ambientor/ \
     -n ambientor-system --create-namespace \
     "${HELM_REUSE[@]}" \
@@ -89,15 +97,10 @@ if [[ "${HELM_UPGRADE}" == true ]]; then
     --set web.image.repository="${REGISTRY}/ambientor-web-dev" \
     --set web.image.tag="${TAG}" \
     --set openshift.routes.enabled=true \
-    --set postgresql.primary.persistence.enabled=false
+    --set postgresql.primary.persistence.enabled=false \
+    "${API_URL_SET[@]}"
   if command -v oc >/dev/null 2>&1; then
-    API_HOST="$(oc get route ambientor-ambientor-api -n ambientor-system -o jsonpath='{.spec.host}' 2>/dev/null || true)"
     WEB_HOST="$(oc get route ambientor-ambientor-web -n ambientor-system -o jsonpath='{.spec.host}' 2>/dev/null || true)"
-    if [[ -n "${API_HOST}" ]]; then
-      helm upgrade ambientor deploy/helm/ambientor/ -n ambientor-system --reuse-values \
-        --set "openshift.apiUrl=https://${API_HOST}"
-      API_URL="https://${API_HOST}"
-    fi
     if [[ -n "${WEB_HOST}" ]]; then
       echo "Portal: https://${WEB_HOST}/"
     fi
