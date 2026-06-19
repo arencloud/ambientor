@@ -71,6 +71,7 @@ async fn revert_stage(
                 let msg = revert_ambient_ingress(
                     client,
                     ns,
+                    mesh,
                     spec.ambient_ingress_gateway.as_ref(),
                 )
                 .await?;

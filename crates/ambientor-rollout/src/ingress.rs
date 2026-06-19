@@ -6,7 +6,9 @@ use ambientor_mesh::ingress_collect::{
     build_ingress_context, gateway_for_route,
 };
 use ambientor_types::{AmbientIngressGateway, MeshInstance};
-use kube::api::{DeleteParams, DynamicObject, Patch, PatchParams};
+use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::Service;
+use kube::api::{DeleteParams, DynamicObject, Patch, PatchParams, PropagationPolicy};
 use kube::{Api, Client};
 use serde_json::json;
 use tokio::time::sleep;
@@ -50,7 +52,13 @@ pub async fn migrate_ambient_ingress(
         ));
     }
 
-    let target = resolve_ingress_gateway(client, namespace, mesh, shared).await?;
+    let target = match resolve_ingress_gateway(client, namespace, mesh, shared).await {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = cleanup_ingress_for_app(client, namespace, mesh, shared).await;
+            return Err(e);
+        }
+    };
     let mut migrated_routes = 0usize;
     let mut legacy_services = Vec::new();
     let mut route_errors = Vec::new();
@@ -84,7 +92,7 @@ pub async fn migrate_ambient_ingress(
         migrate_openshift_routes(client, &legacy_services, &target.namespace, &new_service).await?;
 
     if !route_errors.is_empty() {
-        let _ = revert_ambient_ingress(client, namespace, shared).await;
+        let _ = revert_ambient_ingress(client, namespace, Some(mesh), shared).await;
         return Err(route_errors
             .into_iter()
             .next()
@@ -100,6 +108,7 @@ pub async fn migrate_ambient_ingress(
 pub async fn revert_ambient_ingress(
     client: &Client,
     namespace: &str,
+    mesh: Option<&MeshInstance>,
     shared: Option<&AmbientIngressGateway>,
 ) -> Result<String, RolloutError> {
     let mut notes = Vec::new();
@@ -111,18 +120,18 @@ pub async fn revert_ambient_ingress(
     if routes_reverted > 0 {
         notes.push(format!("reverted {routes_reverted} OpenShift Route(s)"));
     }
-    if shared.is_none() {
-        if delete_managed_gateway(client, namespace, PER_NAMESPACE_INGRESS_NAME).await? {
-            notes.push(format!(
-                "deleted per-namespace ingress Gateway {namespace}/{PER_NAMESPACE_INGRESS_NAME}"
-            ));
-        }
-    } else if let Some(shared) = shared {
-        if delete_managed_gateway(client, &shared.namespace, &shared.name).await? {
+    if let Some(shared) = shared {
+        if cleanup_ingress_gateway(client, &shared.namespace, &shared.name).await? {
             notes.push(format!(
                 "deleted shared ingress Gateway {}/{}",
                 shared.namespace, shared.name
             ));
+        }
+    } else {
+        for (ns, name) in ingress_cleanup_targets(namespace, mesh) {
+            if cleanup_ingress_gateway(client, &ns, &name).await? {
+                notes.push(format!("deleted ambient ingress Gateway {ns}/{name}"));
+            }
         }
     }
     if notes.is_empty() {
@@ -130,6 +139,56 @@ pub async fn revert_ambient_ingress(
     } else {
         Ok(notes.join("; "))
     }
+}
+
+/// Remove Ambientor-managed ambient ingress Gateway CRs and Istio gateway Deployments/Services.
+pub async fn cleanup_ingress_for_app(
+    client: &Client,
+    app_namespace: &str,
+    mesh: &MeshInstance,
+    shared: Option<&AmbientIngressGateway>,
+) -> Result<(), RolloutError> {
+    if let Some(shared) = shared {
+        let _ = cleanup_ingress_gateway(client, &shared.namespace, &shared.name).await?;
+    } else {
+        for (ns, name) in ingress_cleanup_targets(app_namespace, Some(mesh)) {
+            let _ = cleanup_ingress_gateway(client, &ns, &name).await?;
+        }
+    }
+    Ok(())
+}
+
+fn ingress_cleanup_targets(
+    app_namespace: &str,
+    mesh: Option<&MeshInstance>,
+) -> Vec<(String, String)> {
+    let mut targets = vec![(app_namespace.to_string(), PER_NAMESPACE_INGRESS_NAME.into())];
+    if let Some(mesh) = mesh {
+        let cp = mesh.control_plane_namespace.clone();
+        if cp != app_namespace {
+            targets.push((cp, PER_NAMESPACE_INGRESS_NAME.into()));
+        }
+    }
+    targets
+}
+
+fn default_ingress_host_namespace(mesh: &MeshInstance) -> String {
+    mesh.control_plane_namespace.clone()
+}
+
+async fn cleanup_ingress_gateway(
+    client: &Client,
+    namespace: &str,
+    name: &str,
+) -> Result<bool, RolloutError> {
+    let mut cleaned = false;
+    if delete_managed_gateway(client, namespace, name).await? {
+        cleaned = true;
+    }
+    if purge_ingress_workloads(client, namespace, name).await? {
+        cleaned = true;
+    }
+    Ok(cleaned)
 }
 
 async fn resolve_ingress_gateway(
@@ -142,7 +201,13 @@ async fn resolve_ingress_gateway(
         let existing = get_gateway(client, &shared.namespace, &shared.name).await?;
         if let Some(gw) = existing {
             if !gateway_ready(&gw.data) {
-                wait_gateway_programmed(client, &shared.namespace, &shared.name).await?;
+                wait_or_cleanup_gateway(
+                    client,
+                    &shared.namespace,
+                    &shared.name,
+                    shared.name.as_str(),
+                )
+                .await?;
             }
             return Ok(ResolvedIngressGateway {
                 namespace: shared.namespace.clone(),
@@ -151,7 +216,7 @@ async fn resolve_ingress_gateway(
             });
         }
         deploy_ingress_gateway(client, &shared.namespace, &shared.name, mesh).await?;
-        wait_gateway_programmed(client, &shared.namespace, &shared.name).await?;
+        wait_or_cleanup_gateway(client, &shared.namespace, &shared.name, &shared.name).await?;
         return Ok(ResolvedIngressGateway {
             namespace: shared.namespace.clone(),
             name: shared.name.clone(),
@@ -159,30 +224,60 @@ async fn resolve_ingress_gateway(
         });
     }
 
-    let existing = get_gateway(client, app_namespace, PER_NAMESPACE_INGRESS_NAME).await?;
+    let host_namespace = default_ingress_host_namespace(mesh);
+    // Remove legacy per-app-namespace gateways from earlier releases.
+    let _ = cleanup_ingress_gateway(client, app_namespace, PER_NAMESPACE_INGRESS_NAME).await;
+
+    let existing = get_gateway(client, &host_namespace, PER_NAMESPACE_INGRESS_NAME).await?;
     if let Some(gw) = existing {
         if gateway_ready(&gw.data) {
             return Ok(ResolvedIngressGateway {
-                namespace: app_namespace.to_string(),
+                namespace: host_namespace,
                 name: PER_NAMESPACE_INGRESS_NAME.into(),
                 created: false,
             });
         }
-        wait_gateway_programmed(client, app_namespace, PER_NAMESPACE_INGRESS_NAME).await?;
+        wait_or_cleanup_gateway(
+            client,
+            &host_namespace,
+            PER_NAMESPACE_INGRESS_NAME,
+            PER_NAMESPACE_INGRESS_NAME,
+        )
+        .await?;
         return Ok(ResolvedIngressGateway {
-            namespace: app_namespace.to_string(),
+            namespace: host_namespace,
             name: PER_NAMESPACE_INGRESS_NAME.into(),
             created: false,
         });
     }
 
-    deploy_ingress_gateway(client, app_namespace, PER_NAMESPACE_INGRESS_NAME, mesh).await?;
-    wait_gateway_programmed(client, app_namespace, PER_NAMESPACE_INGRESS_NAME).await?;
+    deploy_ingress_gateway(client, &host_namespace, PER_NAMESPACE_INGRESS_NAME, mesh).await?;
+    wait_or_cleanup_gateway(
+        client,
+        &host_namespace,
+        PER_NAMESPACE_INGRESS_NAME,
+        PER_NAMESPACE_INGRESS_NAME,
+    )
+    .await?;
     Ok(ResolvedIngressGateway {
-        namespace: app_namespace.to_string(),
+        namespace: host_namespace,
         name: PER_NAMESPACE_INGRESS_NAME.into(),
         created: true,
     })
+}
+
+async fn wait_or_cleanup_gateway(
+    client: &Client,
+    namespace: &str,
+    gateway_name: &str,
+    log_name: &str,
+) -> Result<(), RolloutError> {
+    if let Err(e) = wait_gateway_programmed(client, namespace, gateway_name).await {
+        let _ = cleanup_ingress_gateway(client, namespace, gateway_name).await;
+        return Err(e);
+    }
+    info!(namespace = %namespace, gateway = %log_name, "ambient ingress Gateway programmed");
+    Ok(())
 }
 
 async fn deploy_ingress_gateway(
@@ -452,7 +547,75 @@ async fn delete_managed_gateway(
     if !managed {
         return Ok(false);
     }
+    let mut params = DeleteParams::default();
+    params.propagation_policy = Some(PropagationPolicy::Foreground);
+    api.delete(name, &params).await?;
+    Ok(true)
+}
+
+async fn purge_ingress_workloads(
+    client: &Client,
+    namespace: &str,
+    gateway_name: &str,
+) -> Result<bool, RolloutError> {
+    let workload_name = istio_gateway_service_name(gateway_name);
+    let mut purged = false;
+    if delete_managed_deployment(client, namespace, &workload_name).await? {
+        purged = true;
+    }
+    if delete_managed_service(client, namespace, &workload_name).await? {
+        purged = true;
+    }
+    Ok(purged)
+}
+
+fn is_ambientor_ingress_workload(labels: Option<&BTreeMap<String, String>>) -> bool {
+    let Some(labels) = labels else {
+        return false;
+    };
+    labels.get(MANAGED_BY_LABEL).map(String::as_str) == Some(MANAGED_BY_VALUE)
+        || labels.get("ambientor.io/ingress-created").map(String::as_str) == Some("true")
+        || labels
+            .get("gateway.networking.k8s.io/gateway-name")
+            .map(String::as_str)
+            == Some(PER_NAMESPACE_INGRESS_NAME)
+}
+
+async fn delete_managed_deployment(
+    client: &Client,
+    namespace: &str,
+    name: &str,
+) -> Result<bool, RolloutError> {
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    let dep = match api.get(name).await {
+        Ok(d) => d,
+        Err(kube::Error::Api(e)) if e.code == 404 => return Ok(false),
+        Err(e) => return Err(RolloutError::Kube(e)),
+    };
+    if !is_ambientor_ingress_workload(dep.metadata.labels.as_ref()) {
+        return Ok(false);
+    }
     api.delete(name, &DeleteParams::default()).await?;
+    info!(namespace = %namespace, deployment = %name, "deleted ambient ingress gateway Deployment");
+    Ok(true)
+}
+
+async fn delete_managed_service(
+    client: &Client,
+    namespace: &str,
+    name: &str,
+) -> Result<bool, RolloutError> {
+    let api: Api<Service> = Api::namespaced(client.clone(), namespace);
+    let svc = match api.get(name).await {
+        Ok(s) => s,
+        Err(kube::Error::Api(e)) if e.code == 404 => return Ok(false),
+        Err(e) => return Err(RolloutError::Kube(e)),
+    };
+    if !is_ambientor_ingress_workload(svc.metadata.labels.as_ref()) {
+        return Ok(false);
+    }
+    api.delete(name, &DeleteParams::default()).await?;
+    info!(namespace = %namespace, service = %name, "deleted ambient ingress gateway Service");
     Ok(true)
 }
 

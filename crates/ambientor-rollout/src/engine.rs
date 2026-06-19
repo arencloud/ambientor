@@ -293,7 +293,7 @@ impl RolloutEngine {
 
         let revert_messages =
             revert_completed_stages(client, spec, failed_at, Some(mesh)).await?;
-        let finalize = self.finalize_rollback_namespaces(client, spec).await?;
+        let finalize = self.finalize_rollback_namespaces(client, spec, status, mesh).await?;
         let mut summary = revert_messages;
         if !finalize.is_empty() {
             summary.push(finalize);
@@ -320,8 +320,14 @@ impl RolloutEngine {
         &self,
         client: &Client,
         spec: &RolloutSpec,
+        status: &RolloutStatus,
+        mesh: &MeshInstance,
     ) -> Result<String, RolloutError> {
         let namespaces = namespaces_in_rollout(&spec.stages);
+        let mesh_ref = status
+            .resolved_mesh_target
+            .as_ref()
+            .unwrap_or(mesh);
         let mut notes = Vec::new();
         for ns in namespaces {
             // MigrateIngress may fail after creating a Gateway without completing the stage;
@@ -329,6 +335,7 @@ impl RolloutEngine {
             match revert_ambient_ingress(
                 client,
                 &ns,
+                Some(mesh_ref),
                 spec.ambient_ingress_gateway.as_ref(),
             )
             .await
