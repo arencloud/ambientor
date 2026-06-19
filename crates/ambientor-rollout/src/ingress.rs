@@ -17,6 +17,10 @@ use tracing::info;
 
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
+use crate::labels::{
+    ensure_mesh_enrollment_labels, label_namespace_ambient, remove_namespace_injection,
+    restore_namespace_pre_migration, snapshot_namespace_pre_migration,
+};
 use crate::verify::{gateway_ready, verify_namespace_labels};
 
 pub const PER_NAMESPACE_INGRESS_NAME: &str = "ambient-ingress";
@@ -134,6 +138,15 @@ pub async fn revert_ambient_ingress(
     if routes_reverted > 0 {
         notes.push(format!("reverted {routes_reverted} OpenShift Route(s)"));
     }
+    if let Some(mesh) = mesh {
+        let (routes, _) = collect_namespace_routes(client, namespace).await?;
+        let ingress_host = infer_ingress_host_namespace_from_routes(&routes, namespace);
+        if ingress_host != namespace
+            && restore_namespace_pre_migration(client, &ingress_host).await?
+        {
+            notes.push(format!("restored pre-migration labels on {ingress_host}"));
+        }
+    }
     if let Some(shared) = shared {
         if cleanup_ingress_gateway(client, &shared.namespace, &shared.name).await? {
             notes.push(format!(
@@ -192,17 +205,20 @@ async fn ensure_ingress_host_namespace(
     app_namespace: &str,
     mesh: &MeshInstance,
 ) -> Result<(), RolloutError> {
-    if ingress_host == app_namespace {
-        return Ok(());
+    if ingress_host != app_namespace {
+        snapshot_namespace_pre_migration(client, ingress_host).await?;
+        enroll_namespace_on_mesh(client, ingress_host, mesh)
+            .await
+            .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+        remove_namespace_injection(client, ingress_host).await?;
+        label_namespace_ambient(client, ingress_host).await?;
+        info!(
+            ingress_host = %ingress_host,
+            app_namespace = %app_namespace,
+            "prepared shared ingress namespace on ambient mesh"
+        );
     }
-    enroll_namespace_on_mesh(client, ingress_host, mesh)
-        .await
-        .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
-    info!(
-        ingress_host = %ingress_host,
-        app_namespace = %app_namespace,
-        "enrolled shared ingress namespace on ambient mesh for gateway cutover"
-    );
+    ensure_mesh_enrollment_labels(client, ingress_host, mesh).await?;
     Ok(())
 }
 
@@ -274,6 +290,7 @@ async fn resolve_ingress_gateway(
                 created: false,
             });
         }
+        ensure_mesh_enrollment_labels(client, &shared.namespace, mesh).await?;
         deploy_ingress_gateway(client, &shared.namespace, &shared.name, mesh).await?;
         wait_or_cleanup_gateway(client, &shared.namespace, &shared.name, &shared.name).await?;
         return Ok(ResolvedIngressGateway {
@@ -313,6 +330,7 @@ async fn resolve_ingress_gateway(
         });
     }
 
+    ensure_mesh_enrollment_labels(client, &host_namespace, mesh).await?;
     deploy_ingress_gateway(client, &host_namespace, PER_NAMESPACE_INGRESS_NAME, mesh).await?;
     wait_or_cleanup_gateway(
         client,

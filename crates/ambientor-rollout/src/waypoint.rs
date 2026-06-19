@@ -14,7 +14,7 @@ use tracing::info;
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
 use crate::labels::unlabel_namespace_use_waypoint;
-use ambientor_mesh::enrollment_labels_to_apply;
+use crate::labels::ensure_mesh_enrollment_labels;
 use ambientor_types::{MeshInstance, RolloutStage};
 
 use crate::preflight::{preflight_before_deploy_waypoint, waypoint_gateway_stuck_message};
@@ -73,26 +73,6 @@ pub async fn deploy_waypoint(
             .await?;
     }
     info!(namespace = %namespace, waypoint = %WAYPOINT_GATEWAY_NAME, "deployed ambient waypoint");
-    Ok(())
-}
-
-async fn ensure_mesh_enrollment_labels(
-    client: &Client,
-    namespace: &str,
-    mesh: &MeshInstance,
-) -> Result<(), RolloutError> {
-    let labels = enrollment_labels_to_apply(mesh);
-    if labels.is_empty() {
-        return Ok(());
-    }
-    let api: Api<Namespace> = Api::all(client.clone());
-    let patch = json!({
-        "metadata": {
-            "labels": labels
-        }
-    });
-    api.patch(namespace, &PatchParams::default(), &Patch::Merge(&patch))
-        .await?;
     Ok(())
 }
 

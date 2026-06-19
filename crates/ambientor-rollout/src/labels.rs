@@ -7,7 +7,9 @@ use kube::{
 use serde_json::json;
 use tracing::info;
 
+use ambientor_types::MeshInstance;
 use crate::engine::RolloutError;
+use ambientor_mesh::enrollment_labels_to_apply;
 
 pub const PRE_MIGRATION_LABELS_ANNOTATION: &str = "ambientor.io/pre-migration-labels";
 
@@ -162,6 +164,19 @@ pub async fn unlabel_namespace_use_waypoint(
     .await?;
     info!(namespace = %name, "removed use-waypoint label");
     Ok(())
+}
+
+/// Re-apply istiod discovery/revision labels before Gateway programming.
+pub async fn ensure_mesh_enrollment_labels(
+    client: &Client,
+    name: &str,
+    mesh: &MeshInstance,
+) -> Result<(), RolloutError> {
+    let labels = enrollment_labels_to_apply(mesh);
+    if labels.is_empty() {
+        return Ok(());
+    }
+    patch_namespace_labels(client, name, serde_json::json!(labels)).await
 }
 
 async fn patch_namespace_labels(
