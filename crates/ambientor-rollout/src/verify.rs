@@ -108,7 +108,8 @@ async fn list_cluster_gateways(
     Ok(api.list(&kube::api::ListParams::default()).await?.items)
 }
 
-async fn verify_namespace_labels(
+/// Verify ambient enrollment labels before traffic / ingress checks.
+pub async fn verify_namespace_labels(
     client: &Client,
     namespace: &str,
     mesh: &MeshInstance,

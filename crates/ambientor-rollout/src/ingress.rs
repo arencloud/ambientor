@@ -16,14 +16,14 @@ use tracing::info;
 
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
-use crate::verify::gateway_ready;
+use crate::verify::{gateway_ready, verify_namespace_labels};
 
 pub const PER_NAMESPACE_INGRESS_NAME: &str = "ambient-ingress";
 const MANAGED_BY_LABEL: &str = "app.kubernetes.io/managed-by";
 const MANAGED_BY_VALUE: &str = "ambientor";
 const ORIGINAL_PARENT_REFS_ANNOTATION: &str = "ambientor.io/original-parent-refs";
 const ORIGINAL_ROUTE_TARGET_ANNOTATION: &str = "ambientor.io/original-route-target";
-const GATEWAY_READY_TIMEOUT_SECS: u64 = 180;
+const GATEWAY_READY_TIMEOUT_SECS: u64 = 300;
 const GATEWAY_POLL_INTERVAL_SECS: u64 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,6 +51,8 @@ pub async fn migrate_ambient_ingress(
             "no external HTTPRoutes in {namespace}; skipped ingress migration"
         ));
     }
+
+    verify_namespace_labels(client, namespace, mesh).await?;
 
     let target = match resolve_ingress_gateway(client, namespace, mesh, shared).await {
         Ok(t) => t,
@@ -172,8 +174,10 @@ fn ingress_cleanup_targets(
     targets
 }
 
-fn default_ingress_host_namespace(mesh: &MeshInstance) -> String {
-    mesh.control_plane_namespace.clone()
+fn default_ingress_host_namespace(app_namespace: &str, _mesh: &MeshInstance) -> String {
+    // Deploy in the enrolled app namespace (ambient labels applied before this stage).
+    // Control-plane namespaces are not mesh-enrolled and gateways fail to program there.
+    app_namespace.to_string()
 }
 
 async fn cleanup_ingress_gateway(
@@ -224,7 +228,7 @@ async fn resolve_ingress_gateway(
         });
     }
 
-    let host_namespace = default_ingress_host_namespace(mesh);
+    let host_namespace = default_ingress_host_namespace(app_namespace, mesh);
     // Remove legacy per-app-namespace gateways from earlier releases.
     let _ = cleanup_ingress_gateway(client, app_namespace, PER_NAMESPACE_INGRESS_NAME).await;
 
@@ -276,8 +280,48 @@ async fn wait_or_cleanup_gateway(
         let _ = cleanup_ingress_gateway(client, namespace, gateway_name).await;
         return Err(e);
     }
+    if let Err(e) = wait_ingress_workload_ready(client, namespace, gateway_name).await {
+        let _ = cleanup_ingress_gateway(client, namespace, gateway_name).await;
+        return Err(e);
+    }
     info!(namespace = %namespace, gateway = %log_name, "ambient ingress Gateway programmed");
     Ok(())
+}
+
+async fn wait_ingress_workload_ready(
+    client: &Client,
+    namespace: &str,
+    gateway_name: &str,
+) -> Result<(), RolloutError> {
+    let deploy_name = istio_gateway_service_name(gateway_name);
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    let deadline = Duration::from_secs(GATEWAY_READY_TIMEOUT_SECS);
+    let started = std::time::Instant::now();
+    while started.elapsed() < deadline {
+        match api.get(&deploy_name).await {
+            Ok(dep) => {
+                let ready = dep
+                    .status
+                    .as_ref()
+                    .and_then(|s| s.ready_replicas)
+                    .unwrap_or(0);
+                let desired = dep
+                    .status
+                    .as_ref()
+                    .and_then(|s| s.replicas)
+                    .unwrap_or(1);
+                if ready >= 1 && ready >= desired {
+                    return Ok(());
+                }
+            }
+            Err(kube::Error::Api(e)) if e.code == 404 => {}
+            Err(e) => return Err(RolloutError::Kube(e)),
+        }
+        sleep(Duration::from_secs(GATEWAY_POLL_INTERVAL_SECS)).await;
+    }
+    Err(RolloutError::ExecutionFailed(format!(
+        "ambient ingress Deployment {namespace}/{deploy_name} not ready within {GATEWAY_READY_TIMEOUT_SECS}s"
+    )))
 }
 
 async fn deploy_ingress_gateway(

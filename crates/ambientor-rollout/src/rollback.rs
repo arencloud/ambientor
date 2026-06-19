@@ -4,7 +4,7 @@ use tracing::warn;
 
 use crate::engine::RolloutError;
 use crate::ingress::revert_ambient_ingress;
-use crate::labels::{restore_namespace_injection, unlabel_namespace_ambient};
+use crate::labels::unlabel_namespace_ambient;
 use crate::policy::revert_translations_in_namespace;
 use crate::waypoint::revert_waypoint;
 use ambientor_mesh::unenroll_namespace_from_mesh;
@@ -105,13 +105,7 @@ async fn revert_stage(
             Ok(notes.join("; "))
         }
         RolloutStageType::RemoveInjection => {
-            for ns in &stage.namespaces {
-                restore_namespace_injection(client, ns).await?;
-            }
-            Ok(format!(
-                "Restored sidecar injection label on {} namespace(s)",
-                stage.namespaces.len()
-            ))
+            Ok("Injection labels restored via pre-migration snapshot on rollback".into())
         }
         RolloutStageType::InstallAmbientComponents => {
             Ok("InstallAmbientComponents is a no-op; nothing to revert".into())

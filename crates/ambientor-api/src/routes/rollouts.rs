@@ -252,6 +252,8 @@ pub(super) async fn approve_rollout_stage(
         .ok_or((StatusCode::CONFLICT, "rollout has no status yet".into()))?;
     let stage_to_approve = stage.unwrap_or(status.current_stage);
     validate_approval(status, stage_to_approve, rollout.spec.stages.len())?;
+    // One human approval authorizes the entire auto pipeline (stage 0 gate only).
+    let pipeline_approved = rollout.spec.stages.len().saturating_sub(1) as i32;
 
     let api: Api<Rollout> = Api::namespaced(k8s.client.clone(), namespace);
     let phase = if status.phase == "RolledBack" {
@@ -261,7 +263,7 @@ pub(super) async fn approve_rollout_stage(
     };
     let patch = serde_json::json!({
         "status": {
-            "approvedStage": stage_to_approve,
+            "approvedStage": pipeline_approved,
             "phase": phase,
         }
     });

@@ -1953,6 +1953,28 @@
     return rolloutDetail;
   }
 
+  function rolloutActiveStageIndex(r, detail) {
+    const phase = rolloutPhase(r, detail);
+    if (phase === 'failed' || phase === 'rolledback') {
+      const stages = detail?.stages || [];
+      const failed = stages.find(
+        (s) => (s.resultPhase || s.result_phase || '').toLowerCase() === 'failed'
+      );
+      if (failed != null) return failed.index;
+    }
+    if (phase === 'running' || phase === 'awaitingapproval') {
+      const stages = detail?.stages || [];
+      const inFlight = stages.find(
+        (s) =>
+          s.index === (r?.currentStage ?? r?.current_stage ?? 0) &&
+          !stageResultDone(s.resultPhase || s.result_phase) &&
+          (s.resultPhase || s.result_phase || '').toLowerCase() !== 'failed'
+      );
+      if (inFlight) return inFlight.index;
+    }
+    return r?.currentStage ?? r?.current_stage ?? 0;
+  }
+
   function rolloutCompletedStages(r, detail) {
     const total = rolloutStageTotal(r, detail);
     const phase = rolloutPhase(r, detail);
@@ -1981,7 +2003,18 @@
     if (phase === 'completed') return `${total} stages complete`;
     if (!total) return '—';
     const active = rolloutIsActive(r?.phase);
-    if (active && done < total) return `Stage ${done + 1} of ${total}`;
+    const activeIdx = rolloutActiveStageIndex(r, detail);
+    if (active && done < total) {
+      const name =
+        detail?.stages?.find((s) => s.index === activeIdx)?.name || `stage ${activeIdx + 1}`;
+      return `Step ${activeIdx + 1} of ${total}: ${name}`;
+    }
+    if (phase === 'failed' || phase === 'rolledback') {
+      const failed = detail?.stages?.find(
+        (s) => (s.resultPhase || s.result_phase || '').toLowerCase() === 'failed'
+      );
+      if (failed) return `Failed at step ${failed.index + 1} of ${total}`;
+    }
     return `${done} of ${total} stages done`;
   }
 
@@ -2168,10 +2201,7 @@
     const el = $('rollout-stage-timeline');
     if (!el) return;
     const r = detail.rollout || detail;
-    const current =
-      detail.rollout?.currentStage ??
-      detail.rollout?.current_stage ??
-      0;
+    const current = rolloutActiveStageIndex(r, detail);
     const phase = rolloutPhase(r, detail);
     const stages = detail.stages || [];
     el.innerHTML = stages
@@ -2180,8 +2210,8 @@
         let cls = 'timeline-step';
         if (stageResultDone(result)) cls += ' done';
         else if (phase === 'failed' && (s.resultPhase || s.result_phase)) cls += ' failed';
-        else if (s.index === current && rolloutIsActive(r?.phase)) cls += ' active';
-        else if (s.index < current) cls += ' done';
+      else if (s.index === current && rolloutIsActive(phase)) cls += ' active';
+      else if (s.index < current && stageResultDone(result)) cls += ' done';
         const dotContent = stageResultDone(result)
           ? '✓'
           : (result || '').toLowerCase() === 'failed'
@@ -2199,10 +2229,7 @@
     if (!grid) return;
     grid.innerHTML = '';
     const r = detail.rollout || detail;
-    const current =
-      detail.rollout?.currentStage ??
-      detail.rollout?.current_stage ??
-      0;
+    const current = rolloutActiveStageIndex(r, detail);
     const awaiting =
       detail.rollout?.awaitingApproval ?? detail.rollout?.awaiting_approval;
     const total = rolloutStageTotal(r, detail) || 1;
@@ -2281,18 +2308,21 @@
     if (chipEl) chipEl.className = 'rollout-phase-chip ' + meta.class;
     const hero = $('rollout-hero-card');
     if (hero) hero.className = 'rollout-hero-card phase-' + meta.class;
-    const current = r.currentStage ?? r.current_stage ?? 0;
+    const current = rolloutActiveStageIndex(r, detail);
     const total = rolloutStageTotal(r, detail);
-    const approved = (r.approvedStage ?? r.approved_stage ?? 0) + 1;
+    const approvedStage = r.approvedStage ?? r.approved_stage ?? -1;
+    const pipelineApproved = approvedStage >= total - 1 && total > 0;
     const stageName =
-      detail?.stages?.find((s) => s.index === current && rolloutIsActive(phase))?.name ||
+      detail?.stages?.find((s) => s.index === current)?.name ||
       (meta.class === 'completed' ? 'All stages' : `Stage ${current + 1}`);
     const progressEl = $('rollout-stage-progress');
     if (progressEl) {
       if (meta.class === 'completed') {
-        progressEl.textContent = `All ${total} stages complete · approved through stage ${approved}`;
+        progressEl.textContent = `All ${total} stages complete · pipeline approved`;
+      } else if (pipelineApproved) {
+        progressEl.textContent = `${stageName} · ${rolloutStageLabel(r, detail)} · pipeline approved (one-time)`;
       } else {
-        progressEl.textContent = `${stageName} · ${rolloutStageLabel(r, detail)} · approved through ${approved}`;
+        progressEl.textContent = `${stageName} · ${rolloutStageLabel(r, detail)} · awaiting one-time approval`;
       }
     }
     const cr = r.clusterRef || r.cluster_ref || detail?.rollout?.clusterRef || detail?.rollout?.cluster_ref;

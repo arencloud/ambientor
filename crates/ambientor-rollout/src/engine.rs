@@ -299,8 +299,7 @@ impl RolloutEngine {
             summary.push(finalize);
         }
         let summary = summary.join("; ");
-        status.current_stage = 0;
-        status.approved_stage = -1;
+        status.current_stage = failed_at as i32;
         status.phase = "RolledBack".into();
 
         events.push(RolloutEvent {
@@ -330,8 +329,9 @@ impl RolloutEngine {
             .unwrap_or(mesh);
         let mut notes = Vec::new();
         for ns in namespaces {
-            // MigrateIngress may fail after creating a Gateway without completing the stage;
-            // stage revert skips failed stages, so always tear down partial ingress migration.
+            if restore_namespace_pre_migration(client, &ns).await? {
+                notes.push(format!("restored labels on {ns}"));
+            }
             match revert_ambient_ingress(
                 client,
                 &ns,
@@ -343,9 +343,6 @@ impl RolloutEngine {
                 Ok(msg) if msg != "no ingress migration resources to revert" => notes.push(msg),
                 Ok(_) => {}
                 Err(e) => warn!(namespace = %ns, error = %e, "ingress cleanup during rollback skipped"),
-            }
-            if restore_namespace_pre_migration(client, &ns).await? {
-                notes.push(format!("restored labels on {ns}"));
             }
             match rolling_restart_namespace(client, &ns).await {
                 Ok(n) if n > 0 => notes.push(format!("restarted {n} Deployment(s) in {ns}")),

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::{
     Api, Client,
@@ -42,6 +43,7 @@ pub async fn snapshot_namespace_pre_migration(
 }
 
 /// Restore labels from the pre-migration snapshot and clear the annotation.
+/// Merge patch cannot remove keys absent from the snapshot; explicitly null migration labels.
 pub async fn restore_namespace_pre_migration(
     client: &Client,
     name: &str,
@@ -56,8 +58,20 @@ pub async fn restore_namespace_pre_migration(
     else {
         return Ok(false);
     };
-    let labels: serde_json::Value = serde_json::from_str(encoded)
+    let snapshot: BTreeMap<String, String> = serde_json::from_str(encoded)
         .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+    let current = ns.metadata.labels.unwrap_or_default();
+
+    let mut labels = serde_json::Map::new();
+    for (k, v) in &snapshot {
+        labels.insert(k.clone(), json!(v));
+    }
+    for (k, _) in &current {
+        if !snapshot.contains_key(k) && migration_managed_label(k) {
+            labels.insert(k.clone(), serde_json::Value::Null);
+        }
+    }
+
     let patch = json!({
         "metadata": {
             "labels": labels,
@@ -71,6 +85,17 @@ pub async fn restore_namespace_pre_migration(
         .await?;
     info!(namespace = %name, "restored pre-migration namespace labels");
     Ok(true)
+}
+
+fn migration_managed_label(key: &str) -> bool {
+    matches!(
+        key,
+        "istio.io/dataplane-mode"
+            | "istio-injection"
+            | "istio.io/use-waypoint"
+            | "istio.io/rev"
+            | "istio-discovery"
+    )
 }
 
 pub async fn label_namespace_ambient(client: &Client, name: &str) -> Result<(), RolloutError> {
@@ -104,15 +129,9 @@ pub async fn unlabel_namespace_ambient(client: &Client, name: &str) -> Result<()
 }
 
 pub async fn restore_namespace_injection(client: &Client, name: &str) -> Result<(), RolloutError> {
-    patch_namespace_labels(
-        client,
-        name,
-        json!({
-            "istio-injection": "enabled"
-        }),
-    )
-    .await?;
-    info!(namespace = %name, "restored sidecar injection label");
+    // Revision-based meshes (OpenShift OSSM) use istio.io/rev, not istio-injection.
+    // Pre-migration snapshot restore in finalize_rollback_namespaces handles sidecar labels.
+    let _ = (client, name);
     Ok(())
 }
 
