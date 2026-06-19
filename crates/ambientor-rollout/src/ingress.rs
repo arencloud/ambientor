@@ -19,7 +19,7 @@ use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
 use crate::labels::{
     ensure_mesh_enrollment_labels, label_namespace_ambient, remove_namespace_injection,
-    restore_namespace_pre_migration, snapshot_namespace_pre_migration,
+    snapshot_namespace_pre_migration,
 };
 use crate::verify::{gateway_ready, verify_namespace_labels};
 
@@ -59,15 +59,20 @@ pub async fn migrate_ambient_ingress(
 
     verify_namespace_labels(client, namespace, mesh).await?;
 
-    let ingress_host = infer_ingress_host_namespace_from_routes(&routes, namespace);
-    ensure_ingress_host_namespace(client, &ingress_host, namespace, mesh).await?;
+    let ingress_namespace = ambient_ingress_namespace(namespace, shared);
+    if let Some(shared) = shared {
+        if shared.namespace != namespace {
+            ensure_dedicated_ambient_ingress_namespace(client, &shared.namespace, mesh).await?;
+        }
+    }
+    ensure_mesh_enrollment_labels(client, &ingress_namespace, mesh).await?;
 
     let target = match resolve_ingress_gateway(
         client,
         namespace,
         mesh,
         shared,
-        &ingress_host,
+        &ingress_namespace,
     )
     .await
     {
@@ -138,15 +143,6 @@ pub async fn revert_ambient_ingress(
     if routes_reverted > 0 {
         notes.push(format!("reverted {routes_reverted} OpenShift Route(s)"));
     }
-    if let Some(mesh) = mesh {
-        let (routes, _) = collect_namespace_routes(client, namespace).await?;
-        let ingress_host = infer_ingress_host_namespace_from_routes(&routes, namespace);
-        if ingress_host != namespace
-            && restore_namespace_pre_migration(client, &ingress_host).await?
-        {
-            notes.push(format!("restored pre-migration labels on {ingress_host}"));
-        }
-    }
     if let Some(shared) = shared {
         if cleanup_ingress_gateway(client, &shared.namespace, &shared.name).await? {
             notes.push(format!(
@@ -155,7 +151,7 @@ pub async fn revert_ambient_ingress(
             ));
         }
     } else {
-        for (ns, name) in ingress_cleanup_targets_for_app(client, namespace, mesh).await? {
+        for (ns, name) in ingress_cleanup_targets_for_app(client, namespace, mesh, shared).await? {
             if cleanup_ingress_gateway(client, &ns, &name).await? {
                 notes.push(format!("deleted ambient ingress Gateway {ns}/{name}"));
             }
@@ -178,47 +174,41 @@ pub async fn cleanup_ingress_for_app(
     if let Some(shared) = shared {
         let _ = cleanup_ingress_gateway(client, &shared.namespace, &shared.name).await?;
     } else {
-        for (ns, name) in ingress_cleanup_targets_for_app(client, app_namespace, Some(mesh)).await? {
+        for (ns, name) in ingress_cleanup_targets_for_app(client, app_namespace, Some(mesh), shared).await? {
             let _ = cleanup_ingress_gateway(client, &ns, &name).await?;
         }
     }
     Ok(())
 }
 
-fn infer_ingress_host_namespace_from_routes(
-    routes: &[ambientor_core::rules::ExternalRouteInfo],
-    app_namespace: &str,
-) -> String {
-    for route in routes {
-        if let Some(ns) = route.parent_gateway_namespace.as_ref() {
-            if !ns.is_empty() {
-                return ns.clone();
-            }
-        }
-    }
-    app_namespace.to_string()
+/// Namespace for the ambient ingress Gateway CR.
+///
+/// Default: application namespace (per-app ingress). Legacy HTTPRoutes may still
+/// parentRef a shared sidecar gateway in another namespace; we never relabel that
+/// shared namespace. Use rollout `ambientIngressGateway` only for an explicit
+/// dedicated ambient ingress namespace.
+fn ambient_ingress_namespace(app_namespace: &str, shared: Option<&AmbientIngressGateway>) -> String {
+    shared
+        .map(|g| g.namespace.clone())
+        .unwrap_or_else(|| app_namespace.to_string())
 }
 
-async fn ensure_ingress_host_namespace(
+/// Prepare an operator-configured dedicated ambient ingress namespace (not a legacy sidecar gateway ns).
+async fn ensure_dedicated_ambient_ingress_namespace(
     client: &Client,
-    ingress_host: &str,
-    app_namespace: &str,
+    ingress_namespace: &str,
     mesh: &MeshInstance,
 ) -> Result<(), RolloutError> {
-    if ingress_host != app_namespace {
-        snapshot_namespace_pre_migration(client, ingress_host).await?;
-        enroll_namespace_on_mesh(client, ingress_host, mesh)
-            .await
-            .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
-        remove_namespace_injection(client, ingress_host).await?;
-        label_namespace_ambient(client, ingress_host).await?;
-        info!(
-            ingress_host = %ingress_host,
-            app_namespace = %app_namespace,
-            "prepared shared ingress namespace on ambient mesh"
-        );
-    }
-    ensure_mesh_enrollment_labels(client, ingress_host, mesh).await?;
+    snapshot_namespace_pre_migration(client, ingress_namespace).await?;
+    enroll_namespace_on_mesh(client, ingress_namespace, mesh)
+        .await
+        .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+    remove_namespace_injection(client, ingress_namespace).await?;
+    label_namespace_ambient(client, ingress_namespace).await?;
+    info!(
+        ingress_namespace = %ingress_namespace,
+        "prepared dedicated ambient ingress namespace"
+    );
     Ok(())
 }
 
@@ -226,24 +216,65 @@ async fn ingress_cleanup_targets_for_app(
     client: &Client,
     app_namespace: &str,
     mesh: Option<&MeshInstance>,
+    shared: Option<&AmbientIngressGateway>,
 ) -> Result<Vec<(String, String)>, RolloutError> {
     let (routes, _) = collect_namespace_routes(client, app_namespace).await?;
-    let inferred = infer_ingress_host_namespace_from_routes(&routes, app_namespace);
-    Ok(ingress_cleanup_targets(app_namespace, mesh, &inferred))
+    let dedicated = shared.map(|g| g.namespace.as_str());
+    let gateway_name = shared
+        .map(|g| g.name.as_str())
+        .unwrap_or(PER_NAMESPACE_INGRESS_NAME);
+    let mut targets = ingress_cleanup_targets(
+        app_namespace,
+        mesh,
+        dedicated,
+        gateway_name,
+    );
+    for ns in legacy_shared_gateway_namespaces(app_namespace, &routes, dedicated) {
+        targets.push((ns, PER_NAMESPACE_INGRESS_NAME.into()));
+    }
+    targets.sort();
+    targets.dedup();
+    Ok(targets)
+}
+
+/// Sidecar shared-gateway namespaces that must not host ambient ingress (cleanup legacy attempts only).
+fn legacy_shared_gateway_namespaces(
+    app_namespace: &str,
+    routes: &[ambientor_core::rules::ExternalRouteInfo],
+    dedicated_namespace: Option<&str>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for route in routes {
+        let Some(ns) = route.parent_gateway_namespace.as_ref() else {
+            continue;
+        };
+        if ns.is_empty() || ns == app_namespace || dedicated_namespace == Some(ns.as_str()) {
+            continue;
+        }
+        out.push(ns.clone());
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 fn ingress_cleanup_targets(
     app_namespace: &str,
     mesh: Option<&MeshInstance>,
-    inferred_host: &str,
+    dedicated_namespace: Option<&str>,
+    gateway_name: &str,
 ) -> Vec<(String, String)> {
-    let mut targets = vec![
-        (app_namespace.to_string(), PER_NAMESPACE_INGRESS_NAME.into()),
-        (inferred_host.to_string(), PER_NAMESPACE_INGRESS_NAME.into()),
-    ];
+    let mut targets = vec![(app_namespace.to_string(), gateway_name.into())];
+    if let Some(ns) = dedicated_namespace {
+        if ns != app_namespace {
+            targets.push((ns.to_string(), gateway_name.into()));
+        }
+    }
+    // Remove gateways mistakenly placed in the control-plane namespace by older builds.
     if let Some(mesh) = mesh {
         let cp = mesh.control_plane_namespace.clone();
-        targets.push((cp, PER_NAMESPACE_INGRESS_NAME.into()));
+        targets.push((cp.clone(), PER_NAMESPACE_INGRESS_NAME.into()));
+        targets.push((cp, gateway_name.into()));
     }
     targets.sort();
     targets.dedup();
@@ -270,7 +301,7 @@ async fn resolve_ingress_gateway(
     app_namespace: &str,
     mesh: &MeshInstance,
     shared: Option<&AmbientIngressGateway>,
-    host_namespace: &str,
+    ingress_namespace: &str,
 ) -> Result<ResolvedIngressGateway, RolloutError> {
     if let Some(shared) = shared {
         let existing = get_gateway(client, &shared.namespace, &shared.name).await?;
@@ -300,47 +331,52 @@ async fn resolve_ingress_gateway(
         });
     }
 
-    let host_namespace = host_namespace.to_string();
-    for (ns, name) in ingress_cleanup_targets(app_namespace, Some(mesh), &host_namespace) {
-        if ns != host_namespace {
+    let ingress_namespace = ingress_namespace.to_string();
+    for (ns, name) in ingress_cleanup_targets(
+        app_namespace,
+        Some(mesh),
+        shared.map(|g| g.namespace.as_str()),
+        PER_NAMESPACE_INGRESS_NAME,
+    ) {
+        if ns != ingress_namespace {
             let _ = cleanup_ingress_gateway(client, &ns, &name).await;
         }
     }
 
-    let existing = get_gateway(client, &host_namespace, PER_NAMESPACE_INGRESS_NAME).await?;
+    let existing = get_gateway(client, &ingress_namespace, PER_NAMESPACE_INGRESS_NAME).await?;
     if let Some(gw) = existing {
         if gateway_ready(&gw.data) {
             return Ok(ResolvedIngressGateway {
-                namespace: host_namespace,
+                namespace: ingress_namespace,
                 name: PER_NAMESPACE_INGRESS_NAME.into(),
                 created: false,
             });
         }
         wait_or_cleanup_gateway(
             client,
-            &host_namespace,
+            &ingress_namespace,
             PER_NAMESPACE_INGRESS_NAME,
             PER_NAMESPACE_INGRESS_NAME,
         )
         .await?;
         return Ok(ResolvedIngressGateway {
-            namespace: host_namespace,
+            namespace: ingress_namespace,
             name: PER_NAMESPACE_INGRESS_NAME.into(),
             created: false,
         });
     }
 
-    ensure_mesh_enrollment_labels(client, &host_namespace, mesh).await?;
-    deploy_ingress_gateway(client, &host_namespace, PER_NAMESPACE_INGRESS_NAME, mesh).await?;
+    ensure_mesh_enrollment_labels(client, &ingress_namespace, mesh).await?;
+    deploy_ingress_gateway(client, &ingress_namespace, PER_NAMESPACE_INGRESS_NAME, mesh).await?;
     wait_or_cleanup_gateway(
         client,
-        &host_namespace,
+        &ingress_namespace,
         PER_NAMESPACE_INGRESS_NAME,
         PER_NAMESPACE_INGRESS_NAME,
     )
     .await?;
     Ok(ResolvedIngressGateway {
-        namespace: host_namespace,
+        namespace: ingress_namespace,
         name: PER_NAMESPACE_INGRESS_NAME.into(),
         created: true,
     })
@@ -882,6 +918,12 @@ mod tests {
             parents_attached: Some(true),
         };
         assert!(route_already_on_target(&route, &target, &[]));
+    }
+
+    #[test]
+    fn ambient_ingress_stays_in_app_namespace_when_parent_is_shared_sidecar() {
+        let ns = ambient_ingress_namespace("bookinfo-demo1", None);
+        assert_eq!(ns, "bookinfo-demo1");
     }
 
     #[test]
