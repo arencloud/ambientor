@@ -22,6 +22,30 @@ use ambientor_mesh::enroll_namespace_on_mesh;
 
 pub const FIELD_MANAGER: &str = "ambientor.io";
 
+/// True when a one-time human approval has authorized the full pipeline.
+pub fn pipeline_approved(status: &RolloutStatus, stage_count: usize) -> bool {
+    if stage_count == 0 {
+        return true;
+    }
+    let last = stage_count.saturating_sub(1) as i32;
+    status.approved_stage >= last
+}
+
+/// Whether the UI should offer an approval action (initial gate only).
+pub fn rollout_awaiting_approval(status: &RolloutStatus, stage_count: usize) -> bool {
+    match status.phase.as_str() {
+        "Completed" | "Failed" | "RolledBack" => return false,
+        _ => {}
+    }
+    if pipeline_approved(status, stage_count) {
+        return false;
+    }
+    status.phase == "AwaitingApproval"
+        || (status.current_stage == 0 && status.approved_stage < 0 && status.stage_results.is_empty())
+}
+
+pub struct RolloutEngine;
+
 #[derive(Debug, Error)]
 pub enum RolloutError {
     #[error("stage {0} requires approval but approved_stage is {1}")]
@@ -31,8 +55,6 @@ pub enum RolloutError {
     #[error("kubernetes error: {0}")]
     Kube(#[from] kube::Error),
 }
-
-pub struct RolloutEngine;
 
 impl RolloutEngine {
     pub fn new() -> Self {
@@ -50,14 +72,6 @@ impl RolloutEngine {
         let mut events = Vec::new();
         if status.phase.is_empty() {
             status.phase = "Pending".into();
-        }
-        if status.approved_stage == 0
-            && status.current_stage == 0
-            && status.stage_results.is_empty()
-            && status.phase != "Completed"
-            && status.phase != "AwaitingApproval"
-        {
-            status.approved_stage = -1;
         }
 
         const MAX_STAGES_PER_RECONCILE: usize = 32;
@@ -77,7 +91,7 @@ impl RolloutEngine {
             }
 
             let stage = &spec.stages[stage_idx];
-            if stage.requires_approval && status.approved_stage < status.current_stage {
+            if stage.requires_approval && !pipeline_approved(status, spec.stages.len()) {
                 status.phase = "AwaitingApproval".into();
                 events.push(RolloutEvent {
                     rollout_id: String::new(),

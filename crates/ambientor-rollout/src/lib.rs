@@ -13,5 +13,5 @@ pub mod rollback;
 pub mod verify;
 pub mod waypoint;
 
-pub use engine::*;
+pub use engine::{pipeline_approved, rollout_awaiting_approval, RolloutEngine, RolloutError, FIELD_MANAGER};
 pub use events::*;

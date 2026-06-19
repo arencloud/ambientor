@@ -169,8 +169,18 @@
     window.history.replaceState({}, '', path + (qs ? '?' + qs : ''));
   }
 
-  function canApproveRollout(awaiting) {
+  function canApproveRollout(r, detail) {
+    const awaiting =
+      typeof r === 'boolean'
+        ? r
+        : r?.awaitingApproval ||
+          r?.awaiting_approval ||
+          detail?.rollout?.awaitingApproval ||
+          detail?.rollout?.awaiting_approval;
     if (!awaiting) return false;
+    const phase =
+      typeof r === 'object' && r ? r.phase || detail?.rollout?.phase : detail?.rollout?.phase;
+    if (phase && ['Completed', 'Failed', 'RolledBack'].includes(phase)) return false;
     if (authConfig.requireAuthForApprove && !getToken()) return false;
     return true;
   }
@@ -218,8 +228,7 @@
 
     const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
     if (r) {
-      const awaiting = r.awaitingApproval || r.awaiting_approval;
-      $('approve-rollout').disabled = !canApproveRollout(awaiting);
+      $('approve-rollout').disabled = !canApproveRollout(r, rolloutDetail);
     }
   }
 
@@ -2351,8 +2360,9 @@
     if (banner) banner.classList.toggle('hidden', !awaiting);
     const approveBtn = $('approve-rollout');
     if (approveBtn) {
-      approveBtn.classList.toggle('pulse', !!awaiting && canApproveRollout(awaiting));
-      approveBtn.disabled = !canApproveRollout(awaiting);
+      const canApprove = canApproveRollout(r, detail);
+      approveBtn.classList.toggle('pulse', canApprove);
+      approveBtn.disabled = !canApprove;
     }
   }
 
@@ -2436,8 +2446,7 @@
   async function approveCurrentRolloutStage() {
     const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
     if (!r) return;
-    const awaiting = r.awaitingApproval || r.awaiting_approval;
-    if (!canApproveRollout(awaiting)) {
+    if (!canApproveRollout(r, rolloutDetail)) {
       setStatus(
         authConfig.requireAuthForApprove && !getToken()
           ? 'Sign in to approve rollout stages'

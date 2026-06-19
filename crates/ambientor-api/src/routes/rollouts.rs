@@ -3,6 +3,7 @@ use std::sync::Arc;
 use ambientor_k8s::K8sClient;
 use ambientor_plan::plan_to_rollout;
 use ambientor_rollout::audit::audit_rollout_approve;
+use ambientor_rollout::rollout_awaiting_approval;
 use ambientor_types::{MeshInstance, Rollout, RolloutStage, RolloutStageType, RolloutStatus};
 use ambientor_db::cluster_ref_from_env;
 use axum::{
@@ -256,15 +257,10 @@ pub(super) async fn approve_rollout_stage(
     let pipeline_approved = rollout.spec.stages.len().saturating_sub(1) as i32;
 
     let api: Api<Rollout> = Api::namespaced(k8s.client.clone(), namespace);
-    let phase = if status.phase == "RolledBack" {
-        "Pending".to_string()
-    } else {
-        status.phase.clone()
-    };
     let patch = serde_json::json!({
         "status": {
             "approvedStage": pipeline_approved,
-            "phase": phase,
+            "phase": status.phase,
         }
     });
     api.patch_status(name, &Default::default(), &Patch::Merge(&patch))
@@ -332,10 +328,17 @@ pub fn validate_approval(
             "rollout failed; fix or delete before approving".into(),
         ));
     }
-    if status.approved_stage >= stage_to_approve && status.phase != "AwaitingApproval" {
+    if status.phase == "RolledBack" {
         return Err((
             StatusCode::CONFLICT,
-            format!("stage {stage_to_approve} already approved"),
+            "rollout rolled back; delete and create a new rollout".into(),
+        ));
+    }
+    if ambientor_rollout::pipeline_approved(status, stage_count) && status.phase != "AwaitingApproval"
+    {
+        return Err((
+            StatusCode::CONFLICT,
+            "pipeline already approved".into(),
         ));
     }
     Ok(())
@@ -361,7 +364,7 @@ pub(super) fn rollout_to_list_item(rollout: &Rollout) -> Option<RolloutListItem>
         .clone()
         .unwrap_or_else(|| "default".into());
     let status = rollout.status.as_ref()?;
-    let awaiting_approval = status.phase == "AwaitingApproval";
+    let awaiting_approval = rollout_awaiting_approval(status, rollout.spec.stages.len());
     Some(RolloutListItem {
         name,
         namespace,
