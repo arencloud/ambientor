@@ -113,8 +113,8 @@ enum PlanAction {
     Export {
         #[arg(short, long)]
         namespace: String,
-        #[arg(short, long)]
-        name: String,
+        #[arg(long = "name")]
+        plan_name: String,
         #[arg(short, long)]
         out: Option<std::path::PathBuf>,
     },
@@ -122,15 +122,15 @@ enum PlanAction {
     Approve {
         #[arg(short, long, default_value = "default")]
         namespace: String,
-        #[arg(short, long)]
-        name: String,
+        #[arg(long = "name")]
+        plan_name: String,
     },
     /// One approval: approve plan, create rollout, approve stage 0
     Execute {
         #[arg(short, long, default_value = "default")]
         namespace: String,
-        #[arg(short, long)]
-        name: String,
+        #[arg(long = "name")]
+        plan_name: String,
     },
 }
 
@@ -140,15 +140,15 @@ enum RolloutAction {
     Status {
         #[arg(short, long, default_value = "default")]
         namespace: String,
-        #[arg(short, long)]
-        name: String,
+        #[arg(long = "name")]
+        rollout_name: String,
     },
     /// Approve the current stage (`approvedStage` patch)
     Approve {
         #[arg(short, long, default_value = "default")]
         namespace: String,
-        #[arg(short, long)]
-        name: String,
+        #[arg(long = "name")]
+        rollout_name: String,
         /// Stage index (defaults to current stage)
         #[arg(short, long)]
         stage: Option<i32>,
@@ -197,24 +197,24 @@ async fn main() -> anyhow::Result<()> {
             }
             PlanAction::Export {
                 namespace,
-                name,
+                plan_name,
                 out,
             } => {
                 plan_cmd::plan_export(
                     cli.kubeconfig.as_deref(),
                     cli.api_url.as_deref(),
                     namespace,
-                    name,
+                    plan_name,
                     out,
                 )
                 .await?;
             }
-            PlanAction::Approve { namespace, name } => {
-                plan_cmd::plan_approve(cli.api_url.as_deref(), cli.kubeconfig.as_deref(), &namespace, &name)
+            PlanAction::Approve { namespace, plan_name } => {
+                plan_cmd::plan_approve(cli.api_url.as_deref(), cli.kubeconfig.as_deref(), &namespace, &plan_name)
                     .await?;
             }
-            PlanAction::Execute { namespace, name } => {
-                plan_cmd::plan_execute(cli.api_url.as_deref(), cli.kubeconfig.as_deref(), &namespace, &name)
+            PlanAction::Execute { namespace, plan_name } => {
+                plan_cmd::plan_execute(cli.api_url.as_deref(), cli.kubeconfig.as_deref(), &namespace, &plan_name)
                     .await?;
             }
         },
@@ -263,25 +263,25 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Commands::Rollout { action } => match action {
-            RolloutAction::Status { namespace, name } => {
+            RolloutAction::Status { namespace, rollout_name } => {
                 rollout_cmd::rollout_status(
                     cli.api_url.as_deref(),
                     cli.kubeconfig.as_deref(),
                     &namespace,
-                    &name,
+                    &rollout_name,
                 )
                 .await?;
             }
             RolloutAction::Approve {
                 namespace,
-                name,
+                rollout_name,
                 stage,
             } => {
                 rollout_cmd::rollout_approve(
                     cli.api_url.as_deref(),
                     cli.kubeconfig.as_deref(),
                     &namespace,
-                    &name,
+                    &rollout_name,
                     stage,
                 )
                 .await?;
