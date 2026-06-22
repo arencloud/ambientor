@@ -9,7 +9,7 @@ use ambientor_mesh::enroll_namespace_on_mesh;
 use ambientor_types::{AmbientIngressGateway, MeshInstance};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Service;
-use kube::api::{DeleteParams, DynamicObject, Patch, PatchParams, PropagationPolicy};
+use kube::api::{DeleteParams, DynamicObject, Patch, PatchParams, PostParams, PropagationPolicy};
 use kube::{Api, Client};
 use serde_json::json;
 use tokio::time::sleep;
@@ -17,9 +17,7 @@ use tracing::info;
 
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
-use crate::openshift_rbac::ensure_hub_route_admin;
-use crate::openshift_rbac::revoke_hub_route_admin;
-use crate::openshift_route::{restore_openshift_route_snapshot, upsert_openshift_route};
+use crate::openshift_route::restore_openshift_route_snapshot;
 use crate::labels::{
     clear_namespace_revision_label, ensure_mesh_enrollment_labels, label_namespace_ambient,
     remove_namespace_injection, snapshot_namespace_pre_migration,
@@ -32,6 +30,7 @@ const MANAGED_BY_VALUE: &str = "ambientor";
 const ORIGINAL_PARENT_REFS_ANNOTATION: &str = "ambientor.io/original-parent-refs";
 const ORIGINAL_ROUTE_TARGET_ANNOTATION: &str = "ambientor.io/original-route-target";
 const ORIGINAL_OPENSHIFT_ROUTE_ANNOTATION: &str = "ambientor.io/original-openshift-route";
+const INGRESS_PROXY_SERVICE_ANNOTATION: &str = "ambientor.io/ingress-proxy-service";
 const GATEWAY_READY_TIMEOUT_SECS: u64 = 300;
 const GATEWAY_POLL_INTERVAL_SECS: u64 = 2;
 
@@ -121,22 +120,15 @@ pub async fn migrate_ambient_ingress(
         .iter()
         .flat_map(|r| r.hostnames.clone())
         .collect();
-    ensure_hub_route_admin(client, namespace).await?;
-    let routes_updated = match migrate_openshift_routes(
+    let routes_updated = migrate_openshift_routes(
         client,
         &legacy_services,
+        namespace,
         &target.namespace,
         &new_service,
         &hostnames,
     )
-    .await
-    {
-        Ok(n) => n,
-        Err(e) => {
-            let _ = revoke_hub_route_admin(client, namespace).await;
-            return Err(e);
-        }
-    };
+    .await?;
 
     if !route_errors.is_empty() {
         let _ = revert_ambient_ingress(client, namespace, Some(mesh), shared).await;
@@ -828,6 +820,7 @@ async fn migrate_openshift_routes(
     client: &Client,
     legacy_services: &[String],
     app_namespace: &str,
+    ingress_namespace: &str,
     target_service_name: &str,
     hostnames: &[String],
 ) -> Result<usize, RolloutError> {
@@ -844,6 +837,7 @@ async fn migrate_openshift_routes(
 
     let legacy: std::collections::BTreeSet<_> = legacy_services.iter().cloned().collect();
     let hosts: std::collections::BTreeSet<_> = hostnames.iter().cloned().collect();
+    let external_name = format!("{target_service_name}.{ingress_namespace}.svc.cluster.local");
     let mut updated = 0usize;
     for route in &list {
         let Some(name) = route.metadata.name.clone() else {
@@ -858,8 +852,9 @@ async fn migrate_openshift_routes(
         if !hosts.contains(route_host) {
             continue;
         }
-        // Never move or delete routes already migrated for another application.
+        // Never repoint routes already migrated for another application.
         if route_ns != app_namespace
+            && route_ns != ingress_namespace
             && route
                 .metadata
                 .labels
@@ -879,6 +874,18 @@ async fn migrate_openshift_routes(
         if route_ns == app_namespace && to_name == target_service_name {
             continue;
         }
+        if route_ns != app_namespace
+            && route
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|l| l.get("ambientor.io/ingress-route-migrated"))
+                .map(String::as_str)
+                == Some("true")
+            && to_name.starts_with("ambientor-ingress-")
+        {
+            continue;
+        }
         if route_ns != app_namespace && !legacy.is_empty() && !legacy.contains(to_name) {
             continue;
         }
@@ -886,12 +893,63 @@ async fn migrate_openshift_routes(
             continue;
         }
 
-        if route_ns == app_namespace {
+        let route_api =
+            Api::<DynamicObject>::namespaced_with(client.clone(), &route_ns, &route_ar);
+
+        if route_ns != app_namespace {
+            let original_to = route
+                .data
+                .pointer("/spec/to")
+                .cloned()
+                .unwrap_or(json!({}));
+            let proxy_name = ingress_proxy_service_name(route_host);
+            ensure_ingress_proxy_service(client, &route_ns, &proxy_name, &external_name).await?;
             let patch = json!({
                 "metadata": {
                     "labels": {
                         MANAGED_BY_LABEL: MANAGED_BY_VALUE,
                         "ambientor.io/ingress-route-migrated": "true"
+                    },
+                    "annotations": {
+                        ORIGINAL_ROUTE_TARGET_ANNOTATION: original_to.to_string(),
+                        INGRESS_PROXY_SERVICE_ANNOTATION: proxy_name
+                    }
+                },
+                "spec": {
+                    "to": {
+                        "kind": "Service",
+                        "name": proxy_name,
+                        "weight": 100
+                    }
+                }
+            });
+            route_api
+                .patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
+                .await?;
+            updated += 1;
+            info!(
+                route = %format!("{route_ns}/{name}"),
+                proxy = %proxy_name,
+                target = %external_name,
+                "repointed OpenShift Route via gateway ExternalName proxy to ambient ingress"
+            );
+            continue;
+        }
+
+        if route_ns == app_namespace {
+            let original_to = route
+                .data
+                .pointer("/spec/to")
+                .cloned()
+                .unwrap_or(json!({}));
+            let patch = json!({
+                "metadata": {
+                    "labels": {
+                        MANAGED_BY_LABEL: MANAGED_BY_VALUE,
+                        "ambientor.io/ingress-route-migrated": "true"
+                    },
+                    "annotations": {
+                        ORIGINAL_ROUTE_TARGET_ANNOTATION: original_to.to_string()
                     }
                 },
                 "spec": {
@@ -902,145 +960,93 @@ async fn migrate_openshift_routes(
                     }
                 }
             });
-            let route_api =
-                Api::<DynamicObject>::namespaced_with(client.clone(), &route_ns, &route_ar);
             route_api
                 .patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
                 .await?;
             updated += 1;
-            continue;
         }
-
-        let snapshot = openshift_route_snapshot(route);
-        let route_api =
-            Api::<DynamicObject>::namespaced_with(client.clone(), &route_ns, &route_ar);
-        route_api
-            .delete(&name, &DeleteParams::default())
-            .await?;
-
-        let mut spec = route.data.get("spec").cloned().unwrap_or(json!({}));
-        if let Some(spec_obj) = spec.as_object_mut() {
-            spec_obj.insert(
-                "to".into(),
-                json!({
-                    "kind": "Service",
-                    "name": target_service_name,
-                    "weight": 100
-                }),
-            );
-        }
-        let manifest = json!({
-            "apiVersion": "route.openshift.io/v1",
-            "kind": "Route",
-            "metadata": {
-                "name": name,
-                "namespace": app_namespace,
-                "labels": {
-                    MANAGED_BY_LABEL: MANAGED_BY_VALUE,
-                    "ambientor.io/ingress-route-migrated": "true"
-                },
-                "annotations": {
-                    ORIGINAL_OPENSHIFT_ROUTE_ANNOTATION: snapshot.to_string()
-                }
-            },
-            "spec": spec
-        });
-        if let Err(e) = upsert_openshift_route(client, app_namespace, &manifest).await {
-            let _ = restore_openshift_route_snapshot(client, &snapshot).await;
-            return Err(e);
-        }
-        updated += 1;
-        info!(
-            route = %format!("{route_ns}/{name}"),
-            target = %format!("{app_namespace}/{name} -> {target_service_name}"),
-            "moved OpenShift Route from shared gateway namespace to application namespace"
-        );
-    }
-
-    for host in &hosts {
-        if openshift_route_serves_host(&list, app_namespace, host, target_service_name) {
-            continue;
-        }
-        let name = openshift_route_name_for_host(host);
-        let manifest = default_openshift_route_manifest(
-            &name,
-            app_namespace,
-            host,
-            target_service_name,
-        );
-        upsert_openshift_route(client, app_namespace, &manifest).await?;
-        updated += 1;
-        info!(
-            host = %host,
-            route = %format!("{app_namespace}/{name}"),
-            "created OpenShift Route for ambient ingress (no legacy Route found)"
-        );
     }
     Ok(updated)
 }
 
+fn ingress_proxy_service_name(host: &str) -> String {
+    let prefix = host.split('.').next().unwrap_or("app");
+    format!("ambientor-ingress-{prefix}")
+}
+
+async fn ensure_ingress_proxy_service(
+    client: &Client,
+    namespace: &str,
+    service_name: &str,
+    external_name: &str,
+) -> Result<(), RolloutError> {
+    let api: Api<Service> = Api::namespaced(client.clone(), namespace);
+    let svc = Service {
+        metadata: kube::api::ObjectMeta {
+            name: Some(service_name.into()),
+            labels: Some(
+                [
+                    (MANAGED_BY_LABEL.into(), MANAGED_BY_VALUE.into()),
+                    ("ambientor.io/ingress-proxy".into(), "true".into()),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            ..Default::default()
+        },
+        spec: Some(k8s_openapi::api::core::v1::ServiceSpec {
+            type_: Some("ExternalName".into()),
+            external_name: Some(external_name.into()),
+            ports: Some(vec![k8s_openapi::api::core::v1::ServicePort {
+                name: Some("http".into()),
+                port: 8080,
+                ..Default::default()
+            }]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    match api.get(service_name).await {
+        Ok(_) => {
+            api.replace(service_name, &PostParams::default(), &svc)
+                .await?;
+        }
+        Err(kube::Error::Api(e)) if e.code == 404 => {
+            api.create(&PostParams::default(), &svc).await?;
+        }
+        Err(e) => return Err(RolloutError::Kube(e)),
+    }
+    Ok(())
+}
+
+async fn delete_ingress_proxy_service(
+    client: &Client,
+    namespace: &str,
+    service_name: &str,
+) -> Result<bool, RolloutError> {
+    let api: Api<Service> = Api::namespaced(client.clone(), namespace);
+    match api.get(service_name).await {
+        Ok(svc) => {
+            if svc
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|l| l.get("ambientor.io/ingress-proxy"))
+                .map(String::as_str)
+                != Some("true")
+            {
+                return Ok(false);
+            }
+            api.delete(service_name, &DeleteParams::default()).await?;
+            Ok(true)
+        }
+        Err(kube::Error::Api(e)) if e.code == 404 => Ok(false),
+        Err(e) => Err(RolloutError::Kube(e)),
+    }
+}
+
 fn is_shared_gateway_namespace(route_ns: &str) -> bool {
     route_ns.ends_with("-gateway")
-}
-
-fn openshift_route_serves_host(
-    routes: &[DynamicObject],
-    app_namespace: &str,
-    host: &str,
-    target_service_name: &str,
-) -> bool {
-    routes.iter().any(|route| {
-        route.metadata.namespace.as_deref() == Some(app_namespace)
-            && route
-                .data
-                .pointer("/spec/host")
-                .and_then(|v| v.as_str())
-                == Some(host)
-            && route
-                .data
-                .pointer("/spec/to/name")
-                .and_then(|v| v.as_str())
-                == Some(target_service_name)
-    })
-}
-
-fn openshift_route_name_for_host(host: &str) -> String {
-    let prefix = host.split('.').next().unwrap_or("app");
-    format!("{prefix}-bookinfo")
-}
-
-fn default_openshift_route_manifest(
-    name: &str,
-    app_namespace: &str,
-    host: &str,
-    target_service_name: &str,
-) -> serde_json::Value {
-    json!({
-        "apiVersion": "route.openshift.io/v1",
-        "kind": "Route",
-        "metadata": {
-            "name": name,
-            "namespace": app_namespace,
-            "labels": {
-                MANAGED_BY_LABEL: MANAGED_BY_VALUE,
-                "ambientor.io/ingress-route-migrated": "true"
-            }
-        },
-        "spec": {
-            "host": host,
-            "port": { "targetPort": 8080 },
-            "tls": {
-                "insecureEdgeTerminationPolicy": "Redirect",
-                "termination": "edge"
-            },
-            "to": {
-                "kind": "Service",
-                "name": target_service_name,
-                "weight": 100
-            },
-            "wildcardPolicy": "None"
-        }
-    })
 }
 
 async fn openshift_route_hostnames(client: &Client, namespace: &str) -> Result<Vec<String>, RolloutError> {
@@ -1050,18 +1056,6 @@ async fn openshift_route_hostnames(client: &Client, namespace: &str) -> Result<V
         .flat_map(|r| r.hostnames)
         .collect();
     Ok(hosts)
-}
-
-fn openshift_route_snapshot(route: &DynamicObject) -> serde_json::Value {
-    json!({
-        "metadata": {
-            "name": route.metadata.name,
-            "namespace": route.metadata.namespace,
-            "labels": route.metadata.labels,
-            "annotations": route.metadata.annotations,
-        },
-        "spec": route.data.get("spec")
-    })
 }
 
 async fn revert_openshift_routes(
@@ -1079,10 +1073,6 @@ async fn revert_openshift_routes(
     let hosts: std::collections::BTreeSet<_> = hostnames.iter().cloned().collect();
     let mut reverted = 0usize;
     for route in list {
-        let route_ns = route.metadata.namespace.clone().unwrap_or_default();
-        if route_ns != app_namespace {
-            continue;
-        }
         let route_host = route
             .data
             .pointer("/spec/host")
@@ -1114,6 +1104,9 @@ async fn revert_openshift_routes(
             .as_ref()
             .and_then(|a| a.get(ORIGINAL_OPENSHIFT_ROUTE_ANNOTATION))
         {
+            if route_ns != app_namespace {
+                continue;
+            }
             let snapshot: serde_json::Value = serde_json::from_str(snapshot_raw)
                 .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
             let original_ns = snapshot
@@ -1153,6 +1146,7 @@ async fn revert_openshift_routes(
                     if let Some(ann) = meta.get_mut("annotations").and_then(|a| a.as_object_mut()) {
                         ann.remove(ORIGINAL_OPENSHIFT_ROUTE_ANNOTATION);
                         ann.remove(ORIGINAL_ROUTE_TARGET_ANNOTATION);
+                        ann.remove(INGRESS_PROXY_SERVICE_ANNOTATION);
                         if ann.is_empty() {
                             meta.remove("annotations");
                         }
@@ -1181,14 +1175,25 @@ async fn revert_openshift_routes(
             .unwrap_or(json!({}));
         let patch = json!({
             "metadata": {
-                "labels": { "ambientor.io/ingress-route-migrated": null },
-                "annotations": { ORIGINAL_ROUTE_TARGET_ANNOTATION: null }
+                "labels": { "ambientor.io/ingress-route-migrated": null, MANAGED_BY_LABEL: null },
+                "annotations": {
+                    ORIGINAL_ROUTE_TARGET_ANNOTATION: null,
+                    INGRESS_PROXY_SERVICE_ANNOTATION: null
+                }
             },
             "spec": { "to": original }
         });
         route_api
             .patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
             .await?;
+        if let Some(proxy_name) = route
+            .metadata
+            .annotations
+            .as_ref()
+            .and_then(|a| a.get(INGRESS_PROXY_SERVICE_ANNOTATION))
+        {
+            let _ = delete_ingress_proxy_service(client, &route_ns, proxy_name).await;
+        }
         reverted += 1;
     }
     Ok(reverted)

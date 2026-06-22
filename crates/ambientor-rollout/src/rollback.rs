@@ -4,7 +4,6 @@ use kube::Client;
 use crate::engine::RolloutError;
 use crate::ingress::revert_ambient_ingress;
 use crate::labels::unlabel_namespace_ambient;
-use crate::openshift_rbac::revoke_hub_route_admin;
 use crate::policy::revert_translations_in_namespace;
 use crate::restart::revert_rolling_restart_annotations;
 use crate::waypoint::revert_waypoint;
@@ -77,7 +76,6 @@ async fn revert_stage(
                 )
                 .await?;
                 notes.push(msg);
-                revoke_hub_route_admin(client, ns).await?;
             }
             Ok(notes.join("; "))
         }
