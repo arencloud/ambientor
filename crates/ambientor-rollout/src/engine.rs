@@ -9,7 +9,8 @@ use crate::labels::{
     label_namespace_ambient, remove_namespace_injection, restore_namespace_pre_migration,
     snapshot_namespace_pre_migration,
 };
-use crate::restart::rolling_restart_namespace;
+use crate::openshift_rbac::revoke_hub_route_admin;
+use crate::restart::{revert_rolling_restart_annotations, rolling_restart_namespace};
 use crate::ingress::{migrate_ambient_ingress, revert_ambient_ingress};
 use crate::policy::translate_policies_in_namespace;
 use crate::preflight::{
@@ -348,6 +349,14 @@ impl RolloutEngine {
         for ns in namespaces {
             if restore_namespace_pre_migration(client, &ns).await? {
                 notes.push(format!("restored labels on {ns}"));
+            }
+            if revoke_hub_route_admin(client, &ns).await.is_ok() {
+                notes.push(format!("revoked route admin binding on {ns}"));
+            }
+            match revert_rolling_restart_annotations(client, &ns).await {
+                Ok(n) if n > 0 => notes.push(format!("cleared restart annotations on {n} Deployment(s) in {ns}")),
+                Ok(_) => {}
+                Err(e) => warn!(namespace = %ns, error = %e, "restart annotation cleanup skipped"),
             }
             match revert_ambient_ingress(
                 client,

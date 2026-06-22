@@ -1,11 +1,12 @@
 use ambientor_types::{RolloutSpec, RolloutStage, RolloutStageType};
 use kube::Client;
-use tracing::warn;
 
 use crate::engine::RolloutError;
 use crate::ingress::revert_ambient_ingress;
 use crate::labels::unlabel_namespace_ambient;
+use crate::openshift_rbac::revoke_hub_route_admin;
 use crate::policy::revert_translations_in_namespace;
+use crate::restart::revert_rolling_restart_annotations;
 use crate::waypoint::revert_waypoint;
 use ambientor_mesh::unenroll_namespace_from_mesh;
 use ambientor_types::MeshInstance;
@@ -76,15 +77,18 @@ async fn revert_stage(
                 )
                 .await?;
                 notes.push(msg);
+                revoke_hub_route_admin(client, ns).await?;
             }
             Ok(notes.join("; "))
         }
         RolloutStageType::RollingRestart => {
-            warn!(
-                stage = %stage.name,
-                "rolling restart cannot be reverted; workloads keep restarted pods"
-            );
-            Ok("Rolling restart not reverted (annotation-only)".into())
+            let mut total = 0usize;
+            for ns in &stage.namespaces {
+                total += revert_rolling_restart_annotations(client, ns).await?;
+            }
+            Ok(format!(
+                "Cleared rolling-restart annotations on {total} Deployment(s)"
+            ))
         }
         RolloutStageType::VerifyTraffic | RolloutStageType::DryRun => {
             Ok(format!("No resources to revert for {:?}", stage.r#type))

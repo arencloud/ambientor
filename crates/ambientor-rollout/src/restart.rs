@@ -33,8 +33,7 @@ pub async fn rolling_restart_namespace(
                 "template": {
                     "metadata": {
                         "annotations": {
-                            "ambientor.io/restartedAt": restarted_at,
-                            "sidecar.istio.io/inject": "false"
+                            "ambientor.io/restartedAt": restarted_at
                         }
                     }
                 }
@@ -45,6 +44,52 @@ pub async fn rolling_restart_namespace(
             .await?;
         count += 1;
         info!(namespace = %namespace, deployment = %name, "rolling restart triggered");
+    }
+    Ok(count)
+}
+
+/// Remove Ambientor rolling-restart annotations from workload Deployments (rollback).
+pub async fn revert_rolling_restart_annotations(
+    client: &Client,
+    namespace: &str,
+) -> Result<usize, RolloutError> {
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    let deps = api.list(&ListParams::default()).await?;
+    let mut count = 0usize;
+    for dep in deps.items {
+        let Some(name) = dep.metadata.name.as_deref() else {
+            continue;
+        };
+        if skip_rolling_restart(name, &dep) {
+            continue;
+        }
+        let annotations = dep
+            .spec
+            .as_ref()
+            .and_then(|s| s.template.metadata.as_ref())
+            .and_then(|m| m.annotations.as_ref());
+        let has_ambientor = annotations.is_some_and(|a| {
+            a.contains_key("ambientor.io/restartedAt") || a.contains_key("sidecar.istio.io/inject")
+        });
+        if !has_ambientor {
+            continue;
+        }
+        let patch = json!({
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "ambientor.io/restartedAt": null,
+                            "sidecar.istio.io/inject": null
+                        }
+                    }
+                }
+            }
+        });
+        api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await?;
+        count += 1;
+        info!(namespace = %namespace, deployment = %name, "cleared rolling-restart annotations");
     }
     Ok(count)
 }

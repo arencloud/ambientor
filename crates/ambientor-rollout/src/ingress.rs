@@ -17,6 +17,8 @@ use tracing::info;
 
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
+use crate::openshift_rbac::ensure_hub_route_admin;
+use crate::openshift_rbac::revoke_hub_route_admin;
 use crate::openshift_route::{restore_openshift_route_snapshot, upsert_openshift_route};
 use crate::labels::{
     clear_namespace_revision_label, ensure_mesh_enrollment_labels, label_namespace_ambient,
@@ -119,14 +121,22 @@ pub async fn migrate_ambient_ingress(
         .iter()
         .flat_map(|r| r.hostnames.clone())
         .collect();
-    let routes_updated = migrate_openshift_routes(
+    ensure_hub_route_admin(client, namespace).await?;
+    let routes_updated = match migrate_openshift_routes(
         client,
         &legacy_services,
         &target.namespace,
         &new_service,
         &hostnames,
     )
-    .await?;
+    .await
+    {
+        Ok(n) => n,
+        Err(e) => {
+            let _ = revoke_hub_route_admin(client, namespace).await;
+            return Err(e);
+        }
+    };
 
     if !route_errors.is_empty() {
         let _ = revert_ambient_ingress(client, namespace, Some(mesh), shared).await;

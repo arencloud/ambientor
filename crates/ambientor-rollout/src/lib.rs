@@ -6,6 +6,7 @@ pub mod engine;
 pub mod events;
 pub mod labels;
 pub mod ingress;
+pub mod openshift_rbac;
 pub mod openshift_route;
 pub mod policy;
 pub mod preflight;
