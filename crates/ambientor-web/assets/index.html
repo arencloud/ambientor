@@ -50,6 +50,10 @@
       </nav>
     </div>
     <div class="header-right">
+      <div id="live-status-pill" class="live-status-pill" role="status" aria-live="polite" title="Real-time connection status">
+        <span class="live-status-dot" aria-hidden="true"></span>
+        <span id="live-status-text">Connecting…</span>
+      </div>
       <div class="cluster-bar" id="cluster-bar">
         <label class="cluster-bar-label" for="cluster-select">Scope</label>
         <div class="scope-select-wrap">
@@ -173,6 +177,7 @@
           <p class="view-meta" id="assess-meta">Run assessment to discover sidecar workloads ready for ambient migration.</p>
         </div>
         <div class="hero-actions">
+          <label class="toggle-inline"><input type="checkbox" id="assess-auto-refresh" checked /> Live</label>
           <button id="refresh-assessments" class="btn">Refresh</button>
           <button id="run-assess" class="btn btn-primary">Run assessment</button>
         </div>

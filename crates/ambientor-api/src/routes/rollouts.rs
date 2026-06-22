@@ -276,6 +276,7 @@ pub(super) async fn approve_rollout_stage(
 
     let updated = fetch_rollout(k8s, namespace, name).await?;
     let new_status = updated.status.as_ref().unwrap();
+    super::rollout_watch::publish_rollout_event(state, &updated).await;
     let cluster_ref = updated
         .spec
         .cluster_ref

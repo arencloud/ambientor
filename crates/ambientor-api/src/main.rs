@@ -25,11 +25,13 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let state = AppState::from_env().await?;
+    let state = Arc::new(state);
+    routes::rollout_watch::spawn_rollout_watch(state.clone());
     let app = Router::new()
         .merge(routes::api_router())
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
-        .with_state(Arc::new(state));
+        .with_state(state);
 
     let addr: SocketAddr = std::env::var("AMBIENTOR_API_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:8080".into())

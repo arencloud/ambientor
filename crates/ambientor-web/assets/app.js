@@ -24,6 +24,14 @@
   let selectedRolloutKey = null;
   let rolloutDetail = null;
   let migrationPollTimer = null;
+  let liveRefreshTimer = null;
+  let sseConnected = false;
+  let lastLiveRefreshAt = 0;
+  let rolloutPhaseSnapshot = new Map();
+  let lastStatCounts = null;
+  const LIVE_POLL_FAST_MS = 1200;
+  const LIVE_POLL_SLOW_MS = 5000;
+  const LIVE_DEBOUNCE_MS = 180;
   let activeClusterRef = '';
   let fleetClusters = [];
   let clusterConnections = [];
@@ -1011,9 +1019,9 @@
     return app.applicationName || app.application_name || app.namespace;
   }
 
-  async function loadApplications() {
-    if (isFleetView()) return loadFleetApplications();
-    setStatus('Loading migration candidates…');
+  async function loadApplications(quiet) {
+    if (isFleetView()) return loadFleetApplications(quiet);
+    if (!quiet) setStatus('Loading migration candidates…');
     try {
       const res = await fetch(API() + '/api/v1/applications?' + applicationsQueryString());
       if (res.status === 503) {
@@ -1026,14 +1034,14 @@
       renderMeshFilterOptions();
       renderApplicationsTable();
       updatePaginationUi();
-      setStatus(`Loaded ${applicationsPage.total.toLocaleString()} migration candidate(s)`);
+      if (!quiet) setStatus(`Loaded ${applicationsPage.total.toLocaleString()} migration candidate(s)`);
     } catch (e) {
       setStatus('Failed to load migration candidates: ' + e.message, true);
     }
   }
 
-  async function loadFleetApplications() {
-    setStatus('Loading migration candidates across fleet…');
+  async function loadFleetApplications(quiet) {
+    if (!quiet) setStatus('Loading migration candidates across fleet…');
     const refs = fleetClusters.map((c) => c.clusterRef || c.cluster_ref).filter(Boolean);
     if (!refs.length) refs.push('in-cluster');
     try {
@@ -1079,7 +1087,7 @@
       renderMeshFilterOptions();
       renderApplicationsTable();
       updatePaginationUi();
-      setStatus(`Loaded ${total.toLocaleString()} candidate(s) across ${refs.length} cluster(s)`);
+      if (!quiet) setStatus(`Loaded ${total.toLocaleString()} candidate(s) across ${refs.length} cluster(s)`);
     } catch (e) {
       setStatus('Failed to load fleet candidates: ' + e.message, true);
     }
@@ -1198,14 +1206,39 @@
     return status;
   }
 
+  function flashStatEl(el, changed) {
+    if (!el || !changed) return;
+    el.classList.remove('stat-flash');
+    void el.offsetWidth;
+    el.classList.add('stat-flash');
+    el.addEventListener(
+      'animationend',
+      () => el.classList.remove('stat-flash'),
+      { once: true }
+    );
+  }
+
   function renderStatusSummary(counts) {
     const c = counts || {};
-    $('sum-migrated').textContent = c.migrated ?? 0;
-    $('sum-processing').textContent = c.processing ?? 0;
-    $('sum-blocker').textContent = c.blocker ?? 0;
-    $('sum-failed').textContent = c.failed ?? 0;
-    $('sum-scanned').textContent = c.scanned ?? 0;
-    $('sum-not-scanned').textContent = c.notScanned ?? c.not_scanned ?? 0;
+    const prev = lastStatCounts || {};
+    const pairs = [
+      ['sum-migrated', c.migrated ?? 0, prev.migrated],
+      ['sum-processing', c.processing ?? 0, prev.processing],
+      ['sum-blocker', c.blocker ?? 0, prev.blocker],
+      ['sum-failed', c.failed ?? 0, prev.failed],
+      ['sum-scanned', c.scanned ?? 0, prev.scanned],
+      ['sum-not-scanned', c.notScanned ?? c.not_scanned ?? 0, prev.notScanned ?? prev.not_scanned],
+    ];
+    pairs.forEach(([id, val, oldVal]) => {
+      const el = $(id);
+      if (!el) return;
+      const next = String(val);
+      if (el.textContent !== next) {
+        flashStatEl(el, lastStatCounts != null && oldVal !== val);
+        el.textContent = next;
+      }
+    });
+    lastStatCounts = { ...c, notScanned: c.notScanned ?? c.not_scanned ?? 0 };
   }
 
   function renderMigrationSavings(savings) {
@@ -1414,8 +1447,11 @@
     if (!quiet) setStatus('Loading dashboard…');
     const container = $('dash-mesh-instances');
     const suffix = clusterQuerySuffix();
+    const fresh = opts?.fresh || !quiet;
     try {
-      const res = await fetch(API() + '/api/v1/dashboard?fresh=true' + suffix);
+      const res = await fetch(
+        API() + '/api/v1/dashboard' + (fresh ? '?fresh=true' : '') + suffix
+      );
       if (!res.ok) throw new Error(await res.text());
       renderDashboardData(await res.json(), quiet);
     } catch (e) {
@@ -1473,8 +1509,102 @@
     return (
       $('dash-auto-refresh')?.checked !== false ||
       $('rollout-auto-refresh')?.checked !== false ||
-      $('plan-auto-refresh')?.checked !== false
+      $('plan-auto-refresh')?.checked !== false ||
+      $('assess-auto-refresh')?.checked !== false
     );
+  }
+
+  function setLiveConnectionStatus(mode, text) {
+    const pill = $('live-status-pill');
+    const label = $('live-status-text');
+    if (!pill || !label) return;
+    pill.classList.remove('live-on', 'live-poll', 'live-off', 'live-warn');
+    if (mode) pill.classList.add(mode);
+    label.textContent = text;
+  }
+
+  function rolloutMatchesEvent(r, payload) {
+    if (!payload?.name) return true;
+    const ns = payload.namespace || '';
+    const name = payload.name || '';
+    return r.namespace === ns && r.name === name;
+  }
+
+  function scheduleLiveRefresh(opts) {
+    if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
+    liveRefreshTimer = setTimeout(() => refreshLivePanels(opts), LIVE_DEBOUNCE_MS);
+  }
+
+  async function refreshLivePanels(opts) {
+    const now = Date.now();
+    if (now - lastLiveRefreshAt < 80) return;
+    lastLiveRefreshAt = now;
+
+    const wantRollouts =
+      opts?.rollouts !== false &&
+      ($('rollout-auto-refresh')?.checked !== false || opts?.force);
+    const migrating = migrationStillActive();
+    const wantDashboard =
+      opts?.dashboard !== false &&
+      ($('dash-auto-refresh')?.checked !== false || migrating || opts?.force);
+    const wantPlans =
+      opts?.plans !== false &&
+      ($('plan-auto-refresh')?.checked !== false || migrating || opts?.force);
+    const wantCandidates =
+      opts?.candidates !== false &&
+      ($('assess-auto-refresh')?.checked !== false || migrating || opts?.force);
+
+    try {
+      if (wantRollouts) {
+        const res = await fetch(API() + '/api/v1/rollouts' + clusterQueryPrefix());
+        if (res.ok) {
+          rollouts = await res.json();
+          renderRolloutList();
+          renderRolloutStats();
+          renderDashboardMigrationBanner(activeRollouts());
+          updateNavLiveIndicators();
+        }
+      }
+
+      if (wantDashboard && !$('dashboard')?.classList.contains('hidden')) {
+        if (isFleetView()) await loadFleetDashboard(true);
+        else await loadDashboard(true);
+      }
+
+      if (wantPlans && !$('plans')?.classList.contains('hidden')) {
+        await refreshPlansQuiet();
+      }
+
+      if (wantCandidates && !$('assessments')?.classList.contains('hidden')) {
+        await loadApplications(true);
+      }
+
+      if (opts?.rolloutDetail && selectedRolloutKey) {
+        const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
+        if (r) {
+          await refreshRolloutDetail(r, true);
+          const auditDetails = document.querySelector('.rollout-audit-details');
+          if (auditDetails && migrationStillActive()) auditDetails.open = true;
+        }
+      }
+
+      if (migrationStillActive()) {
+        setLiveConnectionStatus(
+          sseConnected ? 'live-on' : 'live-poll',
+          sseConnected ? 'Live' : 'Updating…'
+        );
+      } else if (sseConnected) {
+        setLiveConnectionStatus('live-on', 'Connected');
+      }
+    } catch (_) {}
+  }
+
+  function updateNavLiveIndicators() {
+    const active = activeRollouts().length > 0;
+    document.querySelectorAll('.main-nav .nav-link').forEach((link) => {
+      const panel = link.getAttribute('data-panel');
+      link.classList.toggle('nav-live', active && panel === 'rollouts');
+    });
   }
 
   function migrationStillActive() {
@@ -1491,38 +1621,46 @@
     }
   }
 
-  async function pollMigrationActivity(quiet) {
+  async function pollMigrationActivity() {
     try {
-      const res = await fetch(API() + '/api/v1/rollouts' + clusterQueryPrefix());
-      if (!res.ok) return;
-      rollouts = await res.json();
-      const active = activeRollouts();
-      renderDashboardMigrationBanner(active);
-
-      const dashLive = $('dash-auto-refresh')?.checked !== false;
-      const rolloutLive = $('rollout-auto-refresh')?.checked !== false;
-      const planLive = $('plan-auto-refresh')?.checked !== false;
-
-      if (dashLive) await loadDashboard(quiet);
-      if (rolloutLive) {
-        renderRolloutList();
-        if (selectedRolloutKey) {
-          const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
-          if (r) await refreshRolloutDetail(r, true);
-        }
+      const wasActive = migrationStillActive();
+      await refreshLivePanels({
+        rollouts: true,
+        dashboard: true,
+        plans: true,
+        candidates: true,
+        rolloutDetail: true,
+        force: true,
+      });
+      const stillActive = migrationStillActive();
+      if (wasActive !== stillActive && migrationLiveEnabled()) {
+        startMigrationPolling();
+        return;
       }
-      if (planLive) await refreshPlansQuiet();
-
-      if (!migrationStillActive()) stopMigrationPolling();
+      if (!stillActive && !migrationLiveEnabled()) stopMigrationPolling();
     } catch (_) {}
+  }
+
+  function migrationPollInterval() {
+    return migrationStillActive() ? LIVE_POLL_FAST_MS : LIVE_POLL_SLOW_MS;
   }
 
   function startMigrationPolling() {
     stopMigrationPolling();
-    if (!migrationLiveEnabled()) return;
-    if (!migrationStillActive()) return;
+    if (!migrationLiveEnabled()) {
+      setLiveConnectionStatus('live-off', 'Paused');
+      return;
+    }
     renderDashboardMigrationBanner(activeRollouts());
-    migrationPollTimer = setInterval(() => pollMigrationActivity(true), 5000);
+    updateNavLiveIndicators();
+    const tick = () => pollMigrationActivity();
+    tick();
+    migrationPollTimer = setInterval(tick, migrationPollInterval());
+    const active = migrationStillActive();
+    setLiveConnectionStatus(
+      active ? (sseConnected ? 'live-on' : 'live-poll') : sseConnected ? 'live-on' : 'live-poll',
+      active ? (sseConnected ? 'Live migration' : 'Updating…') : sseConnected ? 'Connected' : 'Standby'
+    );
   }
 
   function startDashboardPolling() {
@@ -2074,8 +2212,14 @@
     list.forEach((r) => {
       const li = document.createElement('li');
       const key = rolloutKey(r);
+      const snap = `${r.phase}|${r.currentStage ?? r.current_stage ?? 0}|${r.awaitingApproval || r.awaiting_approval ? 1 : 0}`;
+      const prevSnap = rolloutPhaseSnapshot.get(key);
+      const changed = prevSnap != null && prevSnap !== snap;
+      rolloutPhaseSnapshot.set(key, snap);
       li.className =
-        'rollout-list-item' + (key === selectedRolloutKey ? ' selected' : '');
+        'rollout-list-item' +
+        (key === selectedRolloutKey ? ' selected' : '') +
+        (changed ? ' rollout-flash' : '');
       const awaiting = r.awaitingApproval || r.awaiting_approval;
       const meta = rolloutPhaseMeta(r.phase);
       const detail = rolloutDetailFor(r);
@@ -2258,7 +2402,10 @@
       const result = s.resultPhase || s.result_phase;
       if (stageResultDone(result)) card.classList.add('done');
       else if ((result || '').toLowerCase() === 'failed') card.classList.add('failed');
-      else if (s.index === current) card.classList.add('current');
+      else if (s.index === current) {
+        card.classList.add('current');
+        if (rolloutDetail?._flashStage === s.index) card.classList.add('stage-flash');
+      }
       if (s.index === current && awaiting) card.classList.add('awaiting');
       const stageType = s.stageType || s.stage_type || '';
       const ns = (s.namespaces || []).join(', ') || '—';
@@ -2285,12 +2432,22 @@
 
   async function refreshRolloutDetail(r, quiet) {
     try {
+      const prevStage = rolloutDetail?.rollout
+        ? rolloutActiveStageIndex(rolloutDetail.rollout, rolloutDetail)
+        : -1;
       const res = await fetch(
         API() +
           `/api/v1/rollouts/${encodeURIComponent(r.namespace)}/${encodeURIComponent(r.name)}`
       );
       if (!res.ok) throw new Error(await res.text());
       rolloutDetail = await res.json();
+      const nextStage = rolloutActiveStageIndex(rolloutDetail.rollout || rolloutDetail, rolloutDetail);
+      if (prevStage >= 0 && nextStage !== prevStage) {
+        rolloutDetail._flashStage = nextStage;
+        setTimeout(() => {
+          if (rolloutDetail) delete rolloutDetail._flashStage;
+        }, 900);
+      }
       renderRolloutDetailHeader(r, rolloutDetail);
       renderRolloutStages(rolloutDetail);
       updateApproveAuthHint();
@@ -2589,25 +2746,75 @@
 
   function initSse() {
     if (!API()) return;
-    const evtSource = new EventSource(API() + '/api/v1/events/assessment');
+    const evtSource = new EventSource(API() + '/api/v1/events/live');
+    evtSource.onopen = () => {
+      sseConnected = true;
+      setLiveConnectionStatus(
+        migrationStillActive() ? 'live-on' : 'live-on',
+        migrationStillActive() ? 'Live' : 'Connected'
+      );
+      ensureMigrationPolling();
+    };
     evtSource.onmessage = (e) => {
       try {
         const parsed = JSON.parse(e.data);
-        if (parsed.channel === 'dashboard') {
-          if (!$('dashboard')?.classList.contains('hidden')) {
-            if (isFleetView() || parsed.payload?.scope === 'fleet') {
-              loadFleetDashboard(true);
-            } else {
-              loadDashboard(true);
-            }
-          }
-          ensureMigrationPolling();
-          return;
-        }
+        handleSseEvent(parsed);
       } catch (_) {}
-      appendEvent(e.data);
     };
-    evtSource.onerror = () => appendEvent('SSE connection error');
+    evtSource.onerror = () => {
+      sseConnected = false;
+      setLiveConnectionStatus('live-warn', 'Reconnecting…');
+      ensureMigrationPolling();
+    };
+  }
+
+  function handleSseEvent(parsed) {
+    const channel = parsed.channel;
+    const payload = parsed.payload || {};
+    if (channel === 'rollout') {
+      ensureMigrationPolling();
+      const matchesScope =
+        !payload.clusterRef ||
+        isFleetView() ||
+        payload.clusterRef === activeClusterRef ||
+        activeClusterRef === '';
+      if (!matchesScope) return;
+      scheduleLiveRefresh({
+        rollouts: true,
+        dashboard: true,
+        plans: true,
+        rolloutDetail:
+          !selectedRolloutKey ||
+          rollouts.some(
+            (r) =>
+              rolloutKey(r) === selectedRolloutKey && rolloutMatchesEvent(r, payload)
+          ) ||
+          !rollouts.length,
+      });
+      if (payload.phase && rolloutIsActive(payload.phase)) {
+        const phaseLabel = rolloutPhaseMeta(payload.phase).label;
+        setLiveConnectionStatus('live-on', `Live · ${phaseLabel}`);
+      }
+      return;
+    }
+    if (channel === 'dashboard') {
+      if (!$('dashboard')?.classList.contains('hidden')) {
+        scheduleLiveRefresh({ dashboard: true, rollouts: true, plans: true });
+      } else {
+        ensureMigrationPolling();
+      }
+      return;
+    }
+    if (channel === 'assessment') {
+      scheduleLiveRefresh({ candidates: true, dashboard: true });
+      if (!$('assessments')?.classList.contains('hidden')) {
+        setStatus(`Assessment complete (${payload.findingCount ?? 0} findings)`);
+      }
+      return;
+    }
+    if (channel === 'plan') {
+      scheduleLiveRefresh({ plans: true, rollouts: true });
+    }
   }
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -2626,6 +2833,7 @@
     $('plan-auto-refresh')?.addEventListener('change', startMigrationPolling);
     $('rollout-auto-refresh')?.addEventListener('change', startMigrationPolling);
     $('dash-auto-refresh')?.addEventListener('change', startMigrationPolling);
+    $('assess-auto-refresh')?.addEventListener('change', startMigrationPolling);
     $('auth-login-btn')?.addEventListener('click', loginLocal);
     $('auth-logout-btn')?.addEventListener('click', logout);
     $('auth-oidc-login')?.addEventListener('click', startOidcLogin);

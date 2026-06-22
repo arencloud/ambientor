@@ -11,6 +11,7 @@ pub mod mesh_instances;
 pub mod openshift;
 pub mod plans;
 pub mod rollouts;
+pub mod rollout_watch;
 pub mod scans;
 pub mod sse;
 
