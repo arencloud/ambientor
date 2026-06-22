@@ -23,7 +23,9 @@ pub use compute::{
     list_rollout_ns_status, namespace_belongs_to_mesh, overlay_fleet_rollout_status,
     overlay_rollout_status, AssessmentFindingsOverrides,
 };
-pub use dashboard_from_run::compute_migration_savings;
+pub use dashboard_from_run::{
+    compute_migration_savings, merge_mesh_dashboards, mesh_instances_to_dashboard_catalog,
+};
 pub use dataplane::{
     DataplaneMode, derive_dataplane_mode, derive_dataplane_mode_from_stored,
     is_migration_candidate, namespace_is_migrated,

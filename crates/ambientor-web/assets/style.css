@@ -2645,6 +2645,61 @@ a.btn {
   border-radius: 10px;
 }
 
+.register-connection-form {
+  margin-top: 0.5rem;
+}
+
+.register-grid {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) 1fr;
+  gap: 0.55rem 1rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.register-grid label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.conn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.btn.btn-sm {
+  padding: 0.28rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.inline-link {
+  color: #dc2626;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.inline-link:hover {
+  text-decoration: underline;
+}
+
+.export-pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 1rem;
+  border-radius: 10px;
+  overflow-x: auto;
+  max-height: 420px;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 720px) {
+  .register-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .qdash-app .hero-actions .btn-primary,
 .qdash-app .action-row .btn-primary,
 .qdash-app .compose-actions .btn-primary {

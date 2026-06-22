@@ -2,7 +2,7 @@ use ambientor_core::rules::RuleContext;
 use ambientor_dashboard::{
     apply_cluster_ref_metadata, build_cluster_assessment_from_context,
     build_cluster_assessment_from_inventory, cluster_dashboard_meta_with_meshes,
-    dashboard_from_assessment_run,
+    dashboard_from_assessment_run, merge_mesh_dashboards, mesh_instances_to_dashboard_catalog,
 };
 use ambientor_k8s::resolve_cluster_display_name;
 use ambientor_mesh::inventory::CollectedInventory;
@@ -47,6 +47,10 @@ pub async fn persist_full_assessment(
         resolve_cluster_display_name(hub, cluster_ref, &cluster_meta.name).await;
 
     let mut snapshot = dashboard_from_assessment_run(&run, cluster_meta);
+    let catalog = mesh_instances_to_dashboard_catalog(&mesh_instances);
+    snapshot.mesh_instances = merge_mesh_dashboards(catalog, snapshot.mesh_instances);
+    snapshot.cluster.mesh_instance_count = snapshot.mesh_instances.len();
+    snapshot.cluster.ambient_mesh_count = snapshot.mesh_instances.iter().filter(|m| m.ambient).count();
     apply_cluster_ref_metadata(cluster_ref, &mut snapshot);
     dashboard.sync_snapshot(&snapshot).await?;
 
@@ -80,6 +84,10 @@ pub async fn persist_full_assessment_from_context(
         resolve_cluster_display_name(hub, cluster_ref, &cluster_meta.name).await;
 
     let mut snapshot = dashboard_from_assessment_run(&run, cluster_meta);
+    let catalog = mesh_instances_to_dashboard_catalog(&mesh_instances);
+    snapshot.mesh_instances = merge_mesh_dashboards(catalog, snapshot.mesh_instances);
+    snapshot.cluster.mesh_instance_count = snapshot.mesh_instances.len();
+    snapshot.cluster.ambient_mesh_count = snapshot.mesh_instances.iter().filter(|m| m.ambient).count();
     apply_cluster_ref_metadata(cluster_ref, &mut snapshot);
     dashboard.sync_snapshot(&snapshot).await?;
 

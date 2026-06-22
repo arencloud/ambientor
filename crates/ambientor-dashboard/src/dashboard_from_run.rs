@@ -132,6 +132,69 @@ fn mesh_groups_from_applications(apps: &[ApplicationAssessmentRecord]) -> Vec<Me
     meshes
 }
 
+fn mesh_dashboard_key(mesh: &MeshInstanceDashboard) -> (String, String, String) {
+    (
+        mesh.revision.clone(),
+        mesh.discovery_label.clone(),
+        mesh.control_plane_namespace.clone(),
+    )
+}
+
+/// Build empty dashboard shells from live istiod discovery (all control planes on cluster).
+pub fn mesh_instances_to_dashboard_catalog(
+    instances: &[ambientor_types::MeshInstance],
+) -> Vec<MeshInstanceDashboard> {
+    let mut meshes: Vec<MeshInstanceDashboard> = instances
+        .iter()
+        .map(|d| MeshInstanceDashboard {
+            revision: d.revision.clone(),
+            discovery_label: d.discovery_label.clone(),
+            control_plane_namespace: d.control_plane_namespace.clone(),
+            version: d.version.clone(),
+            ambient: d.ambient,
+            counts: StatusCounts::default(),
+            applications: Vec::new(),
+        })
+        .collect();
+    meshes.sort_by(|a, b| {
+        b.ambient
+            .cmp(&a.ambient)
+            .then(a.discovery_label.cmp(&b.discovery_label))
+    });
+    meshes
+}
+
+/// Union discovered control planes with application-grouped mesh rows (assessment snapshot).
+pub fn merge_mesh_dashboards(
+    catalog: Vec<MeshInstanceDashboard>,
+    from_apps: Vec<MeshInstanceDashboard>,
+) -> Vec<MeshInstanceDashboard> {
+    let mut map: BTreeMap<(String, String, String), MeshInstanceDashboard> = BTreeMap::new();
+    for shell in catalog {
+        map.insert(mesh_dashboard_key(&shell), shell);
+    }
+    for app_mesh in from_apps {
+        let key = mesh_dashboard_key(&app_mesh);
+        if let Some(shell) = map.get_mut(&key) {
+            shell.counts = app_mesh.counts;
+            shell.applications = app_mesh.applications;
+            if app_mesh.version.is_some() {
+                shell.version = app_mesh.version.clone();
+            }
+            shell.ambient = app_mesh.ambient;
+        } else {
+            map.insert(key, app_mesh);
+        }
+    }
+    let mut meshes: Vec<_> = map.into_values().collect();
+    meshes.sort_by(|a, b| {
+        b.ambient
+            .cmp(&a.ambient)
+            .then(a.discovery_label.cmp(&b.discovery_label))
+    });
+    meshes
+}
+
 fn resolve_dataplane_mode(app: &ApplicationAssessmentRecord) -> DataplaneMode {
     if !app.dataplane_mode.is_empty() {
         return match app.dataplane_mode.as_str() {

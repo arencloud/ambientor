@@ -32,7 +32,15 @@ pub fn api_router() -> Router<Arc<AppState>> {
         .route("/api/v1/auth/oidc/login", get(auth::oidc_login))
         .route("/api/v1/auth/oidc/callback", get(auth::oidc_callback))
         .route("/api/v1/assess", post(assess::assess))
-        .route("/api/v1/connections", get(connections::list_connections))
+        .route("/api/v1/connections", get(connections::list_connections).post(connections::create_connection))
+        .route(
+            "/api/v1/connections/{namespace}/{name}",
+            get(connections::get_connection).delete(connections::delete_connection),
+        )
+        .route(
+            "/api/v1/connections/{namespace}/{name}/export",
+            get(connections::export_connection),
+        )
         .route(
             "/api/v1/connections/{namespace}/{name}/assess",
             post(connections::assess_connection),

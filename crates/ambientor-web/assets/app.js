@@ -35,6 +35,7 @@
   const DB_DASHBOARD_MODE = true;
   const PAGE_TITLES = {
     dashboard: { title: 'Dashboard', subtitle: 'Migration overview from database snapshots' },
+    clusters: { title: 'Clusters', subtitle: 'Hub ClusterConnection registry (GitOps-compatible)' },
     assessments: { title: 'Candidates', subtitle: 'Assessed workloads ready for ambient migration' },
     plans: { title: 'Plans', subtitle: 'Migration waves and policy translations' },
     rollouts: { title: 'Rollouts', subtitle: 'Live pipeline execution and approvals' },
@@ -772,6 +773,8 @@
     }
     if (clearBtn) clearBtn.classList.toggle('hidden', isFleetView());
     if (fleetSection) fleetSection.classList.toggle('hidden', !isFleetView());
+    const connCard = $('dash-connections-card');
+    if (connCard) connCard.classList.toggle('hidden', !isFleetView());
     if (meshSection) meshSection.classList.remove('hidden');
     fleetCols.forEach((el) => el.classList.toggle('hidden', !isFleetView()));
     if (composeCard) composeCard.classList.toggle('fleet-disabled', isFleetView());
@@ -940,24 +943,213 @@
   }
 
   async function loadFleetClusters() {
+    await loadConnections(true);
     if (!API()) return;
     try {
-      const [fleetRes, connRes] = await Promise.all([
-        fetch(API() + '/api/v1/dashboard/fleet' + dashboardQueryString()),
-        fetch(API() + '/api/v1/connections'),
-      ]);
+      const fleetRes = await fetch(API() + '/api/v1/dashboard/fleet' + dashboardQueryString());
       if (fleetRes.ok) {
         const fleet = await fleetRes.json();
-        fleetClusters = fleet.clusters || fleet.Clusters || [];
+        fleetClusters = fleet.clusters || fleet.Clusters || fleetClusters;
+        renderClusterSwitcher();
+        updateScopeUi();
       }
-      if (connRes.ok) {
-        clusterConnections = await connRes.json();
-      }
+    } catch (_) {}
+  }
+
+  async function loadConnections(quiet) {
+    if (!API()) return;
+    if (!quiet) setStatus('Loading cluster connections…');
+    try {
+      const res = await fetch(API() + '/api/v1/connections');
+      if (!res.ok) throw new Error(await res.text());
+      clusterConnections = await res.json();
       renderClusterSwitcher();
       renderConnectionsList();
+      renderConnectionsTable();
       updateScopeUi();
-    } catch {
-      /* fleet / connections API optional */
+      if (!quiet) setStatus(`${clusterConnections.length} cluster connection(s) loaded`);
+    } catch (e) {
+      if (!quiet) setStatus('Failed to load connections: ' + e.message, true);
+      renderConnectionsTable(true);
+    }
+  }
+
+  function renderConnectionsTable(failed) {
+    const tbody = $('connections-tbody');
+    const hint = $('clusters-table-hint');
+    if (!tbody) return;
+    if (failed) {
+      tbody.innerHTML =
+        '<tr><td colspan="5" class="empty-cell">Could not load ClusterConnection resources from the hub.</td></tr>';
+      return;
+    }
+    const items = clusterConnections.slice().sort((a, b) => {
+      if (a.hub !== b.hub) return a.hub ? -1 : 1;
+      return (a.displayName || a.display_name || a.name).localeCompare(
+        b.displayName || b.display_name || b.name
+      );
+    });
+    if (hint) {
+      hint.textContent = `${items.length} connection(s) · portal, kubectl, and GitOps use the same CR`;
+    }
+    if (!items.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="5" class="empty-cell">No ClusterConnection resources yet. Register a spoke below or apply <code>docs/lab/clusterconnection-spoke.example.yaml</code>.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items
+      .map((c) => {
+        const ref = c.clusterRef || c.cluster_ref;
+        const label = escapeHtml(c.displayName || c.display_name || c.name);
+        const phase = escapeHtml(c.phase || 'Unknown');
+        const kind = c.hub ? 'Hub' : 'Spoke';
+        const rolloutOk = c.rolloutAccess ?? c.rollout_access;
+        const rolloutLabel =
+          rolloutOk === true
+            ? '<span class="badge-status migrated">Ready</span>'
+            : rolloutOk === false
+              ? '<span class="badge-status failed">Missing</span>'
+              : '<span class="hint">—</span>';
+        const assessBtn = c.hub
+          ? ''
+          : `<button type="button" class="btn btn-sm conn-assess-btn" data-ns="${escapeHtml(c.namespace)}" data-name="${escapeHtml(c.name)}">Assess</button>`;
+        const deleteBtn = c.hub
+          ? ''
+          : `<button type="button" class="btn btn-sm conn-delete-btn" data-ns="${escapeHtml(c.namespace)}" data-name="${escapeHtml(c.name)}">Remove</button>`;
+        return `<tr data-cluster-ref="${escapeHtml(ref)}">
+          <td><strong>${label}</strong><br><span class="mono small">${escapeHtml(ref)}</span><br><span class="hint small">${kind}</span></td>
+          <td class="mono small">${escapeHtml(c.namespace)}/${escapeHtml(c.name)}</td>
+          <td><span class="badge-status ${statusCssClass(phase.toLowerCase())}">${phase}</span></td>
+          <td>${rolloutLabel}</td>
+          <td class="conn-actions">
+            <button type="button" class="btn btn-sm conn-focus-btn" data-ref="${escapeHtml(ref)}">Focus</button>
+            ${assessBtn}
+            <button type="button" class="btn btn-sm conn-export-btn" data-ns="${escapeHtml(c.namespace)}" data-name="${escapeHtml(c.name)}">Export YAML</button>
+            ${deleteBtn}
+          </td>
+        </tr>`;
+      })
+      .join('');
+
+    tbody.querySelectorAll('.conn-focus-btn').forEach((btn) => {
+      btn.addEventListener('click', () => selectCluster(btn.getAttribute('data-ref') || ''));
+    });
+    tbody.querySelectorAll('.conn-assess-btn').forEach((btn) => {
+      btn.addEventListener('click', () =>
+        assessConnection(btn.getAttribute('data-ns'), btn.getAttribute('data-name'))
+      );
+    });
+    tbody.querySelectorAll('.conn-export-btn').forEach((btn) => {
+      btn.addEventListener('click', () =>
+        exportConnectionYaml(btn.getAttribute('data-ns'), btn.getAttribute('data-name'))
+      );
+    });
+    tbody.querySelectorAll('.conn-delete-btn').forEach((btn) => {
+      btn.addEventListener('click', () =>
+        deleteConnection(btn.getAttribute('data-ns'), btn.getAttribute('data-name'))
+      );
+    });
+  }
+
+  async function assessConnection(namespace, name) {
+    if (!namespace || !name) return;
+    setStatus(`Running assessment on ${namespace}/${name}…`);
+    try {
+      const res = await fetch(
+        API() + `/api/v1/connections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/assess`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const count = data.applicationCount ?? data.application_count ?? 0;
+      setStatus(`Assessment complete on ${namespace}/${name} — ${count} application(s)`);
+      selectCluster(`${namespace}/${name}`);
+      activatePanel('assessments');
+    } catch (e) {
+      setStatus('Remote assessment failed: ' + e.message, true);
+    }
+  }
+
+  async function exportConnectionYaml(namespace, name) {
+    if (!namespace || !name) return;
+    try {
+      const res = await fetch(
+        API() +
+          `/api/v1/connections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/export`
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const panel = $('conn-export-panel');
+      const pre = $('conn-export-yaml');
+      const hint = $('conn-export-hint');
+      if (pre) pre.textContent = data.yaml || '';
+      if (hint) {
+        hint.textContent =
+          data.applyCommand ||
+          `kubectl apply -f ${name}.yaml  # same manifest for GitOps`;
+      }
+      if (panel) panel.classList.remove('hidden');
+      setStatus(`Exported ClusterConnection ${namespace}/${name}`);
+    } catch (e) {
+      setStatus('Export failed: ' + e.message, true);
+    }
+  }
+
+  async function deleteConnection(namespace, name) {
+    if (!namespace || !name) return;
+    if (!confirm(`Remove ClusterConnection ${namespace}/${name} from the hub? This does not delete the spoke cluster.`)) {
+      return;
+    }
+    try {
+      const res = await fetch(
+        API() + `/api/v1/connections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok && res.status !== 204) throw new Error(await res.text());
+      setStatus(`Removed ClusterConnection ${namespace}/${name}`);
+      await loadConnections(true);
+    } catch (e) {
+      setStatus('Remove failed: ' + e.message, true);
+    }
+  }
+
+  async function registerConnection(event) {
+    event.preventDefault();
+    const body = {
+      name: $('conn-name')?.value?.trim(),
+      namespace: $('conn-namespace')?.value?.trim() || 'ambientor-system',
+      displayName: $('conn-display-name')?.value?.trim(),
+      apiServer: $('conn-api-server')?.value?.trim() || undefined,
+      credentialsSecretRef: {
+        name: $('conn-secret-name')?.value?.trim(),
+        namespace: $('conn-secret-ns')?.value?.trim() || 'ambientor-system',
+      },
+      hub: false,
+    };
+    if (!body.name || !body.displayName || !body.credentialsSecretRef.name) {
+      setStatus('Name, display name, and credentials secret are required', true);
+      return;
+    }
+    const btn = $('register-connection-btn');
+    if (btn) btn.disabled = true;
+    setStatus('Creating ClusterConnection on hub…');
+    try {
+      const res = await fetch(API() + '/api/v1/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setStatus(`Registered cluster ${body.namespace}/${body.name}`);
+      $('register-connection-form')?.reset();
+      if ($('conn-namespace')) $('conn-namespace').value = 'ambientor-system';
+      if ($('conn-secret-ns')) $('conn-secret-ns').value = 'ambientor-system';
+      await loadConnections(true);
+      selectCluster(`${body.namespace}/${body.name}`);
+    } catch (e) {
+      setStatus('Register failed: ' + e.message, true);
+    } finally {
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -1351,7 +1543,7 @@
       </div>
       <table class="app-table">
         <thead><tr><th>Application</th><th>Status</th><th>Dataplane</th><th>Assessment</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="4">No enrolled namespaces on this control plane</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="4"><span class="hint">No enrolled applications on this control plane yet.</span></td></tr>'}</tbody>
       </table>
     `;
     return card;
@@ -3005,8 +3197,10 @@
   }
 
   function panelFromHash() {
-    const id = (location.hash || '#dashboard').slice(1);
-    return ['dashboard', 'assessments', 'plans', 'rollouts'].includes(id) ? id : 'dashboard';
+    const id = (location.hash || '#dashboard').slice(1).split('&')[0];
+    return ['dashboard', 'clusters', 'assessments', 'plans', 'rollouts'].includes(id)
+      ? id
+      : 'dashboard';
   }
 
   function activatePanel(id) {
@@ -3019,6 +3213,8 @@
     if (id === 'dashboard') {
       loadDashboard();
       ensureMigrationPolling();
+    } else if (id === 'clusters') {
+      loadConnections();
     } else if (id === 'assessments') {
       loadAssessments();
       loadMeshInstancesForPlans();
@@ -3185,6 +3381,19 @@
     $('execute-migration')?.addEventListener('click', executeMigrationFromPlan);
     $('start-rollout')?.addEventListener('click', startRolloutFromPlan);
     $('refresh-rollouts')?.addEventListener('click', loadRollouts);
+    $('refresh-connections')?.addEventListener('click', () => loadConnections());
+    $('register-connection-form')?.addEventListener('submit', registerConnection);
+    $('conn-export-close')?.addEventListener('click', () => $('conn-export-panel')?.classList.add('hidden'));
+    $('conn-export-copy')?.addEventListener('click', () => {
+      const text = $('conn-export-yaml')?.textContent || '';
+      navigator.clipboard?.writeText(text).then(() => setStatus('YAML copied'));
+    });
+    document.querySelectorAll('a.inline-link[href="#clusters"]').forEach((a) => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        activatePanel('clusters');
+      });
+    });
     $('approve-rollout')?.addEventListener('click', approveCurrentRolloutStage);
     initSse();
     ensureMigrationPolling();

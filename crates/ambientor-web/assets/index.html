@@ -39,6 +39,9 @@
       <a href="#dashboard" class="sidebar-link active" data-panel="dashboard">
         <span class="sidebar-icon" aria-hidden="true">▣</span> Dashboard
       </a>
+      <a href="#clusters" class="sidebar-link" data-panel="clusters">
+        <span class="sidebar-icon" aria-hidden="true">⬡</span> Clusters
+      </a>
       <a href="#assessments" class="sidebar-link" data-panel="assessments">
         <span class="sidebar-icon" aria-hidden="true">◫</span> Candidates
       </a>
@@ -175,7 +178,7 @@
       <section class="content-card" id="dash-connections-card">
         <header class="content-card-head">
           <h3>Cluster connections</h3>
-          <span class="hint" id="dash-connections-hint">Spoke clusters registered on the hub</span>
+          <span class="hint" id="dash-connections-hint">Spoke clusters registered on the hub · <a href="#clusters" class="inline-link">Manage clusters</a></span>
         </header>
         <div id="dash-connections-list" class="connections-list">
           <p class="hint">Loading connections…</p>
@@ -195,6 +198,82 @@
           </section>
         </aside>
       </div>
+    </section>
+
+    <!-- Cluster connections (hub registry) -->
+    <section id="clusters" class="view-panel hidden">
+      <div class="view-hero">
+        <div>
+          <p class="eyebrow">Hub registry</p>
+          <h2>Cluster connections</h2>
+          <p class="view-meta">Register spoke clusters via the same <code>ClusterConnection</code> CR used by GitOps and CLI. Credentials live in Kubernetes Secrets on the hub.</p>
+        </div>
+        <div class="hero-actions">
+          <button id="refresh-connections" class="btn">Refresh</button>
+        </div>
+      </div>
+
+      <section class="content-card">
+        <header class="content-card-head">
+          <h3>Register spoke cluster</h3>
+          <span class="hint">Creates <code>ClusterConnection</code> on the hub (GitOps-compatible)</span>
+        </header>
+        <form id="register-connection-form" class="register-connection-form">
+          <div class="register-grid">
+            <label for="conn-name">Resource name</label>
+            <input type="text" id="conn-name" class="filter-input" placeholder="cl02" required pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?" />
+            <label for="conn-namespace">Namespace</label>
+            <input type="text" id="conn-namespace" class="filter-input" value="ambientor-system" />
+            <label for="conn-display-name">Display name</label>
+            <input type="text" id="conn-display-name" class="filter-input" placeholder="Pilot cluster cl02" required />
+            <label for="conn-secret-name">Credentials secret</label>
+            <input type="text" id="conn-secret-name" class="filter-input" placeholder="spoke-cl02-kubeconfig" required />
+            <label for="conn-secret-ns">Secret namespace</label>
+            <input type="text" id="conn-secret-ns" class="filter-input" value="ambientor-system" />
+            <label for="conn-api-server">API server (optional)</label>
+            <input type="text" id="conn-api-server" class="filter-input" placeholder="https://api.spoke.example:6443" />
+          </div>
+          <p class="hint">Apply spoke RBAC and export credentials first: <code>scripts/spoke-export-hub-credentials.sh</code> · see <code>docs/lab/clusterconnection-spoke.example.yaml</code></p>
+          <div class="compose-actions">
+            <button type="submit" id="register-connection-btn" class="btn btn-primary">Register cluster</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="content-card table-card">
+        <header class="content-card-head">
+          <h3>Registered clusters</h3>
+          <span class="hint" id="clusters-table-hint">—</span>
+        </header>
+        <div class="app-table-wrap">
+          <table class="data-table" id="connections-table">
+            <thead>
+              <tr>
+                <th>Cluster</th>
+                <th>ClusterConnection</th>
+                <th>Phase</th>
+                <th>Rollout RBAC</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="connections-tbody">
+              <tr><td colspan="5" class="empty-cell">Loading connections…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="content-card hidden" id="conn-export-panel">
+        <header class="content-card-head">
+          <h3>GitOps export</h3>
+          <button type="button" id="conn-export-close" class="btn">Close</button>
+        </header>
+        <p class="hint" id="conn-export-hint">—</p>
+        <pre id="conn-export-yaml" class="mono export-pre"></pre>
+        <div class="compose-actions">
+          <button type="button" id="conn-export-copy" class="btn">Copy YAML</button>
+        </div>
+      </section>
     </section>
 
     <!-- Migration candidates -->

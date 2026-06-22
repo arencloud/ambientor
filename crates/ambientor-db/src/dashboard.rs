@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use ambientor_dashboard::{
     ApplicationAssessmentRecord, ClusterAssessmentRun, DashboardResponse,
     FleetClusterDashboard, FleetDashboardResponse, MeshInstanceDashboard, RiskLevel, StatusCounts,
-    dashboard_from_assessment_run, derive_dataplane_mode_from_stored,
+    dashboard_from_assessment_run, derive_dataplane_mode_from_stored, merge_mesh_dashboards,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -179,8 +179,54 @@ impl DashboardRepository {
         };
 
         let mut response = dashboard_from_assessment_run(&run, cluster);
+        let from_apps = response.mesh_instances.clone();
+        let catalog = self.load_mesh_catalog(cluster_ref).await?;
+        let snapshot_catalog = self
+            .load_snapshot_mesh_catalog(cluster_ref)
+            .await?
+            .unwrap_or_default();
+        let merged_catalog = merge_mesh_dashboards(catalog, snapshot_catalog);
+        response.mesh_instances = merge_mesh_dashboards(merged_catalog, from_apps);
+        response.cluster.mesh_instance_count = response.mesh_instances.len();
+        response.cluster.ambient_mesh_count =
+            response.mesh_instances.iter().filter(|m| m.ambient).count();
 
-        let snapshot_mesh: Option<Value> = sqlx::query_scalar(
+        Ok(Some(response))
+    }
+
+    async fn load_mesh_catalog(&self, cluster_ref: &str) -> Result<Vec<MeshInstanceDashboard>, DbError> {
+        let rows = sqlx::query_as::<_, MeshCatalogRow>(
+            r#"
+            SELECT mi.revision, mi.discovery_label, mi.control_plane_namespace, mi.version, mi.ambient
+            FROM mesh_instances mi
+            INNER JOIN clusters c ON c.id = mi.cluster_id
+            WHERE c.cluster_ref = $1
+            ORDER BY mi.discovery_label, mi.revision
+            "#,
+        )
+        .bind(cluster_ref)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| MeshInstanceDashboard {
+                revision: r.revision,
+                discovery_label: r.discovery_label,
+                control_plane_namespace: r.control_plane_namespace,
+                version: r.version,
+                ambient: r.ambient,
+                counts: StatusCounts::default(),
+                applications: Vec::new(),
+            })
+            .collect())
+    }
+
+    async fn load_snapshot_mesh_catalog(
+        &self,
+        cluster_ref: &str,
+    ) -> Result<Option<Vec<MeshInstanceDashboard>>, DbError> {
+        let json: Option<Value> = sqlx::query_scalar(
             r#"
             SELECT s.mesh_instances
             FROM dashboard_snapshots s
@@ -194,20 +240,21 @@ impl DashboardRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        if response.mesh_instances.is_empty() {
-            if let Some(json) = snapshot_mesh {
-                if let Ok(meshes) = serde_json::from_value::<Vec<MeshInstanceDashboard>>(json) {
-                    if !meshes.is_empty() {
-                        response.cluster.mesh_instance_count = meshes.len();
-                        response.cluster.ambient_mesh_count =
-                            meshes.iter().filter(|m| m.ambient).count();
-                        response.mesh_instances = meshes;
-                    }
-                }
-            }
-        }
-
-        Ok(Some(response))
+        let Some(json) = json else {
+            return Ok(None);
+        };
+        let meshes: Vec<MeshInstanceDashboard> = serde_json::from_value(json)
+            .map_err(|e| DbError::Serialize(e.to_string()))?;
+        Ok(Some(
+            meshes
+                .into_iter()
+                .map(|mut m| {
+                    m.applications = Vec::new();
+                    m.counts = StatusCounts::default();
+                    m
+                })
+                .collect(),
+        ))
     }
 
     /// Rebuild persisted snapshots for every cluster that has assessment rows.
@@ -284,6 +331,15 @@ impl DashboardRepository {
                 .unwrap_or_else(|| Utc::now().to_rfc3339()),
         }))
     }
+}
+
+#[derive(sqlx::FromRow)]
+struct MeshCatalogRow {
+    revision: String,
+    discovery_label: String,
+    control_plane_namespace: String,
+    version: Option<String>,
+    ambient: bool,
 }
 
 #[derive(sqlx::FromRow)]
