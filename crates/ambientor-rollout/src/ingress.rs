@@ -157,7 +157,9 @@ pub async fn revert_ambient_ingress(
     if restored > 0 {
         notes.push(format!("restored parentRefs on {restored} HTTPRoute(s)"));
     }
-    let routes_reverted = revert_openshift_routes(client).await?;
+    let routes_reverted =
+        revert_openshift_routes(client, namespace, &openshift_route_hostnames(client, namespace).await?)
+            .await?;
     if routes_reverted > 0 {
         notes.push(format!("reverted {routes_reverted} OpenShift Route(s)"));
     }
@@ -818,7 +820,7 @@ async fn migrate_openshift_routes(
     target_service_name: &str,
     hostnames: &[String],
 ) -> Result<usize, RolloutError> {
-    if legacy_services.is_empty() || hostnames.is_empty() {
+    if hostnames.is_empty() {
         return Ok(0);
     }
     let route_ar = api_resource("route.openshift.io", "v1", "Route", "routes");
@@ -832,7 +834,7 @@ async fn migrate_openshift_routes(
     let legacy: std::collections::BTreeSet<_> = legacy_services.iter().cloned().collect();
     let hosts: std::collections::BTreeSet<_> = hostnames.iter().cloned().collect();
     let mut updated = 0usize;
-    for route in list {
+    for route in &list {
         let Some(name) = route.metadata.name.clone() else {
             continue;
         };
@@ -854,7 +856,7 @@ async fn migrate_openshift_routes(
         if route_ns == app_namespace && to_name == target_service_name {
             continue;
         }
-        if route_ns != app_namespace && !legacy.contains(to_name) {
+        if route_ns != app_namespace && !legacy.is_empty() && !legacy.contains(to_name) {
             continue;
         }
 
@@ -883,7 +885,7 @@ async fn migrate_openshift_routes(
             continue;
         }
 
-        let snapshot = openshift_route_snapshot(&route);
+        let snapshot = openshift_route_snapshot(route);
         let route_api =
             Api::<DynamicObject>::namespaced_with(client.clone(), &route_ns, &route_ar);
         route_api
@@ -925,7 +927,96 @@ async fn migrate_openshift_routes(
             "moved OpenShift Route from shared gateway namespace to application namespace"
         );
     }
+
+    for host in &hosts {
+        if openshift_route_serves_host(&list, app_namespace, host, target_service_name) {
+            continue;
+        }
+        let name = openshift_route_name_for_host(host);
+        let manifest = default_openshift_route_manifest(
+            &name,
+            app_namespace,
+            host,
+            target_service_name,
+        );
+        apply_namespaced_manifest(client, app_namespace, &manifest).await?;
+        updated += 1;
+        info!(
+            host = %host,
+            route = %format!("{app_namespace}/{name}"),
+            "created OpenShift Route for ambient ingress (no legacy Route found)"
+        );
+    }
     Ok(updated)
+}
+
+fn openshift_route_serves_host(
+    routes: &[DynamicObject],
+    app_namespace: &str,
+    host: &str,
+    target_service_name: &str,
+) -> bool {
+    routes.iter().any(|route| {
+        route.metadata.namespace.as_deref() == Some(app_namespace)
+            && route
+                .data
+                .pointer("/spec/host")
+                .and_then(|v| v.as_str())
+                == Some(host)
+            && route
+                .data
+                .pointer("/spec/to/name")
+                .and_then(|v| v.as_str())
+                == Some(target_service_name)
+    })
+}
+
+fn openshift_route_name_for_host(host: &str) -> String {
+    let prefix = host.split('.').next().unwrap_or("app");
+    format!("{prefix}-bookinfo")
+}
+
+fn default_openshift_route_manifest(
+    name: &str,
+    app_namespace: &str,
+    host: &str,
+    target_service_name: &str,
+) -> serde_json::Value {
+    json!({
+        "apiVersion": "route.openshift.io/v1",
+        "kind": "Route",
+        "metadata": {
+            "name": name,
+            "namespace": app_namespace,
+            "labels": {
+                MANAGED_BY_LABEL: MANAGED_BY_VALUE,
+                "ambientor.io/ingress-route-migrated": "true"
+            }
+        },
+        "spec": {
+            "host": host,
+            "port": { "targetPort": 8080 },
+            "tls": {
+                "insecureEdgeTerminationPolicy": "Redirect",
+                "termination": "edge"
+            },
+            "to": {
+                "kind": "Service",
+                "name": target_service_name,
+                "weight": 100
+            },
+            "wildcardPolicy": "None"
+        }
+    })
+}
+
+async fn openshift_route_hostnames(client: &Client, namespace: &str) -> Result<Vec<String>, RolloutError> {
+    let (routes, _) = collect_namespace_routes(client, namespace).await?;
+    let hosts: Vec<String> = routes
+        .into_iter()
+        .flat_map(|r| r.hostnames)
+        .collect();
+    Ok(hosts)
 }
 
 fn openshift_route_snapshot(route: &DynamicObject) -> serde_json::Value {
@@ -940,7 +1031,11 @@ fn openshift_route_snapshot(route: &DynamicObject) -> serde_json::Value {
     })
 }
 
-async fn revert_openshift_routes(client: &Client) -> Result<usize, RolloutError> {
+async fn revert_openshift_routes(
+    client: &Client,
+    app_namespace: &str,
+    hostnames: &[String],
+) -> Result<usize, RolloutError> {
     let route_ar = api_resource("route.openshift.io", "v1", "Route", "routes");
     let api = Api::<DynamicObject>::all_with(client.clone(), &route_ar);
     let list = match api.list(&kube::api::ListParams::default()).await {
@@ -948,8 +1043,21 @@ async fn revert_openshift_routes(client: &Client) -> Result<usize, RolloutError>
         Err(kube::Error::Api(e)) if e.code == 404 => return Ok(0),
         Err(e) => return Err(RolloutError::Kube(e)),
     };
+    let hosts: std::collections::BTreeSet<_> = hostnames.iter().cloned().collect();
     let mut reverted = 0usize;
     for route in list {
+        let route_ns = route.metadata.namespace.clone().unwrap_or_default();
+        if route_ns != app_namespace {
+            continue;
+        }
+        let route_host = route
+            .data
+            .pointer("/spec/host")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        if !hosts.is_empty() && !hosts.contains(route_host) {
+            continue;
+        }
         let migrated = route
             .metadata
             .labels
