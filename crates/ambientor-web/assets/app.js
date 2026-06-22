@@ -772,8 +772,7 @@
     }
     if (clearBtn) clearBtn.classList.toggle('hidden', isFleetView());
     if (fleetSection) fleetSection.classList.toggle('hidden', !isFleetView());
-    if (meshSection) meshSection.classList.toggle('hidden', isFleetView());
-    if (meshSection && !isFleetView()) meshSection.classList.remove('view-cluster-only');
+    if (meshSection) meshSection.classList.remove('hidden');
     fleetCols.forEach((el) => el.classList.toggle('hidden', !isFleetView()));
     if (composeCard) composeCard.classList.toggle('fleet-disabled', isFleetView());
     if (runBtn) {
@@ -783,7 +782,11 @@
     const eyebrow = $('dash-eyebrow');
     if (eyebrow) eyebrow.textContent = isFleetView() ? 'Fleet overview' : 'Cluster dashboard';
     const meshTitle = $('dash-mesh-title');
-    if (meshTitle) meshTitle.textContent = isFleetView() ? 'Control planes' : 'Control planes';
+    if (meshTitle) {
+      meshTitle.textContent = isFleetView()
+        ? 'Control planes (all clusters)'
+        : 'Control planes';
+    }
     const scopeIcon = $('scope-select-icon');
     if (scopeIcon) {
       if (isFleetView()) scopeIcon.textContent = '◈';
@@ -1354,6 +1357,34 @@
     return card;
   }
 
+  function renderFleetMeshOverview(clusters) {
+    const container = $('dash-mesh-instances');
+    if (!container) return;
+    container.innerHTML = '';
+    let any = false;
+    (clusters || []).forEach((c) => {
+      const ref = c.clusterRef || c.cluster_ref;
+      const meshes = c.meshInstances || c.mesh_instances || [];
+      if (!meshes.length) return;
+      any = true;
+      const block = document.createElement('div');
+      block.className = 'fleet-mesh-cluster-block';
+      const head = document.createElement('header');
+      head.className = 'fleet-mesh-cluster-head';
+      head.innerHTML = `<h4>${escapeHtml(clusterLabelForRef(ref))}</h4><span class="hint mono small">${escapeHtml(ref)}</span>`;
+      block.appendChild(head);
+      const inner = document.createElement('div');
+      inner.className = 'mesh-grid mesh-grid-nested';
+      meshes.forEach((m) => inner.appendChild(renderIstiodCard(m)));
+      block.appendChild(inner);
+      container.appendChild(block);
+    });
+    if (!any) {
+      container.innerHTML =
+        '<p class="hint">No control plane snapshots in the database yet. Run assessment on hub or spoke clusters, then use Refresh from DB.</p>';
+    }
+  }
+
   function renderFleetClusterCard(cluster) {
     const ref = cluster.clusterRef || cluster.cluster_ref;
     const name = cluster.cluster?.name || clusterLabelForRef(ref);
@@ -1380,7 +1411,6 @@
   async function loadFleetDashboard(quiet, opts) {
     if (!quiet) setStatus('Loading fleet dashboard…');
     const grid = $('dash-fleet-grid');
-    const container = $('dash-mesh-instances');
     try {
       const res = await fetch(
         API() + '/api/v1/dashboard/fleet' + dashboardQueryString(opts)
@@ -1403,8 +1433,6 @@
       }
       renderStatusSummary(summary);
       renderMigrationSavings(null);
-      const extra = $('dash-status-extra');
-      if (extra) extra.classList.remove('hidden');
       if (grid) {
         grid.innerHTML = '';
         if (!fleetClusters.length) {
@@ -1413,7 +1441,7 @@
           fleetClusters.forEach((c) => grid.appendChild(renderFleetClusterCard(c)));
         }
       }
-      if (container) container.innerHTML = '';
+      renderFleetMeshOverview(fleetClusters);
       const hint = $('dash-fleet-hint');
       if (hint) hint.textContent = 'Click a cluster to view control planes and run assessments';
       loadRecentActivity();
@@ -1426,7 +1454,7 @@
       }
     } catch (e) {
       if (grid) grid.innerHTML = '<p class="hint">Failed to load fleet data.</p>';
-      if (container) container.innerHTML = '';
+      renderFleetMeshOverview([]);
       if (!quiet) setStatus('Fleet dashboard failed: ' + e.message, true);
     }
   }
@@ -1494,8 +1522,6 @@
       if ($('dash-db-updated')) $('dash-db-updated').textContent = ts;
     }
     renderStatusSummary(data.summary);
-    const extra = $('dash-status-extra');
-    if (extra) extra.classList.remove('hidden');
     renderMigrationSavings(data.migrationSavings || data.migration_savings);
     if (container) {
       container.innerHTML = '';
@@ -1511,16 +1537,39 @@
     loadRecentActivity();
   }
 
+  async function fetchClusterDashboard(opts) {
+    const attempts = [];
+    if (DB_DASHBOARD_MODE) {
+      if (opts?.rebuildAssess) {
+        attempts.push(dashboardQueryString({ rebuildAssess: true }));
+      }
+      attempts.push(dashboardQueryString());
+      const fallback = new URLSearchParams();
+      if (activeClusterRef) fallback.set('clusterRef', activeClusterRef);
+      const qs = fallback.toString();
+      attempts.push(qs ? '?' + qs : '');
+    } else {
+      attempts.push(dashboardQueryString({ fresh: opts?.fresh }));
+    }
+    let lastErr = 'dashboard unavailable';
+    for (const qs of attempts) {
+      try {
+        const res = await fetch(API() + '/api/v1/dashboard' + qs);
+        if (res.ok) return res.json();
+        lastErr = await res.text();
+      } catch (e) {
+        lastErr = e.message;
+      }
+    }
+    throw new Error(lastErr);
+  }
+
   async function loadDashboard(quiet, opts) {
     if (isFleetView()) return loadFleetDashboard(quiet, opts);
     if (!quiet) setStatus('Loading dashboard…');
     const container = $('dash-mesh-instances');
     try {
-      const res = await fetch(
-        API() + '/api/v1/dashboard' + dashboardQueryString(opts)
-      );
-      if (!res.ok) throw new Error(await res.text());
-      renderDashboardData(await res.json(), quiet);
+      renderDashboardData(await fetchClusterDashboard(opts), quiet);
     } catch (e) {
       $('dash-cluster-name').textContent = clusterLabelForRef(activeClusterRef);
       $('dash-cluster-meta').textContent = activeClusterRef || '—';
@@ -2955,27 +3004,42 @@
     }
   }
 
+  function panelFromHash() {
+    const id = (location.hash || '#dashboard').slice(1);
+    return ['dashboard', 'assessments', 'plans', 'rollouts'].includes(id) ? id : 'dashboard';
+  }
+
+  function activatePanel(id) {
+    showPanel(id);
+    if (location.hash !== '#' + id) {
+      history.replaceState(null, '', '#' + id);
+    }
+    const main = document.querySelector('.qdash-content');
+    if (main) main.scrollTop = 0;
+    if (id === 'dashboard') {
+      loadDashboard();
+      ensureMigrationPolling();
+    } else if (id === 'assessments') {
+      loadAssessments();
+      loadMeshInstancesForPlans();
+    } else if (id === 'plans') {
+      loadPlans();
+      ensureMigrationPolling();
+    } else if (id === 'rollouts') {
+      loadRollouts();
+      ensureMigrationPolling();
+    }
+  }
+
   function initNav() {
-    document.querySelectorAll('nav a[href^="#"]').forEach((a) => {
+    document.querySelectorAll('.sidebar-link, .nav-link, nav a[data-panel]').forEach((a) => {
       a.addEventListener('click', (e) => {
         e.preventDefault();
-        const id = a.getAttribute('href').slice(1);
-        showPanel(id);
-        if (id === 'dashboard') {
-          loadDashboard();
-          ensureMigrationPolling();
-        }
-        if (id === 'assessments') {
-          loadAssessments();
-          loadMeshInstancesForPlans();
-        }
-        if (id === 'plans') {
-          loadPlans();
-          ensureMigrationPolling();
-        }
-        if (id === 'rollouts') loadRollouts();
+        const id = a.getAttribute('data-panel') || (a.getAttribute('href') || '').slice(1);
+        if (id) activatePanel(id);
       });
     });
+    window.addEventListener('hashchange', () => activatePanel(panelFromHash()));
   }
 
   function initSse() {
@@ -3064,8 +3128,7 @@
     });
     loadFleetClusters().then(() => {
       updateScopeUi();
-      updatePageHeader('dashboard');
-      loadDashboard();
+      activatePanel(panelFromHash());
     });
     $('cluster-select')?.addEventListener('change', (e) => selectCluster(e.target.value));
     $('scope-clear-btn')?.addEventListener('click', () => selectCluster(''));
@@ -3124,8 +3187,6 @@
     $('refresh-rollouts')?.addEventListener('click', loadRollouts);
     $('approve-rollout')?.addEventListener('click', approveCurrentRolloutStage);
     initSse();
-    showPanel('dashboard');
-    loadDashboard();
     ensureMigrationPolling();
   });
 })();

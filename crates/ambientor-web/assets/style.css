@@ -2348,8 +2348,6 @@ a.btn {
   transition: background 0.15s ease;
 }
 
-}
-
 /* —— QDash-inspired shell (Ambientor) —— */
 .qdash-app {
   display: grid;
@@ -2520,10 +2518,12 @@ a.btn {
 
 .qdash-content.app-main {
   padding: 1.25rem 1.5rem 2rem;
-  max-width: 1440px;
+  max-width: none;
   width: 100%;
-  margin: 0 auto;
+  margin: 0;
   background: transparent;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .qdash-topbar .cluster-bar,
@@ -2557,6 +2557,115 @@ a.btn {
 
 .stat-grid-primary {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fleet-mesh-cluster-block {
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px dashed var(--border);
+}
+
+.fleet-mesh-cluster-block:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.fleet-mesh-cluster-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.fleet-mesh-cluster-head h4 {
+  margin: 0;
+  font-size: 0.98rem;
+  color: #111827;
+}
+
+.mesh-grid-nested {
+  gap: 0.85rem;
+}
+
+.qdash-app .scope-banner {
+  margin-bottom: 1rem;
+}
+
+.qdash-app .content-card,
+.qdash-app .stat-card,
+.qdash-app .istiod-card,
+.qdash-app .fleet-cluster-card,
+.qdash-app .connection-row {
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.qdash-app .split-layout,
+.qdash-app .rollout-split {
+  min-height: 520px;
+}
+
+.qdash-app .split-sidebar,
+.qdash-app .rollout-sidebar {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  box-shadow: var(--shadow);
+}
+
+.qdash-app .table-card {
+  padding: 0;
+}
+
+.qdash-app .table-card .app-table-wrap {
+  overflow-x: auto;
+}
+
+.qdash-app .compose-card,
+.qdash-app .workflow-steps,
+.qdash-app .toolbar-row {
+  margin-bottom: 1rem;
+}
+
+.qdash-app .detail-drawer {
+  z-index: 200;
+}
+
+.qdash-app .view-hero {
+  margin-bottom: 1rem;
+}
+
+.qdash-app .status-banner:not(.hidden) {
+  margin: 0 1.5rem 0.75rem;
+  border-radius: 10px;
+}
+
+.qdash-app .hero-actions .btn-primary,
+.qdash-app .action-row .btn-primary,
+.qdash-app .compose-actions .btn-primary {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+.qdash-app .stat-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .qdash-app .stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .qdash-app .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .stat-grid-secondary {
