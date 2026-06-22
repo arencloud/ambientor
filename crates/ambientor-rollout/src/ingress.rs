@@ -17,6 +17,7 @@ use tracing::info;
 
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
+use crate::openshift_route::{restore_openshift_route_snapshot, upsert_openshift_route};
 use crate::labels::{
     clear_namespace_revision_label, ensure_mesh_enrollment_labels, label_namespace_ambient,
     remove_namespace_injection, snapshot_namespace_pre_migration,
@@ -847,6 +848,18 @@ async fn migrate_openshift_routes(
         if !hosts.contains(route_host) {
             continue;
         }
+        // Never move or delete routes already migrated for another application.
+        if route_ns != app_namespace
+            && route
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|l| l.get("ambientor.io/ingress-route-migrated"))
+                .map(String::as_str)
+                == Some("true")
+        {
+            continue;
+        }
         let to_name = route
             .data
             .pointer("/spec/to/name")
@@ -857,6 +870,9 @@ async fn migrate_openshift_routes(
             continue;
         }
         if route_ns != app_namespace && !legacy.is_empty() && !legacy.contains(to_name) {
+            continue;
+        }
+        if route_ns != app_namespace && legacy.is_empty() && !is_shared_gateway_namespace(&route_ns) {
             continue;
         }
 
@@ -919,7 +935,10 @@ async fn migrate_openshift_routes(
             },
             "spec": spec
         });
-        apply_namespaced_manifest(client, app_namespace, &manifest).await?;
+        if let Err(e) = upsert_openshift_route(client, app_namespace, &manifest).await {
+            let _ = restore_openshift_route_snapshot(client, &snapshot).await;
+            return Err(e);
+        }
         updated += 1;
         info!(
             route = %format!("{route_ns}/{name}"),
@@ -939,7 +958,7 @@ async fn migrate_openshift_routes(
             host,
             target_service_name,
         );
-        apply_namespaced_manifest(client, app_namespace, &manifest).await?;
+        upsert_openshift_route(client, app_namespace, &manifest).await?;
         updated += 1;
         info!(
             host = %host,
@@ -948,6 +967,10 @@ async fn migrate_openshift_routes(
         );
     }
     Ok(updated)
+}
+
+fn is_shared_gateway_namespace(route_ns: &str) -> bool {
+    route_ns.ends_with("-gateway")
 }
 
 fn openshift_route_serves_host(
@@ -1133,7 +1156,7 @@ async fn revert_openshift_routes(
                     .as_object_mut()
                     .expect("restore object")
                     .insert("kind".into(), json!("Route"));
-                apply_namespaced_manifest(client, original_ns, &restore).await?;
+                restore_openshift_route_snapshot(client, &restore).await?;
             }
             reverted += 1;
             continue;
