@@ -382,6 +382,13 @@
                 </div>
               </div>
 
+              <div id="rollout-outcome-banner" class="rollout-outcome-banner hidden" role="status" aria-live="polite"></div>
+
+              <div id="rollout-pipeline-status" class="rollout-pipeline-status hidden" role="status">
+                <span class="pipeline-status-icon" aria-hidden="true">✓</span>
+                <span id="rollout-pipeline-status-text">Approved — pipeline runs automatically</span>
+              </div>
+
               <div id="rollout-awaiting-banner" class="rollout-awaiting-banner hidden" role="status">
                 <div class="awaiting-banner-glow" aria-hidden="true"></div>
                 <div class="awaiting-banner-body">
@@ -396,14 +403,14 @@
               <div id="rollout-conditions" class="rollout-conditions"></div>
             </div>
 
-            <div class="rollout-action-bar">
+            <div id="rollout-action-bar" class="rollout-action-bar">
               <button id="approve-rollout" class="btn btn-primary btn-lg rollout-approve-btn" disabled>
                 <span class="btn-icon" aria-hidden="true">✓</span> Approve stage
               </button>
               <a id="rollout-plan-link" class="btn hidden" href="#plans">View plan</a>
               <p id="approve-auth-hint" class="hint hidden"></p>
             </div>
-            <p class="rollout-action-note hint">Approve is only required when a rollout was created via GitOps or CLI without one-click execute.</p>
+            <p id="rollout-action-note" class="rollout-action-note hint">Approve is only required when a rollout was created via GitOps or CLI without one-click execute from Plans.</p>
 
             <section class="rollout-section">
               <div class="rollout-section-head">

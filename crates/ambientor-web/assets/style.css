@@ -1186,7 +1186,7 @@ a.btn {
 .rollout-filter { margin-bottom: 0.75rem; width: 100%; }
 .rollout-stats-bar {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 0.65rem;
   margin-bottom: 1.25rem;
 }
@@ -1215,6 +1215,7 @@ a.btn {
 }
 .rollout-stat.active .rollout-stat-value { color: #0369a1; }
 .rollout-stat.completed .rollout-stat-value { color: var(--success); }
+.rollout-stat.rolledback .rollout-stat-value { color: #c2410c; }
 .rollout-stat.failed .rollout-stat-value { color: var(--danger); }
 .rollout-stat.total .rollout-stat-value { color: var(--navy); }
 
@@ -1330,6 +1331,142 @@ a.btn {
 #rollout-progress-fill {
   border-radius: 999px;
   box-shadow: 0 0 12px rgba(2, 132, 199, 0.35);
+  background: linear-gradient(90deg, var(--accent), var(--success));
+  transition: width 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#rollout-progress-fill.progress-complete {
+  background: linear-gradient(90deg, #16a34a, #22c55e);
+  box-shadow: 0 0 14px rgba(34, 197, 94, 0.35);
+}
+#rollout-progress-fill.progress-failed {
+  background: linear-gradient(90deg, #dc2626, #f87171);
+  box-shadow: 0 0 14px rgba(220, 38, 38, 0.3);
+}
+#rollout-progress-fill.progress-rolledback {
+  background: linear-gradient(90deg, #ea580c, #fb923c);
+  box-shadow: 0 0 14px rgba(234, 88, 12, 0.3);
+}
+
+.rollout-progress-inline {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--success));
+  transition: width 0.45s ease;
+}
+.rollout-card-progress.progress-complete .rollout-progress-inline {
+  background: linear-gradient(90deg, #16a34a, #4ade80);
+}
+.rollout-card-progress.progress-failed .rollout-progress-inline {
+  background: linear-gradient(90deg, #dc2626, #f87171);
+}
+.rollout-card-progress.progress-rolledback .rollout-progress-inline {
+  background: linear-gradient(90deg, #ea580c, #fdba74);
+}
+
+.rollout-outcome-banner {
+  margin-top: 1rem;
+  padding: 0.95rem 1.1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.rollout-outcome-banner.hidden { display: none; }
+.rollout-outcome-banner strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 0.25rem;
+}
+.rollout-outcome-banner p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+.rollout-outcome-banner.outcome-completed {
+  background: linear-gradient(135deg, #ecfdf5, #f0fdf4);
+  border-color: #86efac;
+  color: #166534;
+}
+.rollout-outcome-banner.outcome-failed {
+  background: linear-gradient(135deg, #fef2f2, #fff1f2);
+  border-color: #fecaca;
+  color: #991b1b;
+}
+.rollout-outcome-banner.outcome-rolledback {
+  background: linear-gradient(135deg, #fff7ed, #fffbeb);
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
+.rollout-pipeline-status {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 1rem;
+  padding: 0.7rem 0.95rem;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #eff6ff, #f0fdf4);
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.rollout-pipeline-status.hidden { display: none; }
+.pipeline-status-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 0.75rem;
+}
+
+.rollout-action-bar.hidden,
+.rollout-action-note.hidden { display: none; }
+
+.badge-status.success {
+  background: #dcfce7;
+  color: #166534;
+}
+.badge-status.processing {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.entity-list button .phase-badge {
+  margin-top: 0.35rem;
+}
+
+.sync-panel.sync-running {
+  border-color: #93c5fd;
+  background: linear-gradient(135deg, #eff6ff, #f8fafc);
+}
+.sync-panel.sync-completed {
+  border-color: #86efac;
+  background: linear-gradient(135deg, #ecfdf5, #f8fafc);
+}
+.sync-panel.sync-failed {
+  border-color: #fecaca;
+  background: linear-gradient(135deg, #fef2f2, #fffbeb);
+}
+
+.rollout-list-item.rollout-item-completed button {
+  border-color: rgba(34, 197, 94, 0.25);
+}
+.rollout-list-item.rollout-item-rolledback button {
+  border-color: rgba(251, 146, 60, 0.35);
+}
+.rollout-list-item.rollout-item-failed button {
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+@media (max-width: 900px) {
+  .rollout-stats-bar { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 520px) {
+  .rollout-stats-bar { grid-template-columns: repeat(2, 1fr); }
 }
 
 .rollout-awaiting-banner {

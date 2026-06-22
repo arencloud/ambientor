@@ -72,6 +72,14 @@ helm upgrade --install ambientor deploy/helm/ambientor/ \\
 EOF
 
 if [[ "${HELM_UPGRADE}" == true ]]; then
+  AMBIENTOR_DEPLOY_CONTEXT="${AMBIENTOR_DEPLOY_CONTEXT:-ambientor-system/api-cl01-arencloud-com:6443/egevorky}"
+  if command -v kubectl >/dev/null 2>&1; then
+    CURRENT_CTX="$(kubectl config current-context 2>/dev/null || true)"
+    if [[ "${CURRENT_CTX}" != "${AMBIENTOR_DEPLOY_CONTEXT}" ]]; then
+      echo "Switching kubectl context for deploy: ${CURRENT_CTX:-<none>} -> ${AMBIENTOR_DEPLOY_CONTEXT}"
+      kubectl config use-context "${AMBIENTOR_DEPLOY_CONTEXT}"
+    fi
+  fi
   API_URL="${API_URL:-}"
   HELM_REUSE=()
   if helm status ambientor -n ambientor-system >/dev/null 2>&1; then

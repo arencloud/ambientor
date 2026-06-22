@@ -178,17 +178,7 @@
   }
 
   function canApproveRollout(r, detail) {
-    const awaiting =
-      typeof r === 'boolean'
-        ? r
-        : r?.awaitingApproval ||
-          r?.awaiting_approval ||
-          detail?.rollout?.awaitingApproval ||
-          detail?.rollout?.awaiting_approval;
-    if (!awaiting) return false;
-    const phase =
-      typeof r === 'object' && r ? r.phase || detail?.rollout?.phase : detail?.rollout?.phase;
-    if (phase && ['Completed', 'Failed', 'RolledBack'].includes(phase)) return false;
+    if (!rolloutNeedsApproval(r, detail)) return false;
     if (authConfig.requireAuthForApprove && !getToken()) return false;
     return true;
   }
@@ -1474,7 +1464,7 @@
   }
 
   function activeRollouts() {
-    return rollouts.filter((r) => rolloutIsActive(r.phase));
+    return rollouts.filter((r) => rolloutIsInProgress(r, rolloutDetailFor(r)));
   }
 
   function renderDashboardMigrationBanner(active) {
@@ -1794,6 +1784,7 @@
         : p.assessmentRef || p.assessment_ref
           ? 'assessment'
           : '';
+      const phaseClass = (p.phase || 'unknown').toLowerCase().replace(/[^a-z]/g, '');
       const approved = p.approved ? '<span class="badge-status success">Approved</span>' : '';
       const planCluster = p.clusterRef || p.cluster_ref;
       const clusterChip =
@@ -1804,7 +1795,7 @@
         <button type="button" data-key="${escapeHtml(key)}">
           <span class="name">${escapeHtml(p.displayName || p.display_name || p.name)}</span>
           ${clusterChip}
-          <span class="phase">${escapeHtml(p.phase)}</span>
+          <span class="phase-badge small ${phaseClass}">${escapeHtml(p.phase)}</span>
           ${approved}
           <span class="score-mini">${p.waveCount ?? p.wave_count ?? 0} wave(s)${subtitle ? ' · ' + escapeHtml(subtitle) : ''}</span>
         </button>
@@ -1868,9 +1859,12 @@
       panel.classList.add('hidden');
       return;
     }
-    panel.classList.remove('hidden');
+    panel.classList.remove('hidden', 'sync-running', 'sync-completed', 'sync-failed');
     const rollout = sync.rolloutPhase || sync.rollout_phase;
     const action = sync.nextAction || sync.next_action || 'execute';
+    if (action === 'running') panel.classList.add('sync-running');
+    if (action === 'completed') panel.classList.add('sync-completed');
+    if (action === 'failed') panel.classList.add('sync-failed');
     const lines = [];
     if (sync.rolloutName || sync.rollout_name) {
       lines.push(`Rollout: ${sync.rolloutName || sync.rollout_name} · ${rollout || '—'}`);
@@ -1878,11 +1872,11 @@
       lines.push('Rollout: not created yet');
     }
     const actionText = {
-      execute: 'Ready — one approval starts the full pipeline',
-      approve_rollout: 'Rollout waiting for approval (use button below or GitOps patch)',
+      execute: 'Ready — approve once on Plans to start the full pipeline',
+      approve_rollout: 'Rollout waiting for approval (GitOps/CLI only — use Plans if not yet approved)',
       running: 'Migration running automatically',
-      completed: 'Migration completed',
-      failed: 'Rollout failed — check stages or rollback',
+      completed: 'Migration completed successfully',
+      failed: 'Rollout failed or rolled back — open Rollouts for details',
       wait_plan: 'Plan not Ready yet',
     };
     lines.push(actionText[action] || action);
@@ -1905,15 +1899,17 @@
       ch.gitopsRolloutPatch || ch.gitops_rollout_patch || '';
     const execBtn = $('execute-migration');
     if (execBtn) {
-      const canExecute =
-        action === 'execute' || action === 'approve_rollout';
-      execBtn.disabled = !canExecute;
+      const canExecute = action === 'execute' || action === 'approve_rollout';
+      execBtn.disabled = !canExecute || action === 'running' || action === 'completed';
+      execBtn.classList.toggle('btn-primary', canExecute);
       execBtn.textContent =
         action === 'completed'
-          ? 'Completed'
+          ? 'Migration completed'
           : action === 'running'
-            ? 'Running…'
-            : 'Approve & run migration';
+            ? 'Migration running…'
+            : action === 'failed'
+              ? 'View rollouts'
+              : 'Approve & run migration';
     }
   }
 
@@ -2037,6 +2033,72 @@
     return r.namespace + '/' + r.name;
   }
 
+  function mergeRolloutItem(listItem, detail) {
+    if (!listItem) return detail?.rollout || null;
+    if (!detail?.rollout || rolloutKey(detail.rollout) !== rolloutKey(listItem)) {
+      return listItem;
+    }
+    return { ...listItem, ...detail.rollout };
+  }
+
+  function rolloutStageCount(r, detail) {
+    if (detail?.stages?.length) return detail.stages.length;
+    const ro = mergeRolloutItem(r, detail) || r;
+    return ro?.stageCount ?? ro?.stage_count ?? 0;
+  }
+
+  function pipelineApprovedFor(r, detail) {
+    const ro = mergeRolloutItem(r, detail) || r;
+    const approved = ro?.approvedStage ?? ro?.approved_stage ?? -1;
+    const total = rolloutStageCount(ro, detail);
+    return total > 0 && approved >= total - 1;
+  }
+
+  function rolloutIsTerminal(phase) {
+    const p = (phase || '').toLowerCase();
+    return p === 'completed' || p === 'failed' || p === 'rolledback';
+  }
+
+  function displayRolloutPhase(r, detail) {
+    const ro = mergeRolloutItem(r, detail) || r;
+    const phase = ro?.phase || 'Unknown';
+    if (pipelineApprovedFor(r, detail)) {
+      const p = phase.toLowerCase();
+      if (p === 'awaitingapproval' || p === 'pending') return 'Running';
+    }
+    return phase;
+  }
+
+  function rolloutNeedsApproval(r, detail) {
+    const phase = displayRolloutPhase(r, detail);
+    if (rolloutIsTerminal(phase)) return false;
+    if (pipelineApprovedFor(r, detail)) return false;
+    const ro = mergeRolloutItem(r, detail) || r;
+    return !!(ro?.awaitingApproval || ro?.awaiting_approval);
+  }
+
+  function rolloutIsInProgress(r, detail) {
+    const phase = displayRolloutPhase(r, detail);
+    if (rolloutIsTerminal(phase)) return false;
+    return rolloutIsActive(phase);
+  }
+
+  function syncRolloutInList(detail) {
+    if (!detail?.rollout) return;
+    const key = rolloutKey(detail.rollout);
+    const idx = rollouts.findIndex((x) => rolloutKey(x) === key);
+    if (idx >= 0) rollouts[idx] = { ...rollouts[idx], ...detail.rollout };
+    else rollouts.push(detail.rollout);
+  }
+
+  function rolloutProgressBarClass(r, detail) {
+    const phase = (displayRolloutPhase(r, detail) || '').toLowerCase();
+    if (phase === 'completed') return 'progress-complete';
+    if (phase === 'failed') return 'progress-failed';
+    if (phase === 'rolledback') return 'progress-rolledback';
+    return 'progress-active';
+  }
+
   function rolloutIsActive(phase) {
     const p = (phase || '').toLowerCase();
     return (
@@ -2082,7 +2144,7 @@
   }
 
   function rolloutPhase(r, detail) {
-    return (r?.phase || detail?.rollout?.phase || '').toLowerCase();
+    return (displayRolloutPhase(r, detail) || '').toLowerCase();
   }
 
   function rolloutStageTotal(r, detail) {
@@ -2138,9 +2200,19 @@
   function rolloutProgressPct(r, detail) {
     const total = rolloutStageTotal(r, detail);
     if (!total) return 0;
-    if (rolloutPhase(r, detail) === 'completed') return 100;
+    const phase = rolloutPhase(r, detail);
+    if (phase === 'completed') return 100;
     const done = rolloutCompletedStages(r, detail);
-    return Math.min(100, Math.round((done / total) * 100));
+    let pct = (done / total) * 100;
+    if (rolloutIsInProgress(r, detail) && done < total) {
+      const activeIdx = rolloutActiveStageIndex(r, detail);
+      pct = Math.max(pct, ((activeIdx + 0.4) / total) * 100);
+    }
+    if (phase === 'failed' || phase === 'rolledback') {
+      const activeIdx = rolloutActiveStageIndex(r, detail);
+      pct = Math.max(pct, Math.round(((activeIdx + 1) / total) * 100));
+    }
+    return Math.min(100, Math.round(pct));
   }
 
   function rolloutStageLabel(r, detail) {
@@ -2175,13 +2247,18 @@
     if (!bar) return;
     const visible = filteredRollouts();
     const total = visible.length;
-    const active = visible.filter((r) => rolloutIsActive(r.phase)).length;
-    const completed = visible.filter(
-      (r) => (r.phase || '').toLowerCase() === 'completed'
-    ).length;
+    const active = visible.filter((r) => {
+      const detail = rolloutDetailFor(r);
+      return rolloutIsInProgress(r, detail);
+    }).length;
+    const completed = visible.filter((r) => {
+      return (displayRolloutPhase(r, rolloutDetailFor(r)) || '').toLowerCase() === 'completed';
+    }).length;
+    const rolledBack = visible.filter((r) => {
+      return (displayRolloutPhase(r, rolloutDetailFor(r)) || '').toLowerCase() === 'rolledback';
+    }).length;
     const failed = visible.filter((r) => {
-      const p = (r.phase || '').toLowerCase();
-      return p === 'failed' || p === 'rolledback';
+      return (displayRolloutPhase(r, rolloutDetailFor(r)) || '').toLowerCase() === 'failed';
     }).length;
     const badge = $('rollout-count-badge');
     if (badge) badge.textContent = String(total);
@@ -2189,6 +2266,7 @@
       <div class="rollout-stat total"><span class="rollout-stat-value">${total}</span><span class="rollout-stat-label">Total</span></div>
       <div class="rollout-stat active"><span class="rollout-stat-value">${active}</span><span class="rollout-stat-label">In progress</span></div>
       <div class="rollout-stat completed"><span class="rollout-stat-value">${completed}</span><span class="rollout-stat-label">Completed</span></div>
+      <div class="rollout-stat rolledback"><span class="rollout-stat-value">${rolledBack}</span><span class="rollout-stat-label">Rolled back</span></div>
       <div class="rollout-stat failed"><span class="rollout-stat-value">${failed}</span><span class="rollout-stat-label">Failed</span></div>
     `;
   }
@@ -2212,20 +2290,23 @@
     list.forEach((r) => {
       const li = document.createElement('li');
       const key = rolloutKey(r);
-      const snap = `${r.phase}|${r.currentStage ?? r.current_stage ?? 0}|${r.awaitingApproval || r.awaiting_approval ? 1 : 0}`;
+      const detail = rolloutDetailFor(r);
+      const displayPhase = displayRolloutPhase(r, detail);
+      const snap = `${displayPhase}|${r.currentStage ?? r.current_stage ?? 0}|${rolloutNeedsApproval(r, detail) ? 1 : 0}`;
       const prevSnap = rolloutPhaseSnapshot.get(key);
       const changed = prevSnap != null && prevSnap !== snap;
       rolloutPhaseSnapshot.set(key, snap);
       li.className =
         'rollout-list-item' +
         (key === selectedRolloutKey ? ' selected' : '') +
-        (changed ? ' rollout-flash' : '');
-      const awaiting = r.awaitingApproval || r.awaiting_approval;
-      const meta = rolloutPhaseMeta(r.phase);
-      const detail = rolloutDetailFor(r);
+        (changed ? ' rollout-flash' : '') +
+        ` rollout-item-${rolloutPhaseMeta(displayPhase).class}`;
+      const needsApproval = rolloutNeedsApproval(r, detail);
+      const meta = rolloutPhaseMeta(displayPhase);
       const pct = rolloutProgressPct(r, detail);
       const stageLabel = rolloutStageLabel(r, detail);
       const planRef = r.planRef || r.plan_ref;
+      const barClass = rolloutProgressBarClass(r, detail);
       li.innerHTML = `
         <button type="button" data-key="${escapeHtml(key)}">
           <div class="rollout-card-top">
@@ -2235,13 +2316,13 @@
             </div>
             <span class="phase-badge small ${meta.class}">${escapeHtml(meta.label)}</span>
           </div>
-          <div class="rollout-card-progress">
-            <div class="progress-track"><span style="display:block;height:100%;width:${pct}%;background:linear-gradient(90deg,var(--accent),var(--success));border-radius:3px;transition:width 0.4s ease"></span></div>
+          <div class="rollout-card-progress ${barClass}">
+            <div class="progress-track"><span class="rollout-progress-inline" style="width:${pct}%"></span></div>
             <span>${pct}%</span>
           </div>
           <div class="rollout-list-meta">
             <span>${escapeHtml(stageLabel)}</span>
-            ${awaiting ? '<span class="badge-status warning">Needs approval</span>' : ''}
+            ${needsApproval ? '<span class="badge-status warning">Needs approval</span>' : pipelineApprovedFor(r, detail) && rolloutIsInProgress(r, detail) ? '<span class="badge-status processing">Auto-running</span>' : ''}
           </div>
         </button>
       `;
@@ -2381,20 +2462,28 @@
     const grid = $('rollout-stages-grid');
     if (!grid) return;
     grid.innerHTML = '';
-    const r = detail.rollout || detail;
+    const listItem = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
+    const r = mergeRolloutItem(listItem, detail) || detail.rollout || detail;
     const current = rolloutActiveStageIndex(r, detail);
-    const awaiting =
-      detail.rollout?.awaitingApproval ?? detail.rollout?.awaiting_approval;
+    const needsApproval = rolloutNeedsApproval(listItem, detail);
     const total = rolloutStageTotal(r, detail) || 1;
     const pct = rolloutProgressPct(r, detail);
     const fill = $('rollout-progress-fill');
-    if (fill) fill.style.width = pct + '%';
+    if (fill) {
+      fill.style.width = pct + '%';
+      fill.classList.remove('progress-complete', 'progress-failed', 'progress-rolledback', 'progress-active');
+      fill.classList.add(rolloutProgressBarClass(r, detail));
+    }
     const pctEl = $('rollout-progress-pct');
     if (pctEl) pctEl.textContent = pct + '%';
     const hint = $('rollout-pipeline-hint');
     if (hint) {
       const done = rolloutCompletedStages(r, detail);
-      hint.textContent = `${done}/${total} stages complete`;
+      const phase = rolloutPhase(r, detail);
+      if (phase === 'completed') hint.textContent = `All ${total} stages succeeded`;
+      else if (phase === 'rolledback') hint.textContent = `Rolled back after ${done}/${total} stages`;
+      else if (phase === 'failed') hint.textContent = `Failed at ${done}/${total} stages`;
+      else hint.textContent = `${done}/${total} stages complete`;
     }
     (detail.stages || []).forEach((s) => {
       const card = document.createElement('article');
@@ -2406,14 +2495,16 @@
         card.classList.add('current');
         if (rolloutDetail?._flashStage === s.index) card.classList.add('stage-flash');
       }
-      if (s.index === current && awaiting) card.classList.add('awaiting');
+      if (s.index === current && needsApproval) card.classList.add('awaiting');
       const stageType = s.stageType || s.stage_type || '';
       const ns = (s.namespaces || []).join(', ') || '—';
       const approval = s.requiresApproval || s.requires_approval;
       let resultLine = 'Pending';
       if (stageResultDone(result)) resultLine = 'Succeeded';
       else if ((result || '').toLowerCase() === 'failed') resultLine = 'Failed';
-      else if (s.index === current) resultLine = awaiting ? 'Awaiting approval' : 'In progress';
+      else if (s.index === current) {
+        resultLine = needsApproval ? 'Awaiting approval' : 'In progress';
+      }
       card.innerHTML = `
         <div class="rollout-stage-card-head">
           <h5>${escapeHtml(s.name)}</h5>
@@ -2441,6 +2532,8 @@
       );
       if (!res.ok) throw new Error(await res.text());
       rolloutDetail = await res.json();
+      syncRolloutInList(rolloutDetail);
+      const ro = mergeRolloutItem(r, rolloutDetail) || r;
       const nextStage = rolloutActiveStageIndex(rolloutDetail.rollout || rolloutDetail, rolloutDetail);
       if (prevStage >= 0 && nextStage !== prevStage) {
         rolloutDetail._flashStage = nextStage;
@@ -2448,8 +2541,9 @@
           if (rolloutDetail) delete rolloutDetail._flashStage;
         }, 900);
       }
-      renderRolloutDetailHeader(r, rolloutDetail);
+      renderRolloutDetailHeader(ro, rolloutDetail);
       renderRolloutStages(rolloutDetail);
+      renderRolloutList();
       updateApproveAuthHint();
       await loadRolloutAudit(r.namespace, r.name);
       if (!quiet) setStatus(`Rollout ${r.namespace}/${r.name} loaded`);
@@ -2460,11 +2554,54 @@
     }
   }
 
+  function renderRolloutOutcomeBanner(r, detail) {
+    const banner = $('rollout-outcome-banner');
+    if (!banner) return;
+    const phase = (displayRolloutPhase(r, detail) || '').toLowerCase();
+    banner.classList.remove('outcome-completed', 'outcome-failed', 'outcome-rolledback');
+    if (phase === 'completed') {
+      banner.className = 'rollout-outcome-banner outcome-completed';
+      banner.innerHTML =
+        '<strong>Migration completed</strong><p>All pipeline stages finished successfully. Workloads are on ambient mesh.</p>';
+      banner.classList.remove('hidden');
+      return;
+    }
+    if (phase === 'rolledback') {
+      banner.className = 'rollout-outcome-banner outcome-rolledback';
+      const failed = detail?.stages?.find(
+        (s) => (s.resultPhase || s.result_phase || '').toLowerCase() === 'failed'
+      );
+      const msg = failed?.resultMessage || failed?.result_message;
+      banner.innerHTML =
+        '<strong>Migration rolled back</strong><p>' +
+        escapeHtml(msg || 'Verify failed or an error triggered automatic rollback. Sidecar configuration was restored.') +
+        '</p>';
+      banner.classList.remove('hidden');
+      return;
+    }
+    if (phase === 'failed') {
+      banner.className = 'rollout-outcome-banner outcome-failed';
+      const failed = detail?.stages?.find(
+        (s) => (s.resultPhase || s.result_phase || '').toLowerCase() === 'failed'
+      );
+      const msg = failed?.resultMessage || failed?.result_message;
+      banner.innerHTML =
+        '<strong>Migration failed</strong><p>' +
+        escapeHtml(msg || 'A pipeline stage failed. Review stages below or start a new plan.') +
+        '</p>';
+      banner.classList.remove('hidden');
+      return;
+    }
+    banner.classList.add('hidden');
+    banner.innerHTML = '';
+  }
+
   function renderRolloutDetailHeader(r, detail) {
     setRolloutDetailVisible(true);
-    const shortName = r.name || '—';
+    const ro = mergeRolloutItem(r, detail) || r;
+    const shortName = ro.name || '—';
     $('rollout-detail-title').textContent = shortName;
-    const phase = r.phase || detail?.rollout?.phase || '—';
+    const phase = displayRolloutPhase(r, detail);
     const meta = rolloutPhaseMeta(phase);
     const phaseEl = $('rollout-detail-phase');
     const iconEl = $('rollout-phase-icon');
@@ -2476,25 +2613,38 @@
     if (hero) hero.className = 'rollout-hero-card phase-' + meta.class;
     const current = rolloutActiveStageIndex(r, detail);
     const total = rolloutStageTotal(r, detail);
-    const approvedStage = r.approvedStage ?? r.approved_stage ?? -1;
-    const pipelineApproved = approvedStage >= total - 1 && total > 0;
+    const pipelineOk = pipelineApprovedFor(r, detail);
     const stageName =
       detail?.stages?.find((s) => s.index === current)?.name ||
       (meta.class === 'completed' ? 'All stages' : `Stage ${current + 1}`);
     const progressEl = $('rollout-stage-progress');
     if (progressEl) {
       if (meta.class === 'completed') {
-        progressEl.textContent = `All ${total} stages complete · pipeline approved`;
-      } else if (pipelineApproved) {
-        progressEl.textContent = `${stageName} · ${rolloutStageLabel(r, detail)} · pipeline approved (one-time)`;
+        progressEl.textContent = `All ${total} stages complete`;
+      } else if (meta.class === 'rolledback') {
+        progressEl.textContent = `Rolled back · ${rolloutStageLabel(r, detail)}`;
+      } else if (meta.class === 'failed') {
+        progressEl.textContent = `Failed · ${rolloutStageLabel(r, detail)}`;
+      } else if (pipelineOk) {
+        progressEl.textContent = `${stageName} · ${rolloutStageLabel(r, detail)} · approved (auto pipeline)`;
+      } else if (rolloutNeedsApproval(r, detail)) {
+        progressEl.textContent = `${stageName} · waiting for one-time approval`;
       } else {
-        progressEl.textContent = `${stageName} · ${rolloutStageLabel(r, detail)} · awaiting one-time approval`;
+        progressEl.textContent = `${stageName} · ${rolloutStageLabel(r, detail)}`;
       }
     }
-    const cr = r.clusterRef || r.cluster_ref || detail?.rollout?.clusterRef || detail?.rollout?.cluster_ref;
+    const fill = $('rollout-progress-fill');
+    if (fill) {
+      fill.style.width = rolloutProgressPct(r, detail) + '%';
+      fill.classList.remove('progress-complete', 'progress-failed', 'progress-rolledback', 'progress-active');
+      fill.classList.add(rolloutProgressBarClass(r, detail));
+    }
+    const pctEl = $('rollout-progress-pct');
+    if (pctEl) pctEl.textContent = rolloutProgressPct(r, detail) + '%';
+    const cr = ro.clusterRef || ro.cluster_ref;
     const crEl = $('rollout-cluster-ref');
-    if (crEl) crEl.textContent = cr ? `Cluster ${cr}` : `Namespace ${r.namespace}`;
-    const planRef = r.planRef || r.plan_ref;
+    if (crEl) crEl.textContent = cr ? `Cluster ${cr}` : `Namespace ${ro.namespace}`;
+    const planRef = ro.planRef || ro.plan_ref;
     const planEl = $('rollout-plan-ref');
     if (planEl) planEl.textContent = planRef ? `Linked plan · ${planRef}` : 'Standalone rollout';
     const planLink = $('rollout-plan-link');
@@ -2502,25 +2652,39 @@
       if (planRef) {
         planLink.classList.remove('hidden');
         planLink.textContent = `Open plan ${planRef}`;
+        planLink.href = '#plans';
       } else planLink.classList.add('hidden');
     }
     const autoRb = detail?.autoRollback ?? detail?.auto_rollback;
-    if (autoRb !== undefined && progressEl) {
-      progressEl.textContent += autoRb ? ' · auto-rollback enabled' : ' · auto-rollback off';
+    if (autoRb !== undefined && progressEl && !rolloutIsTerminal(phase)) {
+      progressEl.textContent += autoRb ? ' · auto-rollback on' : '';
     }
-    const awaiting =
-      r.awaitingApproval ||
-      r.awaiting_approval ||
-      detail?.rollout?.awaitingApproval ||
-      detail?.rollout?.awaiting_approval;
+    const needsApproval = rolloutNeedsApproval(r, detail);
     const banner = $('rollout-awaiting-banner');
-    if (banner) banner.classList.toggle('hidden', !awaiting);
+    if (banner) banner.classList.toggle('hidden', !needsApproval);
+    const pipelineStatus = $('rollout-pipeline-status');
+    const pipelineText = $('rollout-pipeline-status-text');
+    if (pipelineStatus) {
+      const showPipeline =
+        pipelineOk && rolloutIsInProgress(r, detail) && !rolloutIsTerminal(phase);
+      pipelineStatus.classList.toggle('hidden', !showPipeline);
+      if (pipelineText && showPipeline) {
+        pipelineText.textContent = planRef
+          ? 'Approved via plan — remaining stages run automatically'
+          : 'Approved — pipeline runs automatically';
+      }
+    }
+    renderRolloutOutcomeBanner(r, detail);
     const approveBtn = $('approve-rollout');
     if (approveBtn) {
       const canApprove = canApproveRollout(r, detail);
       approveBtn.classList.toggle('pulse', canApprove);
       approveBtn.disabled = !canApprove;
     }
+    const actionBar = $('rollout-action-bar');
+    const actionNote = $('rollout-action-note');
+    if (actionBar) actionBar.classList.toggle('hidden', !needsApproval);
+    if (actionNote) actionNote.classList.toggle('hidden', !needsApproval);
   }
 
   async function selectRollout(key) {

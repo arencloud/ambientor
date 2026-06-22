@@ -599,12 +599,16 @@ async fn build_plan_sync(
 
     let next_action = if plan.phase != "Ready" {
         "wait_plan".into()
+    } else if rollout_item.as_ref().is_some_and(|r| r.phase == "RolledBack") {
+        "failed".into()
     } else if rollout_item.as_ref().is_some_and(|r| r.phase == "Completed") {
         "completed".into()
     } else if rollout_item.as_ref().is_some_and(|r| r.phase == "Failed") {
         "failed".into()
     } else if rollout_item.as_ref().is_some_and(|r| {
-        r.phase == "Running" || r.phase == "Pending"
+        r.phase == "Running"
+            || r.phase == "Pending"
+            || (r.stage_count > 0 && r.approved_stage >= r.stage_count as i32 - 1)
     }) {
         "running".into()
     } else if rollout_awaiting {
