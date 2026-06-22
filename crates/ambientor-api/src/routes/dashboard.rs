@@ -29,6 +29,12 @@ pub struct DashboardQuery {
     /// When true, rebuild dashboard from latest assessment in DB (or live cluster).
     #[serde(default)]
     pub fresh: bool,
+    /// When true, return only persisted DB snapshots (no live cluster recompute).
+    #[serde(default, rename = "dbOnly")]
+    pub db_only: bool,
+    /// When true with `dbOnly`, rebuild from latest assessment rows then return snapshot.
+    #[serde(default, rename = "rebuildAssess")]
+    pub rebuild_assess: bool,
 }
 
 pub async fn get_dashboard(
@@ -39,6 +45,29 @@ pub async fn get_dashboard(
         .cluster_ref
         .filter(|s| !s.is_empty())
         .unwrap_or_else(cluster_ref_from_env);
+
+    if query.db_only {
+        let store = state.dashboard_store().ok_or((
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "DATABASE_URL not configured".into(),
+        ))?;
+        if query.rebuild_assess {
+            if let Ok(Some(rebuilt)) = store.rebuild_from_latest_assessment(&cluster_ref).await {
+                if let Err(e) = store.sync_snapshot(&rebuilt).await {
+                    tracing::warn!(error = %e, "failed to sync rebuilt dashboard snapshot");
+                } else {
+                    return Ok(Json(rebuilt));
+                }
+            }
+        }
+        if let Ok(Some(cached)) = store.load_by_cluster_ref(&cluster_ref).await {
+            return Ok(Json(cached));
+        }
+        return Err((
+            axum::http::StatusCode::NOT_FOUND,
+            "no dashboard snapshot in database for this cluster; run assessment".into(),
+        ));
+    }
 
     if let Some(store) = state.dashboard_store() {
         if let Ok(Some(mut cached)) = store.load_by_cluster_ref(&cluster_ref).await {
@@ -89,6 +118,10 @@ pub async fn get_dashboard(
 pub struct FleetDashboardQuery {
     #[serde(default)]
     pub fresh: bool,
+    #[serde(default, rename = "dbOnly")]
+    pub db_only: bool,
+    #[serde(default, rename = "rebuildAssess")]
+    pub rebuild_assess: bool,
 }
 
 pub async fn get_fleet_dashboard(
@@ -99,6 +132,26 @@ pub async fn get_fleet_dashboard(
         axum::http::StatusCode::SERVICE_UNAVAILABLE,
         "DATABASE_URL not configured".into(),
     ))?;
+
+    if query.db_only {
+        if query.rebuild_assess {
+            store
+                .rebuild_all_from_latest_assessments()
+                .await
+                .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        }
+        if let Some(fleet) = store
+            .load_fleet()
+            .await
+            .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        {
+            return Ok(Json(fleet));
+        }
+        return Err((
+            axum::http::StatusCode::NOT_FOUND,
+            "no fleet dashboard snapshots in database; run assessment on clusters".into(),
+        ));
+    }
 
     let hub = k8s_client().await?;
     let mut fleet = if let Some(fleet) = store

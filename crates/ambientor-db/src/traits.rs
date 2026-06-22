@@ -81,6 +81,8 @@ pub trait DashboardStore: Send + Sync {
         &self,
         cluster_ref: &str,
     ) -> Result<Option<DashboardResponse>, DbError>;
+
+    async fn rebuild_all_from_latest_assessments(&self) -> Result<(), DbError>;
 }
 
 #[async_trait]

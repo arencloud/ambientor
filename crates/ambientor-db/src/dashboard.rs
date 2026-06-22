@@ -178,8 +178,51 @@ impl DashboardRepository {
             ambient_mesh_count: 0,
         };
 
-        let response = dashboard_from_assessment_run(&run, cluster);
+        let mut response = dashboard_from_assessment_run(&run, cluster);
+
+        let snapshot_mesh: Option<Value> = sqlx::query_scalar(
+            r#"
+            SELECT s.mesh_instances
+            FROM dashboard_snapshots s
+            INNER JOIN clusters c ON c.id = s.cluster_id
+            WHERE c.cluster_ref = $1
+            ORDER BY s.captured_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(cluster_ref)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if response.mesh_instances.is_empty() {
+            if let Some(json) = snapshot_mesh {
+                if let Ok(meshes) = serde_json::from_value::<Vec<MeshInstanceDashboard>>(json) {
+                    if !meshes.is_empty() {
+                        response.cluster.mesh_instance_count = meshes.len();
+                        response.cluster.ambient_mesh_count =
+                            meshes.iter().filter(|m| m.ambient).count();
+                        response.mesh_instances = meshes;
+                    }
+                }
+            }
+        }
+
         Ok(Some(response))
+    }
+
+    /// Rebuild persisted snapshots for every cluster that has assessment rows.
+    pub async fn rebuild_all_from_latest_assessments(&self) -> Result<(), DbError> {
+        let cluster_refs: Vec<String> =
+            sqlx::query_scalar(r#"SELECT cluster_ref FROM clusters ORDER BY cluster_ref"#)
+                .fetch_all(&self.pool)
+                .await?;
+
+        for cluster_ref in cluster_refs {
+            if let Some(rebuilt) = self.rebuild_from_latest_assessment(&cluster_ref).await? {
+                self.sync_snapshot(&rebuilt).await?;
+            }
+        }
+        Ok(())
     }
 
     pub async fn load_fleet(&self) -> Result<Option<FleetDashboardResponse>, DbError> {
@@ -597,6 +640,10 @@ impl DashboardStore for DashboardRepository {
         cluster_ref: &str,
     ) -> Result<Option<DashboardResponse>, DbError> {
         DashboardRepository::rebuild_from_latest_assessment(self, cluster_ref).await
+    }
+
+    async fn rebuild_all_from_latest_assessments(&self) -> Result<(), DbError> {
+        DashboardRepository::rebuild_all_from_latest_assessments(self).await
     }
 
     async fn load_fleet(&self) -> Result<Option<FleetDashboardResponse>, DbError> {

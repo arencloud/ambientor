@@ -2348,10 +2348,362 @@ a.btn {
   transition: background 0.15s ease;
 }
 
+}
+
+/* —— QDash-inspired shell (Ambientor) —— */
+.qdash-app {
+  display: grid;
+  grid-template-columns: 256px 1fr;
+  min-height: 100vh;
+  background: #f3f4f6;
+  color: var(--navy);
+  font-family: var(--font);
+}
+
+.qdash-sidebar {
+  background: #111827;
+  color: #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem 0.85rem;
+  border-right: 1px solid #1f2937;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 60;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 0.65rem 1.25rem;
+  border-bottom: 1px solid #1f2937;
+  margin-bottom: 1rem;
+}
+
+.sidebar-brand .logo-mark {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.sidebar-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.sidebar-brand-text strong {
+  font-size: 1.05rem;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+.sidebar-brand-text span {
+  font-size: 0.72rem;
+  color: #9ca3af;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  color: #d1d5db;
+  text-decoration: none;
+  font-size: 0.92rem;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-link:hover {
+  background: #1f2937;
+  color: #fff;
+}
+
+.sidebar-link.active {
+  background: #dc2626;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+}
+
+.sidebar-link.nav-live::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  margin-left: auto;
+  animation: live-pulse 1.4s ease-in-out infinite;
+}
+
+.sidebar-icon {
+  opacity: 0.85;
+  font-size: 0.95rem;
+}
+
+.sidebar-foot {
+  margin-top: auto;
+  padding: 0.85rem 0.65rem 0;
+  border-top: 1px solid #1f2937;
+}
+
+.sidebar-foot-label {
+  margin: 0;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+}
+
+.sidebar-foot-value {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: #9ca3af;
+}
+
+.qdash-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100vh;
+}
+
+.qdash-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem 1.25rem;
+  padding: 0.85rem 1.5rem;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.topbar-left {
+  min-width: 0;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #111827;
+}
+
+.page-subtitle {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  color: #6b7280;
+}
+
+.topbar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem 0.85rem;
+}
+
+.qdash-content.app-main {
+  padding: 1.25rem 1.5rem 2rem;
+  max-width: 1440px;
+  width: 100%;
+  margin: 0 auto;
+  background: transparent;
+}
+
+.qdash-topbar .cluster-bar,
+.qdash-topbar .auth-bar,
+.qdash-topbar .live-status-pill {
+  background: #f9fafb;
+  border: 1px solid var(--border);
+  color: var(--navy);
+}
+
+.qdash-topbar .cluster-bar-label,
+.qdash-topbar .auth-hint,
+.qdash-topbar .auth-user-greeting,
+.qdash-topbar .auth-user-role {
+  color: #6b7280;
+}
+
+.qdash-topbar .auth-user-name {
+  color: #111827;
+}
+
+.qdash-topbar .cluster-scope-select {
+  color: #111827;
+  background: transparent;
+}
+
+.db-source-badge {
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+.stat-grid-primary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stat-grid-secondary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 50%;
+  margin-top: -0.35rem;
+}
+
+.dash-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.dash-col-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.dash-col-side {
+  position: sticky;
+  top: 5.5rem;
+}
+
+.activity-card {
+  max-height: calc(100vh - 7rem);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.activity-item {
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.activity-row strong {
+  font-size: 0.88rem;
+  color: #111827;
+}
+
+.activity-outcome {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.activity-outcome.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.activity-meta {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+.activity-time {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: #9ca3af;
+}
+
+.qdash-app .btn-primary {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+.qdash-app .btn-primary:not(:disabled):hover {
+  background: #b91c1c;
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.25);
+}
+
+.qdash-app .view-hero h2 {
+  color: #111827;
+}
+
+@media (max-width: 1100px) {
+  .dash-two-col {
+    grid-template-columns: 1fr;
+  }
+  .dash-col-side {
+    position: static;
+  }
+  .stat-grid-secondary {
+    max-width: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .qdash-app {
+    grid-template-columns: 1fr;
+  }
+  .qdash-sidebar {
+    position: relative;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .sidebar-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    flex: unset;
+  }
+  .sidebar-foot {
+    display: none;
+  }
+  .stat-grid-primary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .live-status-pill.live-on .live-status-dot,
   .live-status-pill.live-poll .live-status-dot,
   .live-status-pill.live-warn .live-status-dot,
+  .sidebar-link.nav-live::after,
   .nav-link.nav-live::after,
   .rollout-phase-chip.running .rollout-phase-icon,
   .rollout-phase-chip.processing .rollout-phase-icon,

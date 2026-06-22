@@ -12,95 +12,107 @@
   <link rel="stylesheet" href="/style.css" />
   <script src="/config.js"></script>
 </head>
-<body class="app-shell">
-  <header class="app-header">
-    <div class="header-left">
-      <div class="brand">
-        <div class="logo-mark" aria-hidden="true">
-          <svg class="logo-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="logo-grad" x1="6" y1="4" x2="42" y2="44" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stop-color="#c4b5fd" />
-                <stop offset="45%" stop-color="#38bdf8" />
-                <stop offset="100%" stop-color="#2dd4bf" />
-              </linearGradient>
-              <linearGradient id="logo-shine" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#fff" stop-opacity="0.35" />
-                <stop offset="100%" stop-color="#fff" stop-opacity="0" />
-              </linearGradient>
-            </defs>
-            <rect x="3" y="3" width="42" height="42" rx="13" fill="url(#logo-grad)" />
-            <rect x="3" y="3" width="42" height="21" rx="13" fill="url(#logo-shine)" />
-            <circle cx="24" cy="17" r="3.2" fill="#fff" opacity="0.95" />
-            <circle cx="15" cy="31" r="2.6" fill="#fff" opacity="0.88" />
-            <circle cx="33" cy="31" r="2.6" fill="#fff" opacity="0.88" />
-            <path d="M24 20.5v4.5M18.5 28.5l5.5-4 5.5 4" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.75" />
-          </svg>
-        </div>
-        <div class="brand-text">
-          <h1>Ambientor</h1>
-          <p class="brand-tagline">Enterprise cluster migration</p>
-        </div>
+<body class="qdash-app">
+  <aside class="qdash-sidebar" aria-label="Primary navigation">
+    <div class="sidebar-brand">
+      <div class="logo-mark" aria-hidden="true">
+        <svg class="logo-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="logo-grad" x1="6" y1="4" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#fca5a5" />
+              <stop offset="100%" stop-color="#dc2626" />
+            </linearGradient>
+          </defs>
+          <rect x="3" y="3" width="42" height="42" rx="13" fill="url(#logo-grad)" />
+          <circle cx="24" cy="17" r="3.2" fill="#fff" opacity="0.95" />
+          <circle cx="15" cy="31" r="2.6" fill="#fff" opacity="0.88" />
+          <circle cx="33" cy="31" r="2.6" fill="#fff" opacity="0.88" />
+          <path d="M24 20.5v4.5M18.5 28.5l5.5-4 5.5 4" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.75" />
+        </svg>
       </div>
-      <nav class="main-nav" aria-label="Main">
-        <a href="#dashboard" class="nav-link active" data-panel="dashboard">Dashboard</a>
-        <a href="#assessments" class="nav-link" data-panel="assessments">Candidates</a>
-        <a href="#plans" class="nav-link" data-panel="plans">Plans</a>
-        <a href="#rollouts" class="nav-link" data-panel="rollouts">Rollouts</a>
-      </nav>
-    </div>
-    <div class="header-right">
-      <div id="live-status-pill" class="live-status-pill" role="status" aria-live="polite" title="Real-time connection status">
-        <span class="live-status-dot" aria-hidden="true"></span>
-        <span id="live-status-text">Connecting…</span>
-      </div>
-      <div class="cluster-bar" id="cluster-bar">
-        <label class="cluster-bar-label" for="cluster-select">Scope</label>
-        <div class="scope-select-wrap">
-          <span class="scope-select-icon" id="scope-select-icon" aria-hidden="true">◈</span>
-          <select id="cluster-select" class="cluster-scope-select" aria-label="Cluster scope">
-            <option value="">All clusters</option>
-          </select>
-          <span class="scope-select-chevron" aria-hidden="true">▾</span>
-        </div>
-      </div>
-      <div id="auth-bar" class="auth-bar">
-        <p id="auth-disabled-hint" class="auth-hint">Auth optional</p>
-        <div id="auth-user-panel" class="auth-user-card hidden" role="status" aria-live="polite">
-          <div class="auth-user-avatar-ring" aria-hidden="true">
-            <div class="auth-user-avatar" id="auth-user-avatar">?</div>
-          </div>
-          <div class="auth-user-meta">
-            <span class="auth-user-greeting">Welcome back</span>
-            <strong class="auth-user-name" id="auth-username" title="">user</strong>
-            <span class="auth-user-role">
-              <span class="auth-live-dot" aria-hidden="true"></span>
-              <span id="auth-user-role-text">Authenticated</span>
-            </span>
-          </div>
-          <button type="button" id="auth-logout-btn" class="auth-logout-btn" title="Sign out" aria-label="Sign out">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-              <polyline points="16 17 21 12 16 7"/>
-              <line x1="21" y1="12" x2="9" y2="12"/>
-            </svg>
-          </button>
-        </div>
-        <div id="auth-login-panel" class="auth-login-card hidden">
-          <form id="auth-local-form" class="auth-local-form">
-            <input type="text" id="auth-username-input" placeholder="Username" autocomplete="username" aria-label="Username" />
-            <input type="password" id="auth-password-input" placeholder="Password" autocomplete="current-password" aria-label="Password" />
-            <button type="button" id="auth-login-btn" class="auth-submit-btn">Sign in</button>
-          </form>
-          <button type="button" id="auth-oidc-login" class="auth-sso-btn hidden">SSO</button>
-        </div>
+      <div class="sidebar-brand-text">
+        <strong>Ambientor</strong>
+        <span>Mesh migration</span>
       </div>
     </div>
-  </header>
+    <nav class="sidebar-nav">
+      <a href="#dashboard" class="sidebar-link active" data-panel="dashboard">
+        <span class="sidebar-icon" aria-hidden="true">▣</span> Dashboard
+      </a>
+      <a href="#assessments" class="sidebar-link" data-panel="assessments">
+        <span class="sidebar-icon" aria-hidden="true">◫</span> Candidates
+      </a>
+      <a href="#plans" class="sidebar-link" data-panel="plans">
+        <span class="sidebar-icon" aria-hidden="true">☰</span> Plans
+      </a>
+      <a href="#rollouts" class="sidebar-link" data-panel="rollouts">
+        <span class="sidebar-icon" aria-hidden="true">⟡</span> Rollouts
+      </a>
+    </nav>
+    <div class="sidebar-foot">
+      <p class="sidebar-foot-label">Data source</p>
+      <p class="sidebar-foot-value">PostgreSQL snapshots</p>
+    </div>
+  </aside>
 
-  <div id="status-banner" class="status-banner hidden" role="status"></div>
+  <div class="qdash-main">
+    <header class="qdash-topbar">
+      <div class="topbar-left">
+        <h1 id="page-title" class="page-title">Dashboard</h1>
+        <p id="page-subtitle" class="page-subtitle">Fleet migration overview from database</p>
+      </div>
+      <div class="topbar-right">
+        <div id="live-status-pill" class="live-status-pill" role="status" aria-live="polite" title="Rollout live updates">
+          <span class="live-status-dot" aria-hidden="true"></span>
+          <span id="live-status-text">Connecting…</span>
+        </div>
+        <div class="cluster-bar" id="cluster-bar">
+          <label class="cluster-bar-label" for="cluster-select">Scope</label>
+          <div class="scope-select-wrap">
+            <span class="scope-select-icon" id="scope-select-icon" aria-hidden="true">◈</span>
+            <select id="cluster-select" class="cluster-scope-select" aria-label="Cluster scope">
+              <option value="">All clusters</option>
+            </select>
+            <span class="scope-select-chevron" aria-hidden="true">▾</span>
+          </div>
+        </div>
+        <div id="auth-bar" class="auth-bar">
+          <p id="auth-disabled-hint" class="auth-hint">Auth optional</p>
+          <div id="auth-user-panel" class="auth-user-card hidden" role="status" aria-live="polite">
+            <div class="auth-user-avatar-ring" aria-hidden="true">
+              <div class="auth-user-avatar" id="auth-user-avatar">?</div>
+            </div>
+            <div class="auth-user-meta">
+              <span class="auth-user-greeting">Welcome back</span>
+              <strong class="auth-user-name" id="auth-username" title="">user</strong>
+              <span class="auth-user-role">
+                <span class="auth-live-dot" aria-hidden="true"></span>
+                <span id="auth-user-role-text">Authenticated</span>
+              </span>
+            </div>
+            <button type="button" id="auth-logout-btn" class="auth-logout-btn" title="Sign out" aria-label="Sign out">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
+          </div>
+          <div id="auth-login-panel" class="auth-login-card hidden">
+            <form id="auth-local-form" class="auth-local-form">
+              <input type="text" id="auth-username-input" placeholder="Username" autocomplete="username" aria-label="Username" />
+              <input type="password" id="auth-password-input" placeholder="Password" autocomplete="current-password" aria-label="Password" />
+              <button type="button" id="auth-login-btn" class="auth-submit-btn">Sign in</button>
+            </form>
+            <button type="button" id="auth-oidc-login" class="auth-sso-btn hidden">SSO</button>
+          </div>
+        </div>
+      </div>
+    </header>
 
-  <main class="app-main">
+    <div id="status-banner" class="status-banner hidden" role="status"></div>
+
+    <main class="qdash-content app-main">
     <div id="scope-banner" class="scope-banner scope-fleet" role="status">
       <span class="scope-banner-glow" aria-hidden="true"></span>
       <span class="scope-banner-icon" aria-hidden="true">◈</span>
@@ -115,9 +127,10 @@
           <p class="eyebrow" id="dash-eyebrow">Fleet overview</p>
           <h2 id="dash-cluster-name">Loading…</h2>
           <p class="view-meta" id="dash-cluster-meta">—</p>
+          <p class="view-meta db-source-badge">Snapshot from database · <span id="dash-db-updated">—</span></p>
         </div>
         <button id="refresh-dashboard" class="btn btn-primary">
-          <span class="btn-icon" aria-hidden="true">↻</span> Refresh
+          <span class="btn-icon" aria-hidden="true">↻</span> Refresh from DB
         </button>
       </div>
 
@@ -140,14 +153,26 @@
         <div class="progress-track"><span id="dash-migration-progress"></span></div>
       </section>
 
-      <div class="stat-grid" id="dash-status-summary">
+      <div class="stat-grid stat-grid-primary" id="dash-status-summary">
         <article class="stat-card migrated"><span class="stat-value" id="sum-migrated">—</span><span class="stat-label">Migrated</span></article>
-        <article class="stat-card processing"><span class="stat-value" id="sum-processing">—</span><span class="stat-label">Processing</span></article>
+        <article class="stat-card processing"><span class="stat-value" id="sum-processing">—</span><span class="stat-label">In progress</span></article>
         <article class="stat-card blocker"><span class="stat-value" id="sum-blocker">—</span><span class="stat-label">Blockers</span></article>
-        <article class="stat-card failed"><span class="stat-value" id="sum-failed">—</span><span class="stat-label">Failed</span></article>
         <article class="stat-card scanned"><span class="stat-value" id="sum-scanned">—</span><span class="stat-label">Scanned</span></article>
+      </div>
+      <div class="stat-grid stat-grid-secondary hidden" id="dash-status-extra">
+        <article class="stat-card failed"><span class="stat-value" id="sum-failed">—</span><span class="stat-label">Failed</span></article>
         <article class="stat-card not-scanned"><span class="stat-value" id="sum-not-scanned">—</span><span class="stat-label">Not scanned</span></article>
       </div>
+
+      <div class="dash-two-col">
+        <div class="dash-col-main">
+      <section class="content-card" id="dash-mesh-section">
+        <header class="content-card-head">
+          <h3 id="dash-mesh-title">Control planes</h3>
+          <span class="hint" id="dash-last-updated">—</span>
+        </header>
+        <div id="dash-mesh-instances" class="mesh-grid"></div>
+      </section>
 
       <section class="content-card" id="dash-connections-card">
         <header class="content-card-head">
@@ -158,14 +183,20 @@
           <p class="hint">Loading connections…</p>
         </div>
       </section>
+        </div>
 
-      <section class="content-card" id="dash-mesh-section">
-        <header class="content-card-head">
-          <h3 id="dash-mesh-title">Control planes</h3>
-          <span class="hint" id="dash-last-updated">—</span>
-        </header>
-        <div id="dash-mesh-instances" class="mesh-grid"></div>
-      </section>
+        <aside class="dash-col-side">
+          <section class="content-card activity-card" id="dash-activity-card">
+            <header class="content-card-head">
+              <h3>Recent activity</h3>
+              <span class="hint">From audit log</span>
+            </header>
+            <ul id="dash-recent-activity" class="activity-feed">
+              <li class="activity-item hint">Loading activity…</li>
+            </ul>
+          </section>
+        </aside>
+      </div>
     </section>
 
     <!-- Migration candidates -->
@@ -432,6 +463,7 @@
       </div>
     </section>
   </main>
+  </div>
   <script src="/app.js"></script>
 </body>
 </html>
