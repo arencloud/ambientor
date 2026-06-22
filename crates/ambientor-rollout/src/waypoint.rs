@@ -14,7 +14,7 @@ use tracing::info;
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
 use crate::labels::unlabel_namespace_use_waypoint;
-use crate::labels::ensure_mesh_enrollment_labels;
+use crate::labels::{clear_namespace_revision_label, ensure_mesh_enrollment_labels};
 use ambientor_types::{MeshInstance, RolloutStage};
 
 use crate::preflight::{preflight_before_deploy_waypoint, waypoint_gateway_stuck_message};
@@ -59,6 +59,11 @@ pub async fn deploy_waypoint(
     apply_namespaced_manifest(client, namespace, &manifest).await?;
     label_namespace_use_waypoint(client, namespace).await?;
     wait_gateway_programmed(client, namespace, mesh).await?;
+    // Revision tag is required for waypoint programming; ambient workloads must not keep it
+    // or OSSM will keep injecting istio-proxy on rolling restarts.
+    if mesh.ambient {
+        clear_namespace_revision_label(client, namespace).await?;
+    }
     info!(namespace = %namespace, waypoint = %WAYPOINT_GATEWAY_NAME, "deployed ambient waypoint");
     Ok(())
 }

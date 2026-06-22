@@ -18,7 +18,7 @@ use crate::preflight::{
 use crate::rollback::revert_completed_stages;
 use crate::verify::{verify_application_reachability, verify_namespace_traffic};
 use crate::waypoint::deploy_waypoint;
-use ambientor_mesh::enroll_namespace_on_mesh;
+use ambientor_mesh::{ensure_istiod_trusts_ztunnel, enroll_namespace_on_mesh};
 
 pub const FIELD_MANAGER: &str = "ambientor.io";
 
@@ -282,7 +282,10 @@ impl RolloutEngine {
                 ))
             }
             RolloutStageType::InstallAmbientComponents => {
-                Ok("Ambient components check passed".into())
+                let msg = ensure_istiod_trusts_ztunnel(client, mesh)
+                    .await
+                    .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+                Ok(format!("Ambient components check passed ({msg})"))
             }
         }
     }

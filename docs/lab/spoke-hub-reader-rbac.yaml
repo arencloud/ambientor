@@ -29,13 +29,13 @@ metadata:
   labels:
     app.kubernetes.io/name: ambientor
     app.kubernetes.io/component: hub-remote-access
-    ambientor.io/hub-access-version: v3-openshift-routes
+    ambientor.io/hub-access-version: v4-ztunnel-trust
 rules:
   - nonResourceURLs: ["/version", "/healthz", "/livez", "/readyz"]
     verbs: ["get"]
   - apiGroups: [""]
     resources: ["namespaces", "pods", "services", "configmaps"]
-    verbs: ["get", "list", "watch", "patch", "update", "delete"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets"]
     verbs: ["get", "list", "watch", "patch", "update", "delete"]
@@ -51,7 +51,7 @@ rules:
     verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
   - apiGroups: [install.istio.io, sailoperator.io, tags.istio.io, istio.io]
     resources: ["*"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "patch", "update"]
   - apiGroups: [maistra.io]
     resources: ["servicemeshmemberrolls"]
     verbs: ["get", "list", "watch", "patch", "update"]
@@ -63,7 +63,7 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: [route.openshift.io]
     resources: ["routes"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
   - apiGroups: [ambientor.io]
     resources: ["policytranslations"]
     verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]

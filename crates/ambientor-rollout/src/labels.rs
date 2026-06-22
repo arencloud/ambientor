@@ -150,6 +150,22 @@ pub async fn remove_namespace_injection(client: &Client, name: &str) -> Result<(
     Ok(())
 }
 
+/// Drop revision tag from the namespace so new pods are not sidecar-injected (ambient uses ztunnel).
+pub async fn clear_namespace_revision_label(client: &Client, name: &str) -> Result<(), RolloutError> {
+    let api: Api<Namespace> = Api::all(client.clone());
+    let patch = json!({
+        "metadata": {
+            "labels": {
+                "istio.io/rev": null
+            }
+        }
+    });
+    api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await?;
+    info!(namespace = %name, "cleared istio.io/rev for ambient workloads");
+    Ok(())
+}
+
 pub async fn unlabel_namespace_use_waypoint(
     client: &Client,
     name: &str,

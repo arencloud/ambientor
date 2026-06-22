@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+pub mod ambient_trust;
 pub mod application_identity;
 pub mod revision_tags;
 pub mod backend;
@@ -16,6 +17,7 @@ pub mod policy_collect;
 pub mod version;
 pub mod workload_scan;
 
+pub use ambient_trust::*;
 pub use application_identity::*;
 pub use backend::*;
 pub use inventory::*;

@@ -33,7 +33,8 @@ pub async fn rolling_restart_namespace(
                 "template": {
                     "metadata": {
                         "annotations": {
-                            "ambientor.io/restartedAt": restarted_at
+                            "ambientor.io/restartedAt": restarted_at,
+                            "sidecar.istio.io/inject": "false"
                         }
                     }
                 }
