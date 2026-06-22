@@ -49,7 +49,8 @@ pub async fn migrate_ambient_ingress(
     shared: Option<&AmbientIngressGateway>,
 ) -> Result<String, RolloutError> {
     let (routes, ingress_gateways) = collect_namespace_routes(client, namespace).await?;
-    let public_routes: Vec<_> = routes
+    let migration_routes = routes_for_ingress_migration(&routes);
+    let public_routes: Vec<_> = migration_routes
         .iter()
         .filter(|r| !r.hostnames.is_empty() || r.parent_gateway_name.is_some())
         .collect();
@@ -102,7 +103,7 @@ pub async fn migrate_ambient_ingress(
         if let Err(e) = patch_httproute_parent_refs(
             client,
             namespace,
-            &route.name,
+            &httproute_name_for_external_route(route),
             &target.namespace,
             &target.name,
         )
@@ -561,9 +562,43 @@ fn route_already_on_target(
     target: &ResolvedIngressGateway,
     _gateways: &[ambientor_core::rules::IngressGatewayInfo],
 ) -> bool {
+    if route.kind == "VirtualService" {
+        return false;
+    }
     route.parent_gateway_namespace.as_deref() == Some(target.namespace.as_str())
         && route.parent_gateway_name.as_deref() == Some(target.name.as_str())
         && route.parents_attached != Some(false)
+}
+
+/// Prefer translated HTTPRoutes over the source VirtualService for ingress migration.
+fn routes_for_ingress_migration(
+    routes: &[ambientor_core::rules::ExternalRouteInfo],
+) -> Vec<ambientor_core::rules::ExternalRouteInfo> {
+    let httproute_hosts: std::collections::HashSet<String> = routes
+        .iter()
+        .filter(|r| r.kind == "HTTPRoute")
+        .flat_map(|r| r.hostnames.iter().cloned())
+        .collect();
+    routes
+        .iter()
+        .filter(|r| {
+            if r.kind != "VirtualService" {
+                return true;
+            }
+            !r.hostnames
+                .iter()
+                .any(|host| httproute_hosts.contains(host))
+        })
+        .cloned()
+        .collect()
+}
+
+fn httproute_name_for_external_route(route: &ambientor_core::rules::ExternalRouteInfo) -> String {
+    if route.kind == "VirtualService" {
+        format!("{}-ambientor", route.name)
+    } else {
+        route.name.clone()
+    }
 }
 
 async fn collect_namespace_routes(

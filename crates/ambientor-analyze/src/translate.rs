@@ -113,6 +113,10 @@ fn http_rules_from_spec(spec: &Value, warnings: &mut Vec<String>) -> Vec<Value> 
 }
 
 fn translate_http_block(route: &Value, index: usize, warnings: &mut Vec<String>) -> Option<Value> {
+    if route.get("redirect").is_some() {
+        return translate_redirect_block(route, index, warnings);
+    }
+
     let matches = uri_matches(route, index, warnings);
     let backend_refs = backend_refs_from_route(route, index, warnings);
 
@@ -126,6 +130,40 @@ fn translate_http_block(route: &Value, index: usize, warnings: &mut Vec<String>)
     let mut rule = json!({ "backendRefs": backend_refs });
     if !matches.is_empty() {
         rule["matches"] = json!(matches);
+    }
+    Some(rule)
+}
+
+fn translate_redirect_block(route: &Value, index: usize, warnings: &mut Vec<String>) -> Option<Value> {
+    let redirect = route.get("redirect")?;
+    let matches = uri_matches(route, index, warnings);
+    let mut request_redirect = json!({});
+    if let Some(scheme) = redirect.get("scheme").and_then(|v| v.as_str()) {
+        request_redirect["scheme"] = json!(scheme);
+    }
+    if let Some(uri) = redirect.get("uri").and_then(|v| v.as_str()) {
+        request_redirect["path"] = json!({
+            "type": "ReplaceFullPath",
+            "replaceFullPath": uri,
+        });
+    }
+    if let Some(code) = redirect.get("redirectCode").and_then(|v| v.as_u64()) {
+        request_redirect["statusCode"] = json!(code);
+    } else {
+        request_redirect["statusCode"] = json!(302);
+    }
+    let mut rule = json!({
+        "filters": [{
+            "type": "RequestRedirect",
+            "requestRedirect": request_redirect,
+        }]
+    });
+    if !matches.is_empty() {
+        rule["matches"] = json!(matches);
+    } else {
+        warnings.push(format!(
+            "spec.http[{index}]: redirect rule has no URI matches; applies to all paths on host"
+        ));
     }
     Some(rule)
 }
@@ -170,7 +208,8 @@ fn backend_refs_from_route(route: &Value, index: usize, warnings: &mut Vec<Strin
         else {
             continue;
         };
-        let mut backend = json!({ "name": host });
+        let service_name = normalize_backend_service_name(host);
+        let mut backend = json!({ "name": service_name });
         if let Some(port) = dest
             .get("destination")
             .and_then(|d| d.get("port"))
@@ -193,6 +232,11 @@ fn backend_refs_from_route(route: &Value, index: usize, warnings: &mut Vec<Strin
         refs.push(backend);
     }
     refs
+}
+
+/// Map Istio destination hosts to Kubernetes Service names for backendRefs.
+fn normalize_backend_service_name(host: &str) -> String {
+    host.split('.').next().unwrap_or(host).to_string()
 }
 
 #[cfg(test)]
@@ -222,12 +266,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_tcp_only() {
-        let vs = json!({ "spec": { "tcp": [{ "route": [] }] } });
-        assert!(virtual_service_to_httproute("ns", "svc", &vs).is_err());
-    }
-
-    #[test]
     fn omits_bare_wildcard_host() {
         let vs = json!({
             "spec": {
@@ -242,5 +280,61 @@ mod tests {
         let result = virtual_service_to_httproute("mesh-sidecar-2", "sidecar-app-vs", &vs).unwrap();
         assert!(!result.manifest.contains("hostnames:"));
         assert!(result.warnings.iter().any(|w| w.contains("wildcard")));
+    }
+
+    #[test]
+    fn rejects_tcp_only() {
+        let vs = json!({ "spec": { "tcp": [{ "route": [] }] } });
+        assert!(virtual_service_to_httproute("ns", "svc", &vs).is_err());
+    }
+
+    #[test]
+    fn normalizes_fqdn_destination_to_service_name() {
+        let vs = json!({
+            "spec": {
+                "hosts": ["demo4.apps.example.com"],
+                "http": [{
+                    "route": [{
+                        "destination": {
+                            "host": "productpage.bookinfo-demo4.svc.cluster.local",
+                            "port": { "number": 9080 }
+                        }
+                    }]
+                }]
+            }
+        });
+        let result = virtual_service_to_httproute("bookinfo-demo4", "bookinfo", &vs).unwrap();
+        assert!(result.manifest.contains("name: productpage"));
+        assert!(!result.manifest.contains("svc.cluster.local"));
+    }
+
+    #[test]
+    fn translates_redirect_rule() {
+        let vs = json!({
+            "spec": {
+                "hosts": ["demo4.apps.example.com"],
+                "http": [
+                    {
+                        "match": [{ "uri": { "exact": "/" } }],
+                        "redirect": {
+                            "redirectCode": 302,
+                            "scheme": "https",
+                            "uri": "/productpage"
+                        }
+                    },
+                    {
+                        "route": [{
+                            "destination": {
+                                "host": "productpage",
+                                "port": { "number": 9080 }
+                            }
+                        }]
+                    }
+                ]
+            }
+        });
+        let result = virtual_service_to_httproute("bookinfo-demo4", "bookinfo", &vs).unwrap();
+        assert!(result.manifest.contains("RequestRedirect"));
+        assert!(result.manifest.contains("/productpage"));
     }
 }
