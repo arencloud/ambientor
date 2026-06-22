@@ -39,7 +39,7 @@ metadata:
   labels:
     app.kubernetes.io/name: ambientor
     app.kubernetes.io/component: hub-remote-access
-    ambientor.io/hub-access-version: v5-openshift-route-admin
+    ambientor.io/hub-access-version: v6-openshift-route-custom-host
 rules:
   - nonResourceURLs: ["/version", "/healthz", "/livez", "/readyz"]
     verbs: ["get"]
@@ -71,12 +71,9 @@ rules:
   - apiGroups: [security.openshift.io]
     resources: ["securitycontextconstraints"]
     verbs: ["get", "list"]
-  - apiGroups: [route.openshift.io]
-    resources: ["routes"]
+  - apiGroups: [route.openshift.io, ""]
+    resources: ["routes", "routes/custom-host"]
     verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
-  - apiGroups: [rbac.authorization.k8s.io]
-    resources: ["rolebindings"]
-    verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: [ambientor.io]
     resources: ["policytranslations"]
     verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
