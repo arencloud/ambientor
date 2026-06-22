@@ -58,6 +58,12 @@ fn api_resource_from_version_kind(
             "Gateway",
             "gateways",
         )),
+        ("route.openshift.io/v1", "Route") => Ok(api_resource(
+            "route.openshift.io",
+            "v1",
+            "Route",
+            "routes",
+        )),
         _ => Err(RolloutError::ExecutionFailed(format!(
             "unsupported manifest {api_version} {kind}"
         ))),
