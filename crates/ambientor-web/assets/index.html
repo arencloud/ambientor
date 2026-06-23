@@ -12,7 +12,79 @@
   <link rel="stylesheet" href="/style.css" />
   <script src="/config.js"></script>
 </head>
-<body class="qdash-app">
+<body class="qdash-app login-gate">
+  <div id="login-screen" class="login-screen" role="main" aria-label="Sign in to Ambientor">
+    <div class="login-backdrop" aria-hidden="true">
+      <div class="login-orb login-orb-1"></div>
+      <div class="login-orb login-orb-2"></div>
+      <div class="login-orb login-orb-3"></div>
+      <div class="login-mesh"></div>
+    </div>
+    <div class="login-layout">
+      <section class="login-brand-panel" aria-hidden="true">
+        <div class="login-brand-mark">
+          <svg class="login-logo-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="login-logo-grad" x1="6" y1="4" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#fca5a5" />
+                <stop offset="100%" stop-color="#dc2626" />
+              </linearGradient>
+            </defs>
+            <rect x="3" y="3" width="42" height="42" rx="13" fill="url(#login-logo-grad)" />
+            <circle cx="24" cy="17" r="3.2" fill="#fff" opacity="0.95" />
+            <circle cx="15" cy="31" r="2.6" fill="#fff" opacity="0.88" />
+            <circle cx="33" cy="31" r="2.6" fill="#fff" opacity="0.88" />
+            <path d="M24 20.5v4.5M18.5 28.5l5.5-4 5.5 4" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.75" />
+          </svg>
+        </div>
+        <h1 class="login-brand-title">Ambientor</h1>
+        <p class="login-brand-tagline">Sidecar to ambient mesh migration, orchestrated from one control plane.</p>
+        <ul class="login-brand-features">
+          <li>Fleet-wide assessment and migration candidates</li>
+          <li>Wave-based rollout with live pipeline visibility</li>
+          <li>GitOps-compatible plans and cluster connections</li>
+        </ul>
+      </section>
+      <section class="login-form-panel">
+        <div class="login-card">
+          <header class="login-card-head">
+            <p class="login-eyebrow">Secure access</p>
+            <h2>Sign in to continue</h2>
+            <p class="login-subtitle">Use your operator credentials to open the migration portal.</p>
+          </header>
+          <p id="login-error" class="login-error hidden" role="alert"></p>
+          <form id="auth-local-form" class="login-form" autocomplete="on">
+            <label class="login-field">
+              <span>Username</span>
+              <input type="text" id="auth-username-input" placeholder="e.g. egevorky" autocomplete="username" required />
+            </label>
+            <label class="login-field">
+              <span>Password</span>
+              <input type="password" id="auth-password-input" placeholder="Enter your password" autocomplete="current-password" required />
+            </label>
+            <button type="submit" id="auth-login-btn" class="login-submit-btn">
+              <span>Sign in</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </button>
+          </form>
+          <div id="login-sso-wrap" class="login-sso-wrap hidden">
+            <span class="login-divider-text">or</span>
+            <button type="button" id="auth-oidc-login" class="login-sso-btn hidden">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+              </svg>
+              Continue with SSO
+            </button>
+          </div>
+          <p class="login-footnote">This workspace is protected. Unauthorized access is prohibited.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="app-shell" class="app-shell-gated hidden" aria-hidden="true">
   <aside class="qdash-sidebar" aria-label="Primary navigation">
     <div class="sidebar-brand">
       <div class="logo-mark" aria-hidden="true">
@@ -105,10 +177,9 @@
               </span>
             </div>
           </div>
-          <span class="topbar-divider" aria-hidden="true"></span>
+          <span class="topbar-divider topbar-auth-divider" aria-hidden="true"></span>
           <div id="auth-bar" class="auth-bar topbar-auth">
-            <p id="auth-disabled-hint" class="auth-hint">Auth optional</p>
-            <div id="auth-user-panel" class="auth-user-card hidden" role="status" aria-live="polite">
+            <div id="auth-user-panel" class="auth-user-card" role="status" aria-live="polite">
               <div class="auth-user-avatar-ring" aria-hidden="true">
                 <div class="auth-user-avatar" id="auth-user-avatar">?</div>
               </div>
@@ -127,14 +198,6 @@
                   <line x1="21" y1="12" x2="9" y2="12"/>
                 </svg>
               </button>
-            </div>
-            <div id="auth-login-panel" class="auth-login-card hidden">
-              <form id="auth-local-form" class="auth-local-form">
-                <input type="text" id="auth-username-input" placeholder="Username" autocomplete="username" aria-label="Username" />
-                <input type="password" id="auth-password-input" placeholder="Password" autocomplete="current-password" aria-label="Password" />
-                <button type="button" id="auth-login-btn" class="auth-submit-btn">Sign in</button>
-              </form>
-              <button type="button" id="auth-oidc-login" class="auth-sso-btn hidden">SSO</button>
             </div>
           </div>
         </div>
@@ -568,6 +631,7 @@
       </div>
     </section>
   </main>
+  </div>
   </div>
   <script src="/app.js"></script>
 </body>

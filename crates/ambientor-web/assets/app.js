@@ -43,6 +43,94 @@
   let activeClusterRef = '';
   let fleetClusters = [];
   let clusterConnections = [];
+  let appBooted = false;
+  let liveEventSource = null;
+
+  function requiresAuth() {
+    return !!authConfig.enabled;
+  }
+
+  function setLoginError(msg) {
+    const el = $('login-error');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.classList.toggle('hidden', !msg);
+  }
+
+  function showLoginGate() {
+    appBooted = false;
+    teardownLive();
+    document.body.classList.add('login-gate');
+    $('login-screen')?.classList.remove('hidden');
+    const shell = $('app-shell');
+    if (shell) {
+      shell.classList.add('hidden');
+      shell.setAttribute('aria-hidden', 'true');
+    }
+    updateAuthUi();
+    $('auth-username-input')?.focus();
+  }
+
+  function hideLoginGate() {
+    document.body.classList.remove('login-gate');
+    $('login-screen')?.classList.add('hidden');
+    const shell = $('app-shell');
+    if (shell) {
+      shell.classList.remove('hidden');
+      shell.setAttribute('aria-hidden', 'false');
+    }
+    setLoginError('');
+  }
+
+  async function verifySession() {
+    if (!getToken()) return false;
+    try {
+      const res = await fetch(API() + '/api/v1/auth/config', { headers: authHeaders() });
+      if (res.status === 401) {
+        setToken(null);
+        return false;
+      }
+      return res.ok;
+    } catch {
+      return true;
+    }
+  }
+
+  async function bootApp() {
+    if (appBooted) return;
+    if (requiresAuth()) {
+      const ok = await verifySession();
+      if (!ok) {
+        showLoginGate();
+        setLoginError('Session expired. Please sign in again.');
+        return;
+      }
+    }
+    appBooted = true;
+    hideLoginGate();
+    updateAuthUi();
+    await loadFleetClusters();
+    updateScopeUi();
+    activatePanel(panelFromHash());
+    initSse();
+    ensureMigrationPolling();
+  }
+
+  function teardownLive() {
+    if (liveEventSource) {
+      liveEventSource.close();
+      liveEventSource = null;
+    }
+    sseConnected = false;
+    if (migrationPollTimer) {
+      clearInterval(migrationPollTimer);
+      migrationPollTimer = null;
+    }
+    if (liveRefreshTimer) {
+      clearTimeout(liveRefreshTimer);
+      liveRefreshTimer = null;
+    }
+  }
 
   function isRemoteConnectionRef(ref) {
     return !!ref && ref.includes('/') && ref !== 'in-cluster';
@@ -213,10 +301,10 @@
 
   function updateAuthUi() {
     const loggedIn = !!getToken();
-    const authOn = authConfig.enabled;
+    const authOn = requiresAuth();
 
-    $('auth-disabled-hint')?.classList.toggle('hidden', authOn);
-    $('auth-login-panel')?.classList.toggle('hidden', !authOn || loggedIn);
+    $('auth-bar')?.classList.toggle('hidden', !authOn || !loggedIn);
+    document.querySelector('.topbar-auth-divider')?.classList.toggle('hidden', !authOn || !loggedIn);
     $('auth-user-panel')?.classList.toggle('hidden', !loggedIn);
 
     const token = loggedIn ? getToken() : null;
@@ -233,12 +321,13 @@
     if (avatar) avatar.textContent = loggedIn ? userInitials(username) : '?';
 
     const oidcBtn = $('auth-oidc-login');
-    if (oidcBtn) {
-      const showOidc = authOn && !!authConfig.oidcLoginUrl && !loggedIn;
-      oidcBtn.classList.toggle('hidden', !showOidc);
-    }
+    const showOidc = authOn && !!authConfig.oidcLoginUrl;
+    $('login-sso-wrap')?.classList.toggle('hidden', !showOidc);
+    if (oidcBtn) oidcBtn.classList.toggle('hidden', !showOidc);
 
-    $('auth-local-form')?.classList.toggle('hidden', !authConfig.localLogin || loggedIn);
+    const loginForm = $('auth-local-form');
+    if (loginForm) loginForm.classList.toggle('hidden', !authConfig.localLogin);
+
     updateApproveAuthHint();
 
     const r = rollouts.find((x) => rolloutKey(x) === selectedRolloutKey);
@@ -261,16 +350,33 @@
       };
     }
     updateAuthUi();
+    await resolveAuthGate();
   }
 
-  async function loginLocal() {
+  async function resolveAuthGate() {
+    if (!requiresAuth()) {
+      hideLoginGate();
+      await bootApp();
+      return;
+    }
+    if (getToken()) {
+      await bootApp();
+      return;
+    }
+    showLoginGate();
+  }
+
+  async function loginLocal(event) {
+    event?.preventDefault();
     const user = $('auth-username-input')?.value?.trim();
     const pass = $('auth-password-input')?.value;
     if (!user || !pass) {
-      setStatus('Enter username and password', true);
+      setLoginError('Enter username and password.');
       return;
     }
-    setStatus('Signing in…');
+    const btn = $('auth-login-btn');
+    if (btn) btn.disabled = true;
+    setLoginError('');
     try {
       const res = await fetch(API() + '/api/v1/auth/login', {
         method: 'POST',
@@ -281,17 +387,20 @@
       const data = await res.json();
       setToken(data.token);
       if ($('auth-password-input')) $('auth-password-input').value = '';
-      updateAuthUi();
+      await bootApp();
       setStatus('Signed in as ' + (parseJwtUsername(data.token) || user));
     } catch (e) {
-      setStatus('Login failed: ' + e.message, true);
+      setLoginError('Sign in failed. Check your username and password.');
+    } finally {
+      if (btn) btn.disabled = false;
     }
   }
 
   function logout() {
     setToken(null);
-    updateAuthUi();
-    setStatus('Signed out');
+    setStatus('');
+    showLoginGate();
+    setLoginError('');
   }
 
   function startOidcLogin() {
@@ -3244,8 +3353,9 @@
   }
 
   function initSse() {
-    if (!API()) return;
+    if (!API() || liveEventSource) return;
     const evtSource = new EventSource(API() + '/api/v1/events/live');
+    liveEventSource = evtSource;
     evtSource.onopen = () => {
       sseConnected = true;
       setLiveConnectionStatus(
@@ -3324,13 +3434,11 @@
   document.addEventListener('DOMContentLoaded', () => {
     consumeOidcTokenFromUrl();
     initNav();
-    loadAuthConfig().then(() => {
-      if (getToken()) setStatus('Signed in as ' + (parseJwtUsername(getToken()) || 'user'));
-    });
-    loadFleetClusters().then(() => {
-      updateScopeUi();
-      activatePanel(panelFromHash());
-    });
+    $('auth-local-form')?.addEventListener('submit', loginLocal);
+    $('auth-login-btn')?.addEventListener('click', loginLocal);
+    $('auth-logout-btn')?.addEventListener('click', logout);
+    $('auth-oidc-login')?.addEventListener('click', startOidcLogin);
+    loadAuthConfig();
     $('cluster-select')?.addEventListener('change', (e) => selectCluster(e.target.value));
     $('scope-clear-btn')?.addEventListener('click', () => selectCluster(''));
     $('rollout-filter')?.addEventListener('input', renderRolloutList);
@@ -3338,9 +3446,6 @@
     $('rollout-auto-refresh')?.addEventListener('change', startMigrationPolling);
     $('dash-auto-refresh')?.addEventListener('change', startMigrationPolling);
     $('assess-auto-refresh')?.addEventListener('change', startMigrationPolling);
-    $('auth-login-btn')?.addEventListener('click', loginLocal);
-    $('auth-logout-btn')?.addEventListener('click', logout);
-    $('auth-oidc-login')?.addEventListener('click', startOidcLogin);
     $('run-assess')?.addEventListener('click', runAssessment);
     $('refresh-dashboard')?.addEventListener('click', () =>
       loadDashboard(false, { rebuildAssess: true })
@@ -3400,7 +3505,5 @@
       });
     });
     $('approve-rollout')?.addEventListener('click', approveCurrentRolloutStage);
-    initSse();
-    ensureMigrationPolling();
   });
 })();
