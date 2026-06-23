@@ -42,6 +42,21 @@ wait_for() {
   kubectl_ctx wait "$@" --timeout="${E2E_TIMEOUT_SEC}s"
 }
 
+wait_for_cr() {
+  local desc="$1" kind="$2" name="$3" ns="$4"
+  shift 4
+  local start
+  start="$(date +%s)"
+  log "wait: ${desc} (resource ${kind}/${name})"
+  while ! kubectl_ctx get "${kind}" "${name}" -n "${ns}" >/dev/null 2>&1; do
+    if (( "$(date +%s)" - start > E2E_TIMEOUT_SEC )); then
+      die "timeout waiting for ${kind}/${name} to be created (${desc})"
+    fi
+    sleep "${POLL_INTERVAL_SEC}"
+  done
+  wait_for "${desc}" -n "${ns}" "$@" "${kind}/${name}"
+}
+
 wait_for_pod_ready() {
   local desc="$1" ns="$2" selector="$3"
   local timeout="${4:-${POD_READY_TIMEOUT_SEC}}"
@@ -366,8 +381,8 @@ kubectl_ctx apply -f docs/lab/meshinventory-bookinfo.yaml
 wait_for "assessment ${ASSESSMENT}" -n "${NS_SYSTEM}" \
   --for=jsonpath="{.status.phase}=Completed" "ambientassessment/${ASSESSMENT}"
 
-wait_for "migration plan ${PLAN}" -n "${NS_SYSTEM}" \
-  --for=jsonpath="{.status.phase}=Ready" "migrationplan/${PLAN}"
+wait_for_cr "migration plan ${PLAN}" migrationplan "${PLAN}" "${NS_SYSTEM}" \
+  --for=jsonpath="{.status.phase}=Ready"
 
 plan_ns="$(kubectl_ctx get migrationplan -n "${NS_SYSTEM}" "${PLAN}" \
   -o jsonpath='{.spec.waves[0].namespaces[0]}' 2>/dev/null || true)"

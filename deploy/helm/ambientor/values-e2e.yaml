@@ -17,6 +17,9 @@ probes:
     enabled: false
 
 operator:
+  env:
+    # E2e expects inventory → assessment → auto MigrationPlan (see scripts/e2e-kind-ambient.sh).
+    AMBIENTOR_AUTO_MIGRATION_PLAN: "true"
   resources:
     requests:
       cpu: 10m
