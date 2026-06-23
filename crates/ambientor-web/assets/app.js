@@ -1573,7 +1573,7 @@
     });
     if (!any) {
       container.innerHTML =
-        '<p class="hint">No control plane snapshots in the database yet. Run assessment on hub or spoke clusters, then use Refresh from DB.</p>';
+        '<p class="hint">No control plane snapshots in the database yet. Run assessment on hub or spoke clusters, then use Refresh.</p>';
     }
   }
 
