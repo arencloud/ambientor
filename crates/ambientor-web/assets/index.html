@@ -65,49 +65,77 @@
         <p id="page-subtitle" class="page-subtitle">Fleet migration overview from database</p>
       </div>
       <div class="topbar-right">
-        <div id="live-status-pill" class="live-status-pill" role="status" aria-live="polite" title="Rollout live updates">
-          <span class="live-status-dot" aria-hidden="true"></span>
-          <span id="live-status-text">Connecting…</span>
-        </div>
-        <div class="cluster-bar" id="cluster-bar">
-          <label class="cluster-bar-label" for="cluster-select">Scope</label>
-          <div class="scope-select-wrap">
-            <span class="scope-select-icon" id="scope-select-icon" aria-hidden="true">◈</span>
-            <select id="cluster-select" class="cluster-scope-select" aria-label="Cluster scope">
-              <option value="">All clusters</option>
-            </select>
-            <span class="scope-select-chevron" aria-hidden="true">▾</span>
+        <div class="topbar-controls" aria-label="Session controls">
+          <div id="live-status-pill" class="live-status-pill topbar-status" role="status" aria-live="polite" title="Rollout live updates">
+            <span class="live-status-ring" aria-hidden="true">
+              <span class="live-status-dot"></span>
+            </span>
+            <span class="live-status-copy">
+              <span class="live-status-label">Live</span>
+              <span id="live-status-text" class="live-status-value">Connecting…</span>
+            </span>
           </div>
-        </div>
-        <div id="auth-bar" class="auth-bar">
-          <p id="auth-disabled-hint" class="auth-hint">Auth optional</p>
-          <div id="auth-user-panel" class="auth-user-card hidden" role="status" aria-live="polite">
-            <div class="auth-user-avatar-ring" aria-hidden="true">
-              <div class="auth-user-avatar" id="auth-user-avatar">?</div>
-            </div>
-            <div class="auth-user-meta">
-              <span class="auth-user-greeting">Welcome back</span>
-              <strong class="auth-user-name" id="auth-username" title="">user</strong>
-              <span class="auth-user-role">
-                <span class="auth-live-dot" aria-hidden="true"></span>
-                <span id="auth-user-role-text">Authenticated</span>
+          <span class="topbar-divider" aria-hidden="true"></span>
+          <div class="cluster-bar topbar-scope" id="cluster-bar">
+            <label class="cluster-bar-label" for="cluster-select">
+              <svg class="cluster-bar-label-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+              </svg>
+              Scope
+            </label>
+            <div class="scope-select-wrap">
+              <span class="scope-select-icon" id="scope-select-icon" aria-hidden="true">
+                <svg class="scope-icon-glyph scope-icon-fleet" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                </svg>
+                <svg class="scope-icon-glyph scope-icon-remote hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                </svg>
+                <svg class="scope-icon-glyph scope-icon-local hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </span>
+              <select id="cluster-select" class="cluster-scope-select" aria-label="Cluster scope">
+                <option value="">All clusters</option>
+              </select>
+              <span class="scope-select-chevron" aria-hidden="true">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
               </span>
             </div>
-            <button type="button" id="auth-logout-btn" class="auth-logout-btn" title="Sign out" aria-label="Sign out">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                <polyline points="16 17 21 12 16 7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
-            </button>
           </div>
-          <div id="auth-login-panel" class="auth-login-card hidden">
-            <form id="auth-local-form" class="auth-local-form">
-              <input type="text" id="auth-username-input" placeholder="Username" autocomplete="username" aria-label="Username" />
-              <input type="password" id="auth-password-input" placeholder="Password" autocomplete="current-password" aria-label="Password" />
-              <button type="button" id="auth-login-btn" class="auth-submit-btn">Sign in</button>
-            </form>
-            <button type="button" id="auth-oidc-login" class="auth-sso-btn hidden">SSO</button>
+          <span class="topbar-divider" aria-hidden="true"></span>
+          <div id="auth-bar" class="auth-bar topbar-auth">
+            <p id="auth-disabled-hint" class="auth-hint">Auth optional</p>
+            <div id="auth-user-panel" class="auth-user-card hidden" role="status" aria-live="polite">
+              <div class="auth-user-avatar-ring" aria-hidden="true">
+                <div class="auth-user-avatar" id="auth-user-avatar">?</div>
+              </div>
+              <div class="auth-user-meta">
+                <span class="auth-user-greeting">Welcome back</span>
+                <strong class="auth-user-name" id="auth-username" title="">user</strong>
+                <span class="auth-user-role">
+                  <span class="auth-live-dot" aria-hidden="true"></span>
+                  <span id="auth-user-role-text">Authenticated</span>
+                </span>
+              </div>
+              <button type="button" id="auth-logout-btn" class="auth-logout-btn" title="Sign out" aria-label="Sign out">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                  <polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+              </button>
+            </div>
+            <div id="auth-login-panel" class="auth-login-card hidden">
+              <form id="auth-local-form" class="auth-local-form">
+                <input type="text" id="auth-username-input" placeholder="Username" autocomplete="username" aria-label="Username" />
+                <input type="password" id="auth-password-input" placeholder="Password" autocomplete="current-password" aria-label="Password" />
+                <button type="button" id="auth-login-btn" class="auth-submit-btn">Sign in</button>
+              </form>
+              <button type="button" id="auth-oidc-login" class="auth-sso-btn hidden">SSO</button>
+            </div>
           </div>
         </div>
       </div>

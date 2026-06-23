@@ -792,9 +792,14 @@
     }
     const scopeIcon = $('scope-select-icon');
     if (scopeIcon) {
-      if (isFleetView()) scopeIcon.textContent = '◈';
-      else if (isRemoteConnectionRef(activeClusterRef)) scopeIcon.textContent = '⬡';
-      else scopeIcon.textContent = '◎';
+      const mode = isFleetView()
+        ? 'fleet'
+        : isRemoteConnectionRef(activeClusterRef)
+          ? 'remote'
+          : 'local';
+      scopeIcon.querySelectorAll('.scope-icon-glyph').forEach((el) => {
+        el.classList.toggle('hidden', !el.classList.contains(`scope-icon-${mode}`));
+      });
     }
   }
 
