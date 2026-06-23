@@ -95,13 +95,16 @@ pub async fn revert_rolling_restart_annotations(
 }
 
 fn skip_rolling_restart(name: &str, dep: &Deployment) -> bool {
-    if name == "waypoint-istio" || name.ends_with("-istio") && name.starts_with(PER_NAMESPACE_INGRESS_NAME) {
+    if name == "waypoint-istio"
+        || name.ends_with("-istio") && name.starts_with(PER_NAMESPACE_INGRESS_NAME)
+    {
         return true;
     }
     let labels = dep.metadata.labels.as_ref();
     labels.is_some_and(|l| {
         l.get("ambientor.io/ingress-created").map(String::as_str) == Some("true")
-            || l.get("gateway.istio.io/managed").map(String::as_str) == Some("istio.io-gateway-controller")
+            || l.get("gateway.istio.io/managed").map(String::as_str)
+                == Some("istio.io-gateway-controller")
             || l.get("gateway.networking.k8s.io/gateway-name").is_some()
     })
 }

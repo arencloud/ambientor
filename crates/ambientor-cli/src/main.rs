@@ -209,13 +209,29 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?;
             }
-            PlanAction::Approve { namespace, plan_name } => {
-                plan_cmd::plan_approve(cli.api_url.as_deref(), cli.kubeconfig.as_deref(), &namespace, &plan_name)
-                    .await?;
+            PlanAction::Approve {
+                namespace,
+                plan_name,
+            } => {
+                plan_cmd::plan_approve(
+                    cli.api_url.as_deref(),
+                    cli.kubeconfig.as_deref(),
+                    &namespace,
+                    &plan_name,
+                )
+                .await?;
             }
-            PlanAction::Execute { namespace, plan_name } => {
-                plan_cmd::plan_execute(cli.api_url.as_deref(), cli.kubeconfig.as_deref(), &namespace, &plan_name)
-                    .await?;
+            PlanAction::Execute {
+                namespace,
+                plan_name,
+            } => {
+                plan_cmd::plan_execute(
+                    cli.api_url.as_deref(),
+                    cli.kubeconfig.as_deref(),
+                    &namespace,
+                    &plan_name,
+                )
+                .await?;
             }
         },
         Commands::Openshift { action } => match action {
@@ -263,7 +279,10 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Commands::Rollout { action } => match action {
-            RolloutAction::Status { namespace, rollout_name } => {
+            RolloutAction::Status {
+                namespace,
+                rollout_name,
+            } => {
                 rollout_cmd::rollout_status(
                     cli.api_url.as_deref(),
                     cli.kubeconfig.as_deref(),

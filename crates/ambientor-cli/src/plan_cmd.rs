@@ -161,14 +161,8 @@ pub async fn plan_execute(
             )
             .await?;
     }
-    super::rollout_cmd::rollout_approve(
-        None,
-        kubeconfig,
-        namespace,
-        &rollout_name,
-        Some(0),
-    )
-    .await?;
+    super::rollout_cmd::rollout_approve(None, kubeconfig, namespace, &rollout_name, Some(0))
+        .await?;
     println!("executed migration for {namespace}/{name} via kube (approve plan + rollout stage 0)");
     Ok(())
 }

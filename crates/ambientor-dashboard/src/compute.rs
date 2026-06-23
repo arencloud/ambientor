@@ -228,7 +228,9 @@ fn derive_status(
     if let Some(phase) = rollouts.get(ns) {
         return match phase.as_str() {
             "Failed" | "RolledBack" => ApplicationMigrationStatus::Failed,
-            "Completed" if mesh.ambient && is_migrated(labels) => ApplicationMigrationStatus::Migrated,
+            "Completed" if mesh.ambient && is_migrated(labels) => {
+                ApplicationMigrationStatus::Migrated
+            }
             "Completed" => ApplicationMigrationStatus::Scanned,
             "Running" | "AwaitingApproval" | "Pending" => ApplicationMigrationStatus::Processing,
             _ => ApplicationMigrationStatus::Processing,
@@ -285,11 +287,7 @@ async fn list_assessments_map(
         let Some(status) = a.status.as_ref() else {
             continue;
         };
-        let name = a
-            .metadata
-            .name
-            .clone()
-            .unwrap_or_else(|| "unknown".into());
+        let name = a.metadata.name.clone().unwrap_or_else(|| "unknown".into());
         let scanned = status.phase == "Completed" || status.phase == "Ready";
 
         let findings = if status.findings.is_empty() {
@@ -347,11 +345,7 @@ pub async fn list_rollout_ns_status(
     let hub_local = ambientor_k8s::parse_connection_cluster_ref(cluster_ref).is_none();
 
     for r in list.items {
-        let rollout_cluster = r
-            .spec
-            .cluster_ref
-            .as_deref()
-            .filter(|s| !s.is_empty());
+        let rollout_cluster = r.spec.cluster_ref.as_deref().filter(|s| !s.is_empty());
         let targets_cluster = match rollout_cluster {
             Some(rc) if !rc.is_empty() => rc == cluster_ref,
             _ => hub_local,
@@ -464,7 +458,8 @@ pub fn overlay_rollout_status(
         for app in &mut mesh.applications {
             if let Some(phase) = rollouts.get(&app.namespace) {
                 app.rollout_phase = Some(phase.clone());
-                app.status = status_from_rollout_phase(phase, mesh.ambient, app.dataplane_mode.as_str());
+                app.status =
+                    status_from_rollout_phase(phase, mesh.ambient, app.dataplane_mode.as_str());
             }
             increment_count(&mut counts, app.status);
         }
@@ -512,7 +507,8 @@ fn overlay_rollout_status_parts(
         for app in &mut mesh.applications {
             if let Some(phase) = rollouts.get(&app.namespace) {
                 app.rollout_phase = Some(phase.clone());
-                app.status = status_from_rollout_phase(phase, mesh.ambient, app.dataplane_mode.as_str());
+                app.status =
+                    status_from_rollout_phase(phase, mesh.ambient, app.dataplane_mode.as_str());
             }
             increment_count(&mut counts, app.status);
         }

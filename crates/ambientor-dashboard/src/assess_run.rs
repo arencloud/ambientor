@@ -8,11 +8,11 @@ use k8s_openapi::api::core::v1::{Namespace, Pod};
 use kube::Client;
 
 use crate::application_types::ClusterAssessmentRun;
-use crate::compute::load_cluster_display_name;
-use crate::types::ClusterDashboard;
 use crate::applications::{
     build_cluster_assessment, hostnames_from_istio_objects, ingress_gateway_namespaces_from_pods,
 };
+use crate::compute::load_cluster_display_name;
+use crate::types::ClusterDashboard;
 use ambientor_mesh::application_identity::identities_by_namespace;
 
 pub use crate::dashboard_from_run::dashboard_from_assessment_run;
@@ -49,8 +49,8 @@ pub async fn build_cluster_assessment_from_context(
     findings: &[Finding],
 ) -> anyhow::Result<ClusterAssessmentRun> {
     use crate::applications::{hostnames_by_namespace, list_namespaces_for_assessment};
-    use kube::api::ListParams;
     use kube::Api;
+    use kube::api::ListParams;
 
     let namespaces = list_namespaces_for_assessment(client).await?;
     let mesh_instances = discover_mesh_instances(client).await?;

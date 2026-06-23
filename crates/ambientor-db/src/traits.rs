@@ -6,11 +6,11 @@ use ambientor_types::dto::AuditEvent;
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use crate::applications::ApplicationListQuery;
 use ambientor_dashboard::{
     ApplicationDetail, ApplicationListPage, ClusterAssessmentRun, DashboardResponse,
     FleetDashboardResponse,
 };
-use crate::applications::ApplicationListQuery;
 
 use crate::pool::DbError;
 use crate::repository::UserRecord;

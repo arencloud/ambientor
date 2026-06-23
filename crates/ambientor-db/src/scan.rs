@@ -109,8 +109,10 @@ impl ScanRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        row.map(|(json,)| serde_json::from_value(json).map_err(|e| DbError::Serialize(e.to_string())))
-            .transpose()
+        row.map(|(json,)| {
+            serde_json::from_value(json).map_err(|e| DbError::Serialize(e.to_string()))
+        })
+        .transpose()
     }
 }
 
@@ -146,10 +148,10 @@ pub async fn load_assessment_findings_overrides(
 ) -> Result<std::collections::HashMap<String, Vec<Finding>>, DbError> {
     let mut out = std::collections::HashMap::new();
     for name in assessment_names {
-        if let Some(stored) = scan_repo.latest_for_assessment(cluster_ref, name).await? {
-            if !stored.findings.is_empty() {
-                out.insert(name.clone(), stored.findings);
-            }
+        if let Some(stored) = scan_repo.latest_for_assessment(cluster_ref, name).await?
+            && !stored.findings.is_empty()
+        {
+            out.insert(name.clone(), stored.findings);
         }
     }
     Ok(out)

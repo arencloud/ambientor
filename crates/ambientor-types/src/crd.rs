@@ -119,9 +119,8 @@ impl<'de> Deserialize<'de> for MeshInstance {
             enrollment: Option<MeshEnrollment>,
         }
         let raw = Raw::deserialize(deserializer)?;
-        let enrollment = raw
-            .enrollment
-            .unwrap_or_else(|| legacy_enrollment_from_mesh_instance(&MeshInstance {
+        let enrollment = raw.enrollment.unwrap_or_else(|| {
+            legacy_enrollment_from_mesh_instance(&MeshInstance {
                 revision: raw.revision.clone(),
                 discovery_label: raw.discovery_label.clone(),
                 control_plane_namespace: raw.control_plane_namespace.clone(),
@@ -138,7 +137,8 @@ impl<'de> Deserialize<'de> for MeshInstance {
                     member_roll_namespace: None,
                     from_istiod_config: false,
                 },
-            }));
+            })
+        });
         Ok(MeshInstance {
             revision: raw.revision,
             discovery_label: raw.discovery_label,

@@ -161,12 +161,12 @@ fn parse_virtual_service(vs: &DynamicObject) -> Option<ExternalRouteInfo> {
         .unwrap_or_default();
     let gateways = spec.get("gateways").and_then(|g| g.as_array())?;
     let first = gateways.first()?.as_str()?;
-    let (parent_gateway_namespace, parent_gateway_name) = if let Some((gns, gname)) = first.split_once('/')
-    {
-        (Some(gns.to_string()), Some(gname.to_string()))
-    } else {
-        (Some(ns.clone()), Some(first.to_string()))
-    };
+    let (parent_gateway_namespace, parent_gateway_name) =
+        if let Some((gns, gname)) = first.split_once('/') {
+            (Some(gns.to_string()), Some(gname.to_string()))
+        } else {
+            (Some(ns.clone()), Some(first.to_string()))
+        };
     if hostnames.is_empty() {
         return None;
     }
@@ -207,11 +207,7 @@ pub fn gateway_for_route<'a>(
 
 pub fn has_programmed_ambient_ingress(gateways: &[IngressGatewayInfo]) -> bool {
     gateways.iter().any(|g| {
-        g.programmed
-            && mesh_is_ambient(
-                g.istio_revision.as_deref(),
-                g.discovery_label.as_deref(),
-            )
+        g.programmed && mesh_is_ambient(g.istio_revision.as_deref(), g.discovery_label.as_deref())
     })
 }
 
@@ -222,10 +218,7 @@ pub fn route_uses_sidecar_ingress(
     let Some(gw) = gateway_for_route(route, gateways) else {
         return route.parent_gateway_name.is_some();
     };
-    mesh_is_sidecar_legacy(
-        gw.istio_revision.as_deref(),
-        gw.discovery_label.as_deref(),
-    )
+    mesh_is_sidecar_legacy(gw.istio_revision.as_deref(), gw.discovery_label.as_deref())
 }
 
 #[cfg(test)]

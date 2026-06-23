@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use ambientor_core::scoring::compute_scores;
-use ambientor_db::{
-    ApplicationListQuery, StoredAssessment, cluster_ref_from_env,
-};
+use ambientor_db::{ApplicationListQuery, StoredAssessment, cluster_ref_from_env};
 use ambientor_k8s::K8sClient;
 use ambientor_mesh::backend::backend_for_flavor;
 use ambientor_mesh::inventory::collect_inventory_full;
@@ -51,15 +49,13 @@ pub async fn assess(
     match trigger_and_wait(&k8s.client, &cluster_ref).await {
         Ok(completed) => {
             let mut findings = completed.status.findings.clone();
-            if findings.is_empty() {
-                if let Some(repo) = state.scan_store() {
-                    if let Ok(Some(stored)) = repo
-                        .latest_for_assessment(&cluster_ref, &completed.name)
-                        .await
-                    {
-                        findings = stored.findings;
-                    }
-                }
+            if findings.is_empty()
+                && let Some(repo) = state.scan_store()
+                && let Ok(Some(stored)) = repo
+                    .latest_for_assessment(&cluster_ref, &completed.name)
+                    .await
+            {
+                findings = stored.findings;
             }
             let scores = completed.scores();
             let summary = if findings.is_empty() {
@@ -184,10 +180,9 @@ pub(crate) async fn application_count_for_cluster(state: &AppState, cluster_ref:
                 ..ApplicationListQuery::default()
             })
             .await
+            && (page.total > 0 || attempt == 4)
         {
-            if page.total > 0 || attempt == 4 {
-                return page.total as usize;
-            }
+            return page.total as usize;
         }
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
     }

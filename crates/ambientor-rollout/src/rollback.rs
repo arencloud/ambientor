@@ -68,13 +68,9 @@ async fn revert_stage(
         RolloutStageType::MigrateIngress => {
             let mut notes = Vec::new();
             for ns in &stage.namespaces {
-                let msg = revert_ambient_ingress(
-                    client,
-                    ns,
-                    mesh,
-                    spec.ambient_ingress_gateway.as_ref(),
-                )
-                .await?;
+                let msg =
+                    revert_ambient_ingress(client, ns, mesh, spec.ambient_ingress_gateway.as_ref())
+                        .await?;
                 notes.push(msg);
             }
             Ok(notes.join("; "))

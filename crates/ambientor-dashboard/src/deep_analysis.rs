@@ -11,6 +11,7 @@ use crate::dataplane::{DataplaneMode, is_ambient_mesh_scope};
 const AMBIENT_MIGRATE_DOC: &str = "https://preliminary.istio.io/latest/docs/ambient/migrate/";
 
 /// Enrich assessment with operational deep-investigation findings and suggestions.
+#[allow(clippy::too_many_arguments)]
 pub fn enrich_ambient_application(
     ns_name: &str,
     dataplane: DataplaneMode,
@@ -59,9 +60,10 @@ fn append_hostname_inventory(
     if workload_count == 0 {
         return;
     }
-    if findings.iter().any(|f| {
-        f.id == "traffic.ambient-routing-inventory" || f.id == "traffic.missing-hostnames"
-    }) {
+    if findings
+        .iter()
+        .any(|f| f.id == "traffic.ambient-routing-inventory" || f.id == "traffic.missing-hostnames")
+    {
         return;
     }
     let rev = mesh
@@ -119,7 +121,12 @@ fn append_workload_investigation(
             .map(|w| w.name.as_str())
             .collect();
         if !sidecars.is_empty() && !findings.iter().any(|f| f.id == "ambient.residual-sidecars") {
-            let sample: String = sidecars.iter().take(5).copied().collect::<Vec<_>>().join(", ");
+            let sample: String = sidecars
+                .iter()
+                .take(5)
+                .copied()
+                .collect::<Vec<_>>()
+                .join(", ");
             let more = sidecars.len().saturating_sub(5);
             let suffix = if more > 0 {
                 format!(" (+{more} more)")
@@ -290,7 +297,10 @@ fn append_policy_investigation(
         String::new()
     };
 
-    if findings.iter().any(|f| f.id == "policy.ambient-translation-review") {
+    if findings
+        .iter()
+        .any(|f| f.id == "policy.ambient-translation-review")
+    {
         return;
     }
 
@@ -434,6 +444,10 @@ mod tests {
                 .iter()
                 .any(|f| f.id == "enrollment.missing-ambient-dataplane")
         );
-        assert!(findings.iter().any(|f| f.id == "traffic.ambient-routing-inventory"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.id == "traffic.ambient-routing-inventory")
+        );
     }
 }

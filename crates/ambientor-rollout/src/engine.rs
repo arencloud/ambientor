@@ -5,20 +5,20 @@ use thiserror::Error;
 use tracing::warn;
 
 use crate::events::{RolloutEvent, RolloutEventType};
+use crate::ingress::{migrate_ambient_ingress, revert_ambient_ingress};
 use crate::labels::{
     label_namespace_ambient, remove_namespace_injection, restore_namespace_pre_migration,
     snapshot_namespace_pre_migration,
 };
-use crate::restart::{revert_rolling_restart_annotations, rolling_restart_namespace};
-use crate::ingress::{migrate_ambient_ingress, revert_ambient_ingress};
 use crate::policy::translate_policies_in_namespace;
 use crate::preflight::{
     dry_run_namespace, namespaces_in_rollout, preflight_namespace_for_ambient_rollout,
 };
+use crate::restart::{revert_rolling_restart_annotations, rolling_restart_namespace};
 use crate::rollback::revert_completed_stages;
 use crate::verify::{verify_application_reachability, verify_namespace_traffic};
 use crate::waypoint::deploy_waypoint;
-use ambientor_mesh::{ensure_istiod_trusts_ztunnel, enroll_namespace_on_mesh};
+use ambientor_mesh::{enroll_namespace_on_mesh, ensure_istiod_trusts_ztunnel};
 
 pub const FIELD_MANAGER: &str = "ambientor.io";
 
@@ -41,7 +41,9 @@ pub fn rollout_awaiting_approval(status: &RolloutStatus, stage_count: usize) -> 
         return false;
     }
     status.phase == "AwaitingApproval"
-        || (status.current_stage == 0 && status.approved_stage < 0 && status.stage_results.is_empty())
+        || (status.current_stage == 0
+            && status.approved_stage < 0
+            && status.stage_results.is_empty())
 }
 
 pub struct RolloutEngine;
@@ -84,7 +86,8 @@ impl RolloutEngine {
                     stage_index: status.current_stage,
                     stage_name: "done".into(),
                     event_type: RolloutEventType::RolloutCompleted,
-                    message: "All stages completed — applications verified reachable on ambient".into(),
+                    message: "All stages completed — applications verified reachable on ambient"
+                        .into(),
                     timestamp: Utc::now(),
                 });
                 break;
@@ -98,10 +101,7 @@ impl RolloutEngine {
                     stage_index: status.current_stage,
                     stage_name: stage.name.clone(),
                     event_type: RolloutEventType::ApprovalRequired,
-                    message: format!(
-                        "Approve to start migration (stage: {})",
-                        stage.name
-                    ),
+                    message: format!("Approve to start migration (stage: {})", stage.name),
                     timestamp: Utc::now(),
                 });
                 break;
@@ -193,9 +193,10 @@ impl RolloutEngine {
                 for ns in &namespaces {
                     dry_run_namespace(client, ns, mesh, &spec.stages).await?;
                 }
-                let enroll_note = if namespaces.iter().any(|ns| {
-                    crate::preflight::rollout_will_enroll_namespace(&spec.stages, ns)
-                }) {
+                let enroll_note = if namespaces
+                    .iter()
+                    .any(|ns| crate::preflight::rollout_will_enroll_namespace(&spec.stages, ns))
+                {
                     "; enrollment will run in EnrollNamespace stage(s)"
                 } else {
                     ""
@@ -226,8 +227,7 @@ impl RolloutEngine {
             }
             RolloutStageType::LabelNamespace => {
                 for ns in &stage.namespaces {
-                    preflight_namespace_for_ambient_rollout(client, ns, mesh, &spec.stages)
-                        .await?;
+                    preflight_namespace_for_ambient_rollout(client, ns, mesh, &spec.stages).await?;
                     label_namespace_ambient(client, ns).await?;
                 }
                 Ok(format!("Labeled {} namespace(s)", stage.namespaces.len()))
@@ -308,9 +308,10 @@ impl RolloutEngine {
             timestamp: Utc::now(),
         });
 
-        let revert_messages =
-            revert_completed_stages(client, spec, failed_at, Some(mesh)).await?;
-        let finalize = self.finalize_rollback_namespaces(client, spec, status, mesh).await?;
+        let revert_messages = revert_completed_stages(client, spec, failed_at, Some(mesh)).await?;
+        let finalize = self
+            .finalize_rollback_namespaces(client, spec, status, mesh)
+            .await?;
         let mut summary = revert_messages;
         if !finalize.is_empty() {
             summary.push(finalize);
@@ -340,17 +341,16 @@ impl RolloutEngine {
         mesh: &MeshInstance,
     ) -> Result<String, RolloutError> {
         let namespaces = namespaces_in_rollout(&spec.stages);
-        let mesh_ref = status
-            .resolved_mesh_target
-            .as_ref()
-            .unwrap_or(mesh);
+        let mesh_ref = status.resolved_mesh_target.as_ref().unwrap_or(mesh);
         let mut notes = Vec::new();
         for ns in namespaces {
             if restore_namespace_pre_migration(client, &ns).await? {
                 notes.push(format!("restored labels on {ns}"));
             }
             match revert_rolling_restart_annotations(client, &ns).await {
-                Ok(n) if n > 0 => notes.push(format!("cleared restart annotations on {n} Deployment(s) in {ns}")),
+                Ok(n) if n > 0 => notes.push(format!(
+                    "cleared restart annotations on {n} Deployment(s) in {ns}"
+                )),
                 Ok(_) => {}
                 Err(e) => warn!(namespace = %ns, error = %e, "restart annotation cleanup skipped"),
             }
@@ -364,7 +364,9 @@ impl RolloutEngine {
             {
                 Ok(msg) if msg != "no ingress migration resources to revert" => notes.push(msg),
                 Ok(_) => {}
-                Err(e) => warn!(namespace = %ns, error = %e, "ingress cleanup during rollback skipped"),
+                Err(e) => {
+                    warn!(namespace = %ns, error = %e, "ingress cleanup during rollback skipped")
+                }
             }
             match rolling_restart_namespace(client, &ns).await {
                 Ok(n) if n > 0 => notes.push(format!("restarted {n} Deployment(s) in {ns}")),

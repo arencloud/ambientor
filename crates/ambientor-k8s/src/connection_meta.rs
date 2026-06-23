@@ -9,10 +9,10 @@ pub async fn resolve_cluster_display_name(
     cluster_ref: &str,
     live_name: &str,
 ) -> String {
-    if let (Some(hub), Some((ns, name))) = (hub, parse_connection_cluster_ref(cluster_ref)) {
-        if let Ok(conn) = fetch_connection(hub, ns, name).await {
-            return conn.spec.display_name;
-        }
+    if let (Some(hub), Some((ns, name))) = (hub, parse_connection_cluster_ref(cluster_ref))
+        && let Ok(conn) = fetch_connection(hub, ns, name).await
+    {
+        return conn.spec.display_name;
     }
     if cluster_ref == "in-cluster" {
         if live_name != "In-cluster" && live_name != "Connected cluster" {
@@ -50,10 +50,7 @@ pub async fn connection_display_names(
         let Some(name) = conn.metadata.name else {
             continue;
         };
-        let ns = conn
-            .metadata
-            .namespace
-            .unwrap_or_else(|| "default".into());
+        let ns = conn.metadata.namespace.unwrap_or_else(|| "default".into());
         let cluster_ref = if conn.spec.hub {
             hub_cluster_ref.to_string()
         } else {

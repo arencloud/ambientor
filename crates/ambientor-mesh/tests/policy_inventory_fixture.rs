@@ -28,15 +28,15 @@ fn builds_policy_context_from_fixtures() {
 
     let ctx = build_policy_context(
         &IstioPolicyObjects {
-        peer_authentications: vec![peer],
-        authorization_policies: vec![],
-        virtual_services: vec![vs],
-        envoy_filters: vec![],
-        http_routes: vec![hr],
-        gateways: vec![],
-        wasm_plugins: vec![],
-        destination_rules: vec![],
-    },
+            peer_authentications: vec![peer],
+            authorization_policies: vec![],
+            virtual_services: vec![vs],
+            envoy_filters: vec![],
+            http_routes: vec![hr],
+            gateways: vec![],
+            wasm_plugins: vec![],
+            destination_rules: vec![],
+        },
         &[],
     );
 

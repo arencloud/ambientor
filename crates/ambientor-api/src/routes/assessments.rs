@@ -84,10 +84,7 @@ async fn enrich_findings_from_store(
         .cluster_ref
         .clone()
         .unwrap_or_else(cluster_ref_from_env);
-    let Ok(Some(stored)) = repo
-        .latest_for_assessment(&cluster_ref, &item.name)
-        .await
-    else {
+    let Ok(Some(stored)) = repo.latest_for_assessment(&cluster_ref, &item.name).await else {
         return;
     };
     item.findings = stored.findings;

@@ -7,10 +7,10 @@ use ambientor_types::Finding;
 
 /// Namespace from `Finding.namespace` or `resource` (`namespace/name`).
 pub fn finding_namespace(f: &Finding) -> Option<String> {
-    if let Some(ns) = &f.namespace {
-        if !ns.is_empty() {
-            return Some(ns.clone());
-        }
+    if let Some(ns) = &f.namespace
+        && !ns.is_empty()
+    {
+        return Some(ns.clone());
     }
     f.resource
         .as_ref()
@@ -65,13 +65,12 @@ fn cluster_finding_target_namespaces(f: &Finding, ctx: &RuleContext) -> Vec<Stri
             .filter(|n| n.injection_enabled || n.ambient_enabled)
             .map(|n| n.name.clone())
             .collect(),
-        "readiness.gateway-api" | "readiness.ambient-components" | "readiness.istio-version" => {
-            ctx.namespaces
-                .iter()
-                .filter(|n| n.workload_count > 0)
-                .map(|n| n.name.clone())
-                .collect()
-        }
+        "readiness.gateway-api" | "readiness.ambient-components" | "readiness.istio-version" => ctx
+            .namespaces
+            .iter()
+            .filter(|n| n.workload_count > 0)
+            .map(|n| n.name.clone())
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -95,10 +94,7 @@ mod tests {
             doc_url: None,
             evidence: None,
         };
-        assert_eq!(
-            finding_namespace(&f).as_deref(),
-            Some("demo-vm")
-        );
+        assert_eq!(finding_namespace(&f).as_deref(), Some("demo-vm"));
     }
 
     #[test]

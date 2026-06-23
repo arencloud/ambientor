@@ -26,10 +26,7 @@ pub async fn istiod_ca_trusted_accounts(
     revision: &str,
 ) -> Option<String> {
     let api: Api<Deployment> = Api::namespaced(client.clone(), control_plane_namespace);
-    let candidates = [
-        format!("istiod-{revision}"),
-        "istiod".to_string(),
-    ];
+    let candidates = [format!("istiod-{revision}"), "istiod".to_string()];
     for name in candidates {
         let Ok(dep) = api.get(&name).await else {
             continue;
@@ -153,7 +150,9 @@ async fn find_istio_cr_for_mesh(
 ) -> anyhow::Result<Option<kube::api::DynamicObject>> {
     let ar = api_resource("sailoperator.io", "v1", "Istio", "istios");
     let items = list_cluster_cr(client, &ar).await?;
-    Ok(items.into_iter().find(|istio| istio_cr_matches_mesh(istio, mesh)))
+    Ok(items
+        .into_iter()
+        .find(|istio| istio_cr_matches_mesh(istio, mesh)))
 }
 
 fn istio_cr_matches_mesh(istio: &kube::api::DynamicObject, mesh: &MeshInstance) -> bool {
@@ -165,9 +164,7 @@ fn istio_cr_matches_mesh(istio: &kube::api::DynamicObject, mesh: &MeshInstance) 
     {
         return true;
     }
-    if data
-        .pointer("/spec/namespace")
-        .and_then(|v| v.as_str())
+    if data.pointer("/spec/namespace").and_then(|v| v.as_str())
         == Some(mesh.control_plane_namespace.as_str())
     {
         return true;

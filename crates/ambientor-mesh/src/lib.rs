@@ -2,7 +2,6 @@
 
 pub mod ambient_trust;
 pub mod application_identity;
-pub mod revision_tags;
 pub mod backend;
 pub mod dynamic;
 pub mod ingress_collect;
@@ -14,6 +13,7 @@ pub mod openshift;
 pub mod openshift_wizard;
 pub mod platform_scan;
 pub mod policy_collect;
+pub mod revision_tags;
 pub mod version;
 pub mod workload_scan;
 

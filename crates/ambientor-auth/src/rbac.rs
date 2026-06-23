@@ -123,7 +123,13 @@ async fn seed_defaults(enforcer: &mut Enforcer) -> Result<(), RbacError> {
         ),
         ("migration-operator", "*", "plan/*", "read|export", "allow"),
         // Alias for docs/CLI that say "operator"
-        ("operator", "*", "rollout/*", "approve|execute|read", "allow"),
+        (
+            "operator",
+            "*",
+            "rollout/*",
+            "approve|execute|read",
+            "allow",
+        ),
         ("operator", "*", "plan/*", "read|export", "allow"),
         ("viewer", "*", "*", "read", "allow"),
         ("auditor", "*", "audit/*", "read", "allow"),

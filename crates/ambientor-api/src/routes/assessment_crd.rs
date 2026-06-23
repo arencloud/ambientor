@@ -2,7 +2,9 @@
 
 use std::time::{Duration, Instant};
 
-use ambientor_types::{AmbientAssessment, AmbientAssessmentSpec, AmbientAssessmentStatus, FindingSummary};
+use ambientor_types::{
+    AmbientAssessment, AmbientAssessmentSpec, AmbientAssessmentStatus, FindingSummary,
+};
 use kube::{
     Api, Client,
     api::{Patch, PatchParams},

@@ -1,8 +1,8 @@
 #![deny(unsafe_code)]
 
-pub mod connection_meta;
 pub mod cache;
 pub mod client;
+pub mod connection_meta;
 pub mod platform;
 pub mod remote;
 pub mod spoke_access;

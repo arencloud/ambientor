@@ -1,15 +1,15 @@
-use std::collections::BTreeMap;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::{
     Api, Client,
     api::{Patch, PatchParams},
 };
 use serde_json::json;
+use std::collections::BTreeMap;
 use tracing::info;
 
-use ambientor_types::MeshInstance;
 use crate::engine::RolloutError;
 use ambientor_mesh::enrollment_labels_to_apply;
+use ambientor_types::MeshInstance;
 
 pub const PRE_MIGRATION_LABELS_ANNOTATION: &str = "ambientor.io/pre-migration-labels";
 
@@ -29,8 +29,8 @@ pub async fn snapshot_namespace_pre_migration(
         return Ok(());
     }
     let labels = ns.metadata.labels.unwrap_or_default();
-    let encoded = serde_json::to_string(&labels)
-        .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+    let encoded =
+        serde_json::to_string(&labels).map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
     let patch = json!({
         "metadata": {
             "annotations": {
@@ -60,15 +60,15 @@ pub async fn restore_namespace_pre_migration(
     else {
         return Ok(false);
     };
-    let snapshot: BTreeMap<String, String> = serde_json::from_str(encoded)
-        .map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
+    let snapshot: BTreeMap<String, String> =
+        serde_json::from_str(encoded).map_err(|e| RolloutError::ExecutionFailed(e.to_string()))?;
     let current = ns.metadata.labels.unwrap_or_default();
 
     let mut labels = serde_json::Map::new();
     for (k, v) in &snapshot {
         labels.insert(k.clone(), json!(v));
     }
-    for (k, _) in &current {
+    for k in current.keys() {
         if !snapshot.contains_key(k) && migration_managed_label(k) {
             labels.insert(k.clone(), serde_json::Value::Null);
         }
@@ -151,7 +151,10 @@ pub async fn remove_namespace_injection(client: &Client, name: &str) -> Result<(
 }
 
 /// Drop revision tag from the namespace so new pods are not sidecar-injected (ambient uses ztunnel).
-pub async fn clear_namespace_revision_label(client: &Client, name: &str) -> Result<(), RolloutError> {
+pub async fn clear_namespace_revision_label(
+    client: &Client,
+    name: &str,
+) -> Result<(), RolloutError> {
     let api: Api<Namespace> = Api::all(client.clone());
     let patch = json!({
         "metadata": {

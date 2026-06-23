@@ -86,7 +86,8 @@ pub async fn verify_external_ingress_routes(
         )));
     }
     for route in &public_routes {
-        if route.parents_attached == Some(false) || route_uses_sidecar_ingress(route, &ingress_gateways)
+        if route.parents_attached == Some(false)
+            || route_uses_sidecar_ingress(route, &ingress_gateways)
         {
             let hosts = route.hostnames.join(", ");
             return Err(RolloutError::ExecutionFailed(format!(
@@ -264,8 +265,8 @@ async fn check_application_reachability(
 ) -> Result<(), RolloutError> {
     use k8s_openapi::api::apps::v1::Deployment;
     use k8s_openapi::api::core::v1::Pod;
-    use kube::api::ListParams;
     use kube::Api;
+    use kube::api::ListParams;
 
     let dep_api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
     let deps = dep_api.list(&ListParams::default()).await?;
@@ -274,16 +275,8 @@ async fn check_application_reachability(
     }
 
     for dep in &deps.items {
-        let name = dep
-            .metadata
-            .name
-            .as_deref()
-            .unwrap_or("unknown");
-        let desired = dep
-            .spec
-            .as_ref()
-            .and_then(|s| s.replicas)
-            .unwrap_or(1);
+        let name = dep.metadata.name.as_deref().unwrap_or("unknown");
+        let desired = dep.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1);
         let ready = dep
             .status
             .as_ref()
@@ -343,9 +336,7 @@ fn pod_has_workload_sidecar(pod: &k8s_openapi::api::core::v1::Pod) -> bool {
         return true;
     }
     pod.spec.as_ref().is_some_and(|spec| {
-        spec.containers
-            .iter()
-            .any(|c| c.name == "istio-proxy")
+        spec.containers.iter().any(|c| c.name == "istio-proxy")
             || spec.init_containers.as_ref().is_some_and(|inits| {
                 inits
                     .iter()

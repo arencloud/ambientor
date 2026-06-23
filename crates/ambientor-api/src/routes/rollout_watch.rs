@@ -8,7 +8,7 @@ use ambientor_types::Rollout;
 use futures::StreamExt;
 use kube::{
     Api,
-    runtime::watcher::{watcher, Config, Event},
+    runtime::watcher::{Config, Event, watcher},
 };
 
 use crate::state::AppState;

@@ -76,7 +76,12 @@ pub async fn list_mesh_instances(
         query.cluster_ref.as_deref().filter(|s| !s.is_empty()),
     )
     .await
-    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("target cluster client: {e}")))?;
+    .map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("target cluster client: {e}"),
+        )
+    })?;
     let instances = discover_mesh_instances(&exec_client)
         .await
         .map_err(internal)?;
@@ -102,7 +107,12 @@ pub async fn enroll_namespace(
         query.cluster_ref.as_deref().filter(|s| !s.is_empty()),
     )
     .await
-    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("target cluster client: {e}")))?;
+    .map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("target cluster client: {e}"),
+        )
+    })?;
     let instances = discover_mesh_instances(&exec_client)
         .await
         .map_err(internal)?;

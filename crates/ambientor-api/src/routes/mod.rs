@@ -1,6 +1,6 @@
+pub mod applications;
 pub mod assess;
 pub mod assessment_crd;
-pub mod applications;
 pub mod assessments;
 pub mod audit;
 pub mod auth;
@@ -10,8 +10,8 @@ pub mod health;
 pub mod mesh_instances;
 pub mod openshift;
 pub mod plans;
-pub mod rollouts;
 pub mod rollout_watch;
+pub mod rollouts;
 pub mod scans;
 pub mod sse;
 
@@ -32,7 +32,10 @@ pub fn api_router() -> Router<Arc<AppState>> {
         .route("/api/v1/auth/oidc/login", get(auth::oidc_login))
         .route("/api/v1/auth/oidc/callback", get(auth::oidc_callback))
         .route("/api/v1/assess", post(assess::assess))
-        .route("/api/v1/connections", get(connections::list_connections).post(connections::create_connection))
+        .route(
+            "/api/v1/connections",
+            get(connections::list_connections).post(connections::create_connection),
+        )
         .route(
             "/api/v1/connections/{namespace}/{name}",
             get(connections::get_connection).delete(connections::delete_connection),
@@ -46,7 +49,10 @@ pub fn api_router() -> Router<Arc<AppState>> {
             post(connections::assess_connection),
         )
         .route("/api/v1/dashboard", get(dashboard::get_dashboard))
-        .route("/api/v1/dashboard/fleet", get(dashboard::get_fleet_dashboard))
+        .route(
+            "/api/v1/dashboard/fleet",
+            get(dashboard::get_fleet_dashboard),
+        )
         .route("/api/v1/applications", get(applications::list_applications))
         .route(
             "/api/v1/applications/{namespace}",
@@ -62,7 +68,10 @@ pub fn api_router() -> Router<Arc<AppState>> {
             post(mesh_instances::enroll_namespace),
         )
         .route("/api/v1/scans", get(scans::list_scans))
-        .route("/api/v1/plans", get(plans::list_plans).post(plans::create_plan))
+        .route(
+            "/api/v1/plans",
+            get(plans::list_plans).post(plans::create_plan),
+        )
         .route("/api/v1/plans/{namespace}/{name}", get(plans::get_plan))
         .route(
             "/api/v1/plans/{namespace}/{name}/export",

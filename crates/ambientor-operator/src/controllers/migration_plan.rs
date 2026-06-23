@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
+use ambientor_db::{ScanStore, cluster_ref_from_env};
+use ambientor_k8s::client_for_cluster_ref;
 use ambientor_plan::{
     assessment_result_from_status_and_findings, build_plan, build_plan_from_selection,
     namespaces_for_planning, namespaces_matching_selector, namespaces_with_blockers,
     plan_name_for_assessment,
 };
-use ambientor_db::{ScanStore, cluster_ref_from_env};
-use ambientor_k8s::client_for_cluster_ref;
-use ambientor_types::{AmbientAssessment, AmbientAssessmentStatus, MeshInventory, MigrationPlan, MigrationPlanSpec};
+use ambientor_types::{
+    AmbientAssessment, AmbientAssessmentStatus, MeshInventory, MigrationPlan, MigrationPlanSpec,
+};
 use futures::StreamExt;
 use kube::{
     Api, Client,
@@ -23,15 +25,18 @@ use super::runtime::{ReconcileError, ReconcileResult, error_policy};
 
 pub async fn run(client: Client, scan_repo: Option<Arc<dyn ScanStore>>) {
     let ctx = Arc::new(PlanContext { client, scan_repo });
-    Controller::new(Api::<MigrationPlan>::all(ctx.client.clone()), Config::default())
-        .shutdown_on_signal()
-        .run(reconcile, error_policy, ctx)
-        .for_each(|res| async move {
-            if let Err(e) = res {
-                tracing::error!(error = ?e, "migrationplan controller error");
-            }
-        })
-        .await;
+    Controller::new(
+        Api::<MigrationPlan>::all(ctx.client.clone()),
+        Config::default(),
+    )
+    .shutdown_on_signal()
+    .run(reconcile, error_policy, ctx)
+    .for_each(|res| async move {
+        if let Err(e) = res {
+            tracing::error!(error = ?e, "migrationplan controller error");
+        }
+    })
+    .await;
 }
 
 struct PlanContext {
@@ -194,11 +199,10 @@ async fn reconcile_assessment_plan(
 ) -> anyhow::Result<MigrationPlanSpec> {
     let client = &ctx.client;
     let plan_name = plan.metadata.name.clone().unwrap_or_default();
-    let assessment_ref = plan
-        .spec
-        .assessment_ref
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("MigrationPlan {plan_name} missing spec.assessmentRef"))?;
+    let assessment_ref =
+        plan.spec.assessment_ref.clone().ok_or_else(|| {
+            anyhow::anyhow!("MigrationPlan {plan_name} missing spec.assessmentRef")
+        })?;
 
     let assess_api: Api<AmbientAssessment> = Api::namespaced(client.clone(), assessment_namespace);
     let assessment = match assess_api.get(&assessment_ref).await {
@@ -238,8 +242,7 @@ async fn reconcile_assessment_plan(
         return Ok(plan.spec.clone());
     }
 
-    let assessment_result =
-        assessment_result_for_assessment(ctx, &assessment, status).await;
+    let assessment_result = assessment_result_for_assessment(ctx, &assessment, status).await;
     let inventory_namespaces =
         inventory_target_namespaces(work_client, &assessment, assessment_namespace)
             .await
@@ -274,7 +277,10 @@ async fn optional_assessment_result(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("assessment {name} has no status"))?;
     if status.phase != "Completed" {
-        anyhow::bail!("assessment {name} is not Completed (phase={})", status.phase);
+        anyhow::bail!(
+            "assessment {name} is not Completed (phase={})",
+            status.phase
+        );
     }
     Ok(Some(
         assessment_result_for_assessment(ctx, &assessment, status).await,
@@ -287,7 +293,8 @@ async fn assessment_result_for_assessment(
     status: &AmbientAssessmentStatus,
 ) -> ambientor_core::inventory::AssessmentResult {
     let stored_findings = if status.findings.is_empty() {
-        if let (Some(repo), Some(name)) = (ctx.scan_repo.as_ref(), assessment.metadata.name.as_ref())
+        if let (Some(repo), Some(name)) =
+            (ctx.scan_repo.as_ref(), assessment.metadata.name.as_ref())
         {
             let cluster_ref = assessment
                 .spec

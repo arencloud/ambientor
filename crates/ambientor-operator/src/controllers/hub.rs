@@ -1,7 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ambientor_k8s::{RemoteClientError, client_for_connection, rollout_access_gaps, verify_connectivity};
+use ambientor_k8s::{
+    RemoteClientError, client_for_connection, rollout_access_gaps, verify_connectivity,
+};
 use ambientor_types::ClusterConnection;
 use chrono::Utc;
 use futures::StreamExt;
@@ -36,7 +38,12 @@ async fn reconcile(conn: Arc<ClusterConnection>, client: Arc<Client>) -> Reconci
         .clone()
         .unwrap_or_else(|| "default".into());
 
-    let (phase, ready, message, rollout_access) = match client_for_connection(client.as_ref(), &conn).await {
+    let (phase, ready, message, rollout_access) = match client_for_connection(
+        client.as_ref(),
+        &conn,
+    )
+    .await
+    {
         Err(RemoteClientError::Api(kube::Error::Api(e))) if e.code == 404 => (
             "SecretMissing",
             "False",
@@ -46,11 +53,14 @@ async fn reconcile(conn: Arc<ClusterConnection>, client: Arc<Client>) -> Reconci
         Err(e) => ("InvalidConfig", "False", e.to_string(), None),
         Ok(remote) => match verify_connectivity(&remote.client).await {
             Ok(version) => {
-                let gaps = rollout_access_gaps(&remote.client).await.unwrap_or_else(|e| {
-                    vec![format!("RBAC check failed: {e}")]
-                });
+                let gaps = rollout_access_gaps(&remote.client)
+                    .await
+                    .unwrap_or_else(|e| vec![format!("RBAC check failed: {e}")]);
                 let (rollout_status, rollout_msg) = if gaps.is_empty() {
-                    ("True", "spoke credentials can run hub-orchestrated rollouts".to_string())
+                    (
+                        "True",
+                        "spoke credentials can run hub-orchestrated rollouts".to_string(),
+                    )
                 } else {
                     (
                         "False",
@@ -67,9 +77,12 @@ async fn reconcile(conn: Arc<ClusterConnection>, client: Arc<Client>) -> Reconci
                     Some((rollout_status, rollout_msg)),
                 )
             }
-            Err(RemoteClientError::Api(e)) => {
-                ("Unreachable", "False", format!("API unreachable: {e}"), None)
-            }
+            Err(RemoteClientError::Api(e)) => (
+                "Unreachable",
+                "False",
+                format!("API unreachable: {e}"),
+                None,
+            ),
             Err(e) => ("InvalidConfig", "False", e.to_string(), None),
         },
     };

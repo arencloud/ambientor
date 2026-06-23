@@ -43,14 +43,14 @@ pub async fn persist_full_assessment(
     let mut cluster_meta = cluster_dashboard_meta_with_meshes(spoke, &mesh_instances)
         .await
         .map_err(|e| DbError::Serialize(e.to_string()))?;
-    cluster_meta.name =
-        resolve_cluster_display_name(hub, cluster_ref, &cluster_meta.name).await;
+    cluster_meta.name = resolve_cluster_display_name(hub, cluster_ref, &cluster_meta.name).await;
 
     let mut snapshot = dashboard_from_assessment_run(&run, cluster_meta);
     let catalog = mesh_instances_to_dashboard_catalog(&mesh_instances);
     snapshot.mesh_instances = merge_mesh_dashboards(catalog, snapshot.mesh_instances);
     snapshot.cluster.mesh_instance_count = snapshot.mesh_instances.len();
-    snapshot.cluster.ambient_mesh_count = snapshot.mesh_instances.iter().filter(|m| m.ambient).count();
+    snapshot.cluster.ambient_mesh_count =
+        snapshot.mesh_instances.iter().filter(|m| m.ambient).count();
     apply_cluster_ref_metadata(cluster_ref, &mut snapshot);
     dashboard.sync_snapshot(&snapshot).await?;
 
@@ -80,14 +80,14 @@ pub async fn persist_full_assessment_from_context(
     let mut cluster_meta = cluster_dashboard_meta_with_meshes(spoke, &mesh_instances)
         .await
         .map_err(|e| DbError::Serialize(e.to_string()))?;
-    cluster_meta.name =
-        resolve_cluster_display_name(hub, cluster_ref, &cluster_meta.name).await;
+    cluster_meta.name = resolve_cluster_display_name(hub, cluster_ref, &cluster_meta.name).await;
 
     let mut snapshot = dashboard_from_assessment_run(&run, cluster_meta);
     let catalog = mesh_instances_to_dashboard_catalog(&mesh_instances);
     snapshot.mesh_instances = merge_mesh_dashboards(catalog, snapshot.mesh_instances);
     snapshot.cluster.mesh_instance_count = snapshot.mesh_instances.len();
-    snapshot.cluster.ambient_mesh_count = snapshot.mesh_instances.iter().filter(|m| m.ambient).count();
+    snapshot.cluster.ambient_mesh_count =
+        snapshot.mesh_instances.iter().filter(|m| m.ambient).count();
     apply_cluster_ref_metadata(cluster_ref, &mut snapshot);
     dashboard.sync_snapshot(&snapshot).await?;
 

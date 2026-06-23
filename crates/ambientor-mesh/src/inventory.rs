@@ -26,9 +26,7 @@ pub async fn collect_inventory(
     flavor: MeshFlavor,
     core: Option<CoreSnapshot>,
 ) -> anyhow::Result<RuleContext> {
-    Ok(collect_inventory_full(client, flavor, core)
-        .await?
-        .ctx)
+    Ok(collect_inventory_full(client, flavor, core).await?.ctx)
 }
 
 pub async fn collect_inventory_full(
@@ -57,14 +55,11 @@ pub async fn build_rule_context(
     pods: &[Pod],
     namespaces: &[Namespace],
 ) -> anyhow::Result<RuleContext> {
-    Ok(build_collected_inventory(
-        client,
-        flavor,
-        pods.to_vec(),
-        namespaces.to_vec(),
+    Ok(
+        build_collected_inventory(client, flavor, pods.to_vec(), namespaces.to_vec())
+            .await?
+            .ctx,
     )
-    .await?
-    .ctx)
 }
 
 async fn build_collected_inventory(

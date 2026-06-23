@@ -83,12 +83,9 @@ async fn reconcile_inner(
 ) -> anyhow::Result<()> {
     let client = &assess_ctx.client;
     let platform = detect_platform(client).await.unwrap_or_default();
-    let inventory = inventory::collect_inventory_full(
-        client,
-        platform.mesh_flavor,
-        assess_ctx.core_snapshot(),
-    )
-    .await?;
+    let inventory =
+        inventory::collect_inventory_full(client, platform.mesh_flavor, assess_ctx.core_snapshot())
+            .await?;
     let findings = default_registry().evaluate_all(&inventory.ctx);
     let scores = compute_scores(&findings);
     let summary = FindingSummary::from_findings(&findings);
@@ -101,10 +98,9 @@ async fn reconcile_inner(
     let api: Api<AmbientAssessment> = Api::namespaced(client.clone(), &ns);
     if let Some(name) = &obj.metadata.name {
         let cluster_ref = cluster_ref_from_env();
-        let application_count = if let (Some(apps), Some(dash)) = (
-            &assess_ctx.applications_repo,
-            &assess_ctx.dashboard_repo,
-        ) {
+        let application_count = if let (Some(apps), Some(dash)) =
+            (&assess_ctx.applications_repo, &assess_ctx.dashboard_repo)
+        {
             match persist_full_assessment(
                 apps.as_ref(),
                 dash.as_ref(),

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use crate::pool::{self, DbError};
 use crate::applications::ApplicationAssessmentRepository;
 use crate::dashboard::DashboardRepository;
+use crate::pool::{self, DbError};
 use crate::repository::{AuditRepository, UserRepository};
 use crate::scan::ScanRepository;
 use crate::traits::{

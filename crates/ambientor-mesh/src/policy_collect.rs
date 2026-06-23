@@ -205,15 +205,15 @@ mod tests {
         assert!(destination_rule_has_subsets(&o));
         let ctx = build_policy_context(
             &IstioPolicyObjects {
-            peer_authentications: vec![],
-            authorization_policies: vec![],
-            virtual_services: vec![],
-            envoy_filters: vec![],
-            http_routes: vec![],
-            gateways: vec![],
-            wasm_plugins: vec![],
-            destination_rules: vec![o],
-        },
+                peer_authentications: vec![],
+                authorization_policies: vec![],
+                virtual_services: vec![],
+                envoy_filters: vec![],
+                http_routes: vec![],
+                gateways: vec![],
+                wasm_plugins: vec![],
+                destination_rules: vec![o],
+            },
             &[],
         );
         assert_eq!(ctx.destination_rules_with_subsets.len(), 1);
@@ -236,15 +236,15 @@ mod tests {
         assert!(envoy_filter_targets_waypoint(&o));
         let ctx = build_policy_context(
             &IstioPolicyObjects {
-            peer_authentications: vec![],
-            authorization_policies: vec![],
-            virtual_services: vec![],
-            envoy_filters: vec![o],
-            http_routes: vec![],
-            gateways: vec![],
-            wasm_plugins: vec![],
-            destination_rules: vec![],
-        },
+                peer_authentications: vec![],
+                authorization_policies: vec![],
+                virtual_services: vec![],
+                envoy_filters: vec![o],
+                http_routes: vec![],
+                gateways: vec![],
+                wasm_plugins: vec![],
+                destination_rules: vec![],
+            },
             &[],
         );
         assert_eq!(ctx.envoy_filters_waypoint.len(), 1);

@@ -339,7 +339,10 @@ mod tests {
             "demo-v1-28-6-istio-system",
             &meshes
         ));
-        assert!(!is_istiod_control_plane_namespace("mesh-sidecar-2", &meshes));
+        assert!(!is_istiod_control_plane_namespace(
+            "mesh-sidecar-2",
+            &meshes
+        ));
         assert!(!is_istiod_control_plane_namespace("bookinfo", &meshes));
     }
 

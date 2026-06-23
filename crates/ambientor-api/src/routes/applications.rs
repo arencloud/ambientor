@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use ambientor_dashboard::ApplicationListPage;
 use ambientor_db::{
     ApplicationListQuery, assessment_sync::persist_full_assessment, cluster_ref_from_env,
 };
 use ambientor_mesh::inventory::CollectedInventory;
-use ambientor_dashboard::ApplicationListPage;
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -24,7 +24,10 @@ pub struct ApplicationsQuery {
     #[serde(rename = "meshRevision")]
     pub mesh_revision: Option<String>,
     /// When true (default), hide namespaces already on ambient dataplane.
-    #[serde(rename = "migrationCandidatesOnly", default = "default_migration_candidates_only")]
+    #[serde(
+        rename = "migrationCandidatesOnly",
+        default = "default_migration_candidates_only"
+    )]
     pub migration_candidates_only: bool,
     #[serde(default = "default_page")]
     pub page: u32,

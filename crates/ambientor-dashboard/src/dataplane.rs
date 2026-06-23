@@ -74,10 +74,8 @@ pub fn derive_dataplane_mode_from_stored(
 }
 
 pub fn mesh_targets_ambient(mesh_revision: Option<&str>, discovery_label: Option<&str>) -> bool {
-    mesh_revision
-        .is_some_and(|s| s.to_ascii_lowercase().contains("ambient"))
-        || discovery_label
-            .is_some_and(|s| s.to_ascii_lowercase().contains("ambient"))
+    mesh_revision.is_some_and(|s| s.to_ascii_lowercase().contains("ambient"))
+        || discovery_label.is_some_and(|s| s.to_ascii_lowercase().contains("ambient"))
 }
 
 pub fn labels_indicate_mesh_membership(labels: &BTreeMap<String, String>) -> bool {
@@ -162,10 +160,7 @@ mod tests {
     fn ambient_from_dataplane_label() {
         let mut labels = BTreeMap::new();
         labels.insert("istio.io/dataplane-mode".into(), "ambient".into());
-        assert_eq!(
-            derive_dataplane_mode(&labels, None),
-            DataplaneMode::Ambient
-        );
+        assert_eq!(derive_dataplane_mode(&labels, None), DataplaneMode::Ambient);
     }
 
     #[test]
@@ -277,6 +272,9 @@ mod tests {
 
     #[test]
     fn not_enrolled_without_labels() {
-        assert_eq!(derive_dataplane_mode(&BTreeMap::new(), None), DataplaneMode::NotEnrolled);
+        assert_eq!(
+            derive_dataplane_mode(&BTreeMap::new(), None),
+            DataplaneMode::NotEnrolled
+        );
     }
 }

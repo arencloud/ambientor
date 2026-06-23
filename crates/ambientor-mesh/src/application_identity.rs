@@ -98,12 +98,10 @@ fn pod_logical_name(pod: &Pod) -> Option<(String, &'static str)> {
     if let Some(v) = labels.get("k8s-app") {
         return Some((v.clone(), "k8s-app"));
     }
-    pod.metadata.name.as_ref().map(|n| {
-        (
-            strip_pod_suffix(n),
-            "pod",
-        )
-    })
+    pod.metadata
+        .name
+        .as_ref()
+        .map(|n| (strip_pod_suffix(n), "pod"))
 }
 
 /// Strip ReplicaSet-style hash suffix (`reviews-v1-7b8c9d`) → `reviews-v1`.
@@ -154,7 +152,8 @@ pub fn is_mesh_infrastructure_identity(id: &NamespaceApplicationIdentity) -> boo
         return false;
     }
     is_mesh_infrastructure_workload_name(&id.application_name)
-        || id.workload_components
+        || id
+            .workload_components
             .iter()
             .all(|c| is_mesh_infrastructure_workload_name(c))
 }
@@ -164,7 +163,7 @@ fn is_mesh_infrastructure_pod(pod: &Pod) -> bool {
         .metadata
         .name
         .as_deref()
-        .is_some_and(|n| is_mesh_infrastructure_workload_name(n))
+        .is_some_and(is_mesh_infrastructure_workload_name)
     {
         return true;
     }
@@ -198,9 +197,10 @@ fn is_mesh_infrastructure_pod(pod: &Pod) -> bool {
     }
     pod.spec.as_ref().is_some_and(|spec| {
         spec.containers.len() == 1
-            && spec.containers.iter().all(|c| {
-                c.name == "istio-proxy" || c.name == "ztunnel" || c.name == "waypoint"
-            })
+            && spec
+                .containers
+                .iter()
+                .all(|c| c.name == "istio-proxy" || c.name == "ztunnel" || c.name == "waypoint")
     })
 }
 
@@ -222,7 +222,12 @@ mod tests {
             metadata: ObjectMeta {
                 namespace: Some(ns.into()),
                 name: Some(name.into()),
-                labels: Some(labels.into_iter().map(|(k, v)| (k.into(), v.into())).collect()),
+                labels: Some(
+                    labels
+                        .into_iter()
+                        .map(|(k, v)| (k.into(), v.into()))
+                        .collect(),
+                ),
                 ..Default::default()
             },
             spec: Some(PodSpec {
@@ -238,7 +243,7 @@ mod tests {
 
     #[test]
     fn prefers_app_kubernetes_io_name() {
-        let pods = vec![pod(
+        let pods = [pod(
             "bookinfo",
             "reviews-v1-abc12",
             vec![("app.kubernetes.io/name", "reviews"), ("app", "reviews-v1")],

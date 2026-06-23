@@ -4,10 +4,10 @@ use ambientor_core::rules::RuleContext;
 use ambientor_core::scoring::compute_scores;
 use ambientor_mesh::application_identity::NamespaceApplicationIdentity;
 use ambientor_mesh::policy_collect::IstioPolicyObjects;
-use ambientor_mesh::{is_ambient_control_plane_namespace, is_application_namespace, is_mesh_infrastructure_identity};
-use ambientor_types::{
-    Finding, FindingCategory, FindingSeverity, MeshInstance,
+use ambientor_mesh::{
+    is_ambient_control_plane_namespace, is_application_namespace, is_mesh_infrastructure_identity,
 };
+use ambientor_types::{Finding, FindingCategory, FindingSeverity, MeshInstance};
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use kube::api::ListParams;
 use kube::{Api, Client};
@@ -43,16 +43,16 @@ pub fn ingress_gateway_namespaces_from_pods(pods: &[Pod]) -> HashSet<String> {
                 || l.get("istio")
                     .is_some_and(|v| v == "ingressgateway" || v.contains("ingress"))
         });
-        if is_gateway
-            && let Some(ns) = pod.metadata.namespace.as_deref()
-        {
+        if is_gateway && let Some(ns) = pod.metadata.namespace.as_deref() {
             set.insert(ns.to_string());
         }
     }
     set
 }
 
-pub async fn discover_ingress_gateway_namespaces(client: &Client) -> anyhow::Result<HashSet<String>> {
+pub async fn discover_ingress_gateway_namespaces(
+    client: &Client,
+) -> anyhow::Result<HashSet<String>> {
     let api: Api<Pod> = Api::all(client.clone());
     let pods = api.list(&ListParams::default()).await?.items;
     Ok(ingress_gateway_namespaces_from_pods(&pods))
@@ -101,12 +101,15 @@ pub fn hostnames_from_istio_objects(
     by_namespace
 }
 
-pub async fn hostnames_by_namespace(client: &Client) -> anyhow::Result<HashMap<String, BTreeSet<String>>> {
+pub async fn hostnames_by_namespace(
+    client: &Client,
+) -> anyhow::Result<HashMap<String, BTreeSet<String>>> {
     use ambientor_mesh::istio::collect_istio_policies;
     let objects = collect_istio_policies(client).await?;
     Ok(hostnames_from_istio_objects(&objects))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_cluster_assessment(
     cluster_ref: &str,
     ctx: &RuleContext,
@@ -196,9 +199,10 @@ pub fn build_cluster_assessment(
         if app_pods == 0 {
             continue;
         }
-        let has_sidecar = ctx.workloads.iter().any(|w| {
-            w.namespace == ns_name && w.has_istio_sidecar
-        });
+        let has_sidecar = ctx
+            .workloads
+            .iter()
+            .any(|w| w.namespace == ns_name && w.has_istio_sidecar);
         if !has_sidecar {
             continue;
         }
@@ -235,6 +239,7 @@ pub fn build_cluster_assessment(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_app_record(
     ctx: &RuleContext,
     ns_name: &str,
@@ -416,7 +421,10 @@ fn namespace_eligible_for_catalog(
     }
 }
 
-pub fn derive_risk_level(summary: &ambientor_types::FindingSummary, readiness_pct: u8) -> RiskLevel {
+pub fn derive_risk_level(
+    summary: &ambientor_types::FindingSummary,
+    readiness_pct: u8,
+) -> RiskLevel {
     if summary.blockers > 0 {
         RiskLevel::Critical
     } else if readiness_pct < 50 {
@@ -439,6 +447,19 @@ fn suggestions_from_findings(findings: &[Finding]) -> Vec<AssessmentSuggestion> 
             remediation: f.remediation.clone().unwrap_or_default(),
         })
         .collect()
+}
+
+fn istio_namespace_labels(labels: Option<&BTreeMap<String, String>>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let Some(labels) = labels else {
+        return out;
+    };
+    for key in ISTIO_LABEL_KEYS {
+        if let Some(v) = labels.get(*key) {
+            out.insert((*key).to_string(), v.clone());
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -531,12 +552,9 @@ mod tests {
             &identities_by_namespace(&[ztunnel]),
         );
         assert!(
-            run.applications
-                .iter()
-                .all(|a| !a.migration_candidate),
+            run.applications.iter().all(|a| !a.migration_candidate),
             "expected no migration candidates, got {:?}",
-            run
-                .applications
+            run.applications
                 .iter()
                 .filter(|a| a.migration_candidate)
                 .map(|a| &a.application_name)
@@ -632,17 +650,4 @@ mod tests {
             run.applications
         );
     }
-}
-
-fn istio_namespace_labels(labels: Option<&BTreeMap<String, String>>) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
-    let Some(labels) = labels else {
-        return out;
-    };
-    for key in ISTIO_LABEL_KEYS {
-        if let Some(v) = labels.get(*key) {
-            out.insert((*key).to_string(), v.clone());
-        }
-    }
-    out
 }

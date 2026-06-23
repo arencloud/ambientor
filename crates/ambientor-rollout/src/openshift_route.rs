@@ -37,9 +37,7 @@ pub async fn upsert_openshift_route(
                 .data
                 .pointer("/spec/to/name")
                 .and_then(|v| v.as_str());
-            let target_to = manifest
-                .pointer("/spec/to/name")
-                .and_then(|v| v.as_str());
+            let target_to = manifest.pointer("/spec/to/name").and_then(|v| v.as_str());
             if existing_to == target_to {
                 if let Some(labels) = manifest.pointer("/metadata/labels") {
                     api.patch(

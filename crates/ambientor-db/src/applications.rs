@@ -63,9 +63,18 @@ impl ApplicationAssessmentRepository {
         .bind(run_id)
         .bind(cluster_id)
         .bind(run.applications.len() as i32)
-        .bind(serde_json::to_value(&run.cluster_scores).map_err(|e| DbError::Serialize(e.to_string()))?)
-        .bind(serde_json::to_value(&run.cluster_summary).map_err(|e| DbError::Serialize(e.to_string()))?)
-        .bind(serde_json::to_value(&run.cluster_findings).map_err(|e| DbError::Serialize(e.to_string()))?)
+        .bind(
+            serde_json::to_value(&run.cluster_scores)
+                .map_err(|e| DbError::Serialize(e.to_string()))?,
+        )
+        .bind(
+            serde_json::to_value(&run.cluster_summary)
+                .map_err(|e| DbError::Serialize(e.to_string()))?,
+        )
+        .bind(
+            serde_json::to_value(&run.cluster_findings)
+                .map_err(|e| DbError::Serialize(e.to_string()))?,
+        )
         .execute(&mut *tx)
         .await?;
 
@@ -316,13 +325,19 @@ async fn insert_application(
     .bind(cluster_id)
     .bind(&app.namespace)
     .bind(&app.application_name)
-    .bind(serde_json::to_value(&app.workload_components).map_err(|e| DbError::Serialize(e.to_string()))?)
+    .bind(
+        serde_json::to_value(&app.workload_components)
+            .map_err(|e| DbError::Serialize(e.to_string()))?,
+    )
     .bind(app.migration_candidate)
     .bind(&app.mesh_revision)
     .bind(&app.discovery_label)
     .bind(&app.control_plane_namespace)
     .bind(serde_json::to_value(&app.hostnames).map_err(|e| DbError::Serialize(e.to_string()))?)
-    .bind(serde_json::to_value(&app.namespace_labels).map_err(|e| DbError::Serialize(e.to_string()))?)
+    .bind(
+        serde_json::to_value(&app.namespace_labels)
+            .map_err(|e| DbError::Serialize(e.to_string()))?,
+    )
     .bind(&app.dataplane_mode)
     .bind(&app.ingress_gateway_namespace)
     .bind(app.ingress_same_namespace)

@@ -9,9 +9,19 @@ use crate::dynamic::{api_resource, list_cluster_cr, list_cr_in_namespace};
 const REVISION_TAG_APIS: &[(&str, &str, &str, &str)] = &[
     ("tags.istio.io", "v1alpha3", "RevisionTag", "revisiontags"),
     ("tags.istio.io", "v1alpha1", "RevisionTag", "revisiontags"),
-    ("istio.io", "v1alpha1", "IstioRevisionTag", "istiorevisiontags"),
+    (
+        "istio.io",
+        "v1alpha1",
+        "IstioRevisionTag",
+        "istiorevisiontags",
+    ),
     // OpenShift Service Mesh / Sail Operator (cluster-scoped IstioRevisionTag).
-    ("sailoperator.io", "v1", "IstioRevisionTag", "istiorevisiontags"),
+    (
+        "sailoperator.io",
+        "v1",
+        "IstioRevisionTag",
+        "istiorevisiontags",
+    ),
 ];
 
 /// Map istiod deployment revision → preferred `istio.io/rev` label value (revision tag when set).
@@ -73,8 +83,8 @@ async fn list_namespaced_cr_all(
     ar: &kube::api::ApiResource,
 ) -> Vec<kube::api::DynamicObject> {
     use k8s_openapi::api::core::v1::Namespace;
-    use kube::api::ListParams;
     use kube::Api;
+    use kube::api::ListParams;
 
     let ns_api: Api<Namespace> = Api::all(client.clone());
     let Ok(list) = ns_api.list(&ListParams::default()).await else {
@@ -170,9 +180,6 @@ mod tests {
             }),
             types: None,
         });
-        assert_eq!(
-            parsed,
-            Some(("ambient-v1-28-6".into(), "ambient".into()))
-        );
+        assert_eq!(parsed, Some(("ambient-v1-28-6".into(), "ambient".into())));
     }
 }

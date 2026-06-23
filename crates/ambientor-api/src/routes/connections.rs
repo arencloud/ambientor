@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ambientor_core::scoring::compute_scores;
 use ambientor_db::StoredAssessment;
 use ambientor_k8s::{
-    client_for_connection, connection_cluster_ref, verify_connectivity, K8sClient,
+    K8sClient, client_for_connection, connection_cluster_ref, verify_connectivity,
 };
 use ambientor_mesh::backend::backend_for_flavor;
 use ambientor_mesh::inventory::collect_inventory_full;
@@ -19,7 +19,7 @@ use kube::{Api, ResourceExt};
 use serde::{Deserialize, Serialize};
 
 use crate::routes::applications::persist_assessment_from_inventory;
-use crate::routes::assess::{application_count_for_cluster, AssessRequest, AssessResponse};
+use crate::routes::assess::{AssessRequest, AssessResponse, application_count_for_cluster};
 use crate::state::AppState;
 
 #[derive(Serialize)]
@@ -131,7 +131,10 @@ pub async fn create_connection(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "ambientor-system".into());
     if body.name.is_empty() || body.display_name.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "name and displayName are required".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "name and displayName are required".into(),
+        ));
     }
     if body.credentials_secret_ref.name.trim().is_empty() {
         return Err((
@@ -186,7 +189,10 @@ pub async fn export_connection(
     let conn = api.get(&name).await.map_err(map_kube_err)?;
     let yaml = connection_export_yaml(&conn)?;
     let apply_command = format!("kubectl apply -f {name}.yaml  # namespace {namespace}");
-    Ok(Json(ConnectionExportResponse { yaml, apply_command }))
+    Ok(Json(ConnectionExportResponse {
+        yaml,
+        apply_command,
+    }))
 }
 
 pub async fn delete_connection(
@@ -353,9 +359,7 @@ fn validate_connection_name(name: &str) -> Result<(), (StatusCode, String)> {
     if name.len() > 63 {
         return Err((StatusCode::BAD_REQUEST, "name too long".into()));
     }
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
         || name.starts_with('-')
         || name.ends_with('-')
     {
@@ -368,7 +372,9 @@ fn validate_connection_name(name: &str) -> Result<(), (StatusCode, String)> {
 }
 
 fn gitops_hint(conn: &ClusterConnection) -> String {
-    let ns = conn.namespace().unwrap_or_else(|| "ambientor-system".into());
+    let ns = conn
+        .namespace()
+        .unwrap_or_else(|| "ambientor-system".into());
     let name = conn.name_any();
     format!(
         "Same object as `kubectl apply -f` / GitOps: ClusterConnection {ns}/{name}. Portal create/update writes this CR on the hub; CLI and operator reconcile from spec."
@@ -418,7 +424,7 @@ fn connection_export_yaml(conn: &ClusterConnection) -> Result<String, (StatusCod
             hub: conn.spec.hub,
         },
     };
-    serde_yaml::to_string(&doc).map_err(|e| internal(e))
+    serde_yaml::to_string(&doc).map_err(internal)
 }
 
 async fn hub_client() -> Result<K8sClient, (StatusCode, String)> {
@@ -435,9 +441,10 @@ fn internal(e: impl std::fmt::Display) -> (StatusCode, String) {
 fn map_kube_err(e: kube::Error) -> (StatusCode, String) {
     match e {
         kube::Error::Api(err) if err.code == 404 => (StatusCode::NOT_FOUND, err.to_string()),
-        kube::Error::Api(err) if err.code == 409 => {
-            (StatusCode::CONFLICT, format!("ClusterConnection already exists: {err}"))
-        }
+        kube::Error::Api(err) if err.code == 409 => (
+            StatusCode::CONFLICT,
+            format!("ClusterConnection already exists: {err}"),
+        ),
         other => internal(other),
     }
 }

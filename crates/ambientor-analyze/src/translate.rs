@@ -71,9 +71,9 @@ fn is_valid_httproute_hostname(host: &str) -> bool {
         return false;
     }
     // `*.example.com` and `reviews.bookinfo.svc.cluster.local` style names.
-    host.chars().all(|c| {
-        c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '*'
-    }) && !host.is_empty()
+    host.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '*')
+        && !host.is_empty()
 }
 
 /// Map Istio `spec.hosts` to HTTPRoute `hostnames`, dropping values the API rejects.
@@ -134,7 +134,11 @@ fn translate_http_block(route: &Value, index: usize, warnings: &mut Vec<String>)
     Some(rule)
 }
 
-fn translate_redirect_block(route: &Value, index: usize, warnings: &mut Vec<String>) -> Option<Value> {
+fn translate_redirect_block(
+    route: &Value,
+    index: usize,
+    warnings: &mut Vec<String>,
+) -> Option<Value> {
     let redirect = route.get("redirect")?;
     let matches = uri_matches(route, index, warnings);
     let mut request_redirect = json!({});

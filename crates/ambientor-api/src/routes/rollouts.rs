@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
+use ambientor_db::cluster_ref_from_env;
 use ambientor_k8s::K8sClient;
 use ambientor_plan::plan_to_rollout;
 use ambientor_rollout::audit::audit_rollout_approve;
 use ambientor_rollout::rollout_awaiting_approval;
 use ambientor_types::{MeshInstance, Rollout, RolloutStage, RolloutStageType, RolloutStatus};
-use ambientor_db::cluster_ref_from_env;
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -167,15 +167,7 @@ pub async fn approve_rollout(
     };
     let k8s = k8s_client().await?;
     let actor = body.actor.or(jwt_actor).unwrap_or_else(|| "api".into());
-    let resp = approve_rollout_stage(
-        &state,
-        &k8s,
-        &namespace,
-        &name,
-        body.stage,
-        &actor,
-    )
-    .await?;
+    let resp = approve_rollout_stage(&state, &k8s, &namespace, &name, body.stage, &actor).await?;
     Ok(Json(resp))
 }
 
@@ -203,11 +195,10 @@ pub(super) async fn ensure_rollout_for_plan(
         .namespace
         .clone()
         .unwrap_or_else(|| "default".into());
-    let plan_name = plan
-        .metadata
-        .name
-        .clone()
-        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "plan missing name".into()))?;
+    let plan_name = plan.metadata.name.clone().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "plan missing name".into(),
+    ))?;
     let rollout_name = rollout_name_for_plan(&plan_name);
     let api: Api<Rollout> = Api::namespaced(k8s.client.clone(), &namespace);
     if api.get(&rollout_name).await.is_ok() {
@@ -231,9 +222,13 @@ pub(super) async fn ensure_rollout_for_plan(
             "stageResults": []
         }
     });
-    api.patch_status(&rollout_name, &Default::default(), &Patch::Merge(&status_patch))
-        .await
-        .map_err(internal)?;
+    api.patch_status(
+        &rollout_name,
+        &Default::default(),
+        &Patch::Merge(&status_patch),
+    )
+    .await
+    .map_err(internal)?;
     Ok(rollout_name)
 }
 
@@ -335,12 +330,10 @@ pub fn validate_approval(
             "rollout rolled back; delete and create a new rollout".into(),
         ));
     }
-    if ambientor_rollout::pipeline_approved(status, stage_count) && status.phase != "AwaitingApproval"
+    if ambientor_rollout::pipeline_approved(status, stage_count)
+        && status.phase != "AwaitingApproval"
     {
-        return Err((
-            StatusCode::CONFLICT,
-            "pipeline already approved".into(),
-        ));
+        return Err((StatusCode::CONFLICT, "pipeline already approved".into()));
     }
     Ok(())
 }

@@ -1,5 +1,5 @@
-use ambientor_core::rules::{Rule, RuleContext, RuleId, finding};
 use ambientor_core::migrate_doc::MIGRATE_DOC;
+use ambientor_core::rules::{Rule, RuleContext, RuleId, finding};
 use ambientor_types::{Finding, FindingCategory, FindingSeverity};
 
 fn parse_resource_namespace(resource: &str) -> Option<String> {
@@ -244,14 +244,16 @@ impl Rule for AmbientIngressGatewayRule {
             }
 
             let gw = gateway_for_route(route, gateways);
-            let gw_desc = gw.map(|g| format!("{}/{}", g.namespace, g.name)).unwrap_or_else(|| {
-                route
-                    .parent_gateway_namespace
-                    .as_ref()
-                    .zip(route.parent_gateway_name.as_ref())
-                    .map(|(a, b)| format!("{a}/{b}"))
-                    .unwrap_or_else(|| "unknown gateway".into())
-            });
+            let gw_desc = gw
+                .map(|g| format!("{}/{}", g.namespace, g.name))
+                .unwrap_or_else(|| {
+                    route
+                        .parent_gateway_namespace
+                        .as_ref()
+                        .zip(route.parent_gateway_name.as_ref())
+                        .map(|(a, b)| format!("{a}/{b}"))
+                        .unwrap_or_else(|| "unknown gateway".into())
+                });
             let hosts = if route.hostnames.is_empty() {
                 "(see route spec)".to_string()
             } else {
@@ -447,7 +449,12 @@ mod tests {
         let findings = AmbientIngressGatewayRule.evaluate(&ctx);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].id, "traffic.ambient-ingress-gateway");
-        assert!(findings[0].remediation.as_ref().is_some_and(|r| r.contains("Option A")));
+        assert!(
+            findings[0]
+                .remediation
+                .as_ref()
+                .is_some_and(|r| r.contains("Option A"))
+        );
     }
 
     #[test]

@@ -202,10 +202,7 @@ async fn upsert_translation_cr(
 }
 
 fn is_policy_translation_crd_missing(err: &kube::Error) -> bool {
-    match err {
-        kube::Error::Api(e) if e.code == 404 => true,
-        _ => false,
-    }
+    matches!(err, kube::Error::Api(e) if e.code == 404)
 }
 
 /// Detach the VirtualService from ingress gateways after HTTPRoute translation.

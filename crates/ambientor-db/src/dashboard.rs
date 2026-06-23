@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use ambientor_dashboard::{
-    ApplicationAssessmentRecord, ClusterAssessmentRun, DashboardResponse,
-    FleetClusterDashboard, FleetDashboardResponse, MeshInstanceDashboard, RiskLevel, StatusCounts,
+    ApplicationAssessmentRecord, ClusterAssessmentRun, DashboardResponse, FleetClusterDashboard,
+    FleetDashboardResponse, MeshInstanceDashboard, RiskLevel, StatusCounts,
     dashboard_from_assessment_run, derive_dataplane_mode_from_stored, merge_mesh_dashboards,
 };
 use async_trait::async_trait;
@@ -194,7 +194,10 @@ impl DashboardRepository {
         Ok(Some(response))
     }
 
-    async fn load_mesh_catalog(&self, cluster_ref: &str) -> Result<Vec<MeshInstanceDashboard>, DbError> {
+    async fn load_mesh_catalog(
+        &self,
+        cluster_ref: &str,
+    ) -> Result<Vec<MeshInstanceDashboard>, DbError> {
         let rows = sqlx::query_as::<_, MeshCatalogRow>(
             r#"
             SELECT mi.revision, mi.discovery_label, mi.control_plane_namespace, mi.version, mi.ambient
@@ -243,8 +246,8 @@ impl DashboardRepository {
         let Some(json) = json else {
             return Ok(None);
         };
-        let meshes: Vec<MeshInstanceDashboard> = serde_json::from_value(json)
-            .map_err(|e| DbError::Serialize(e.to_string()))?;
+        let meshes: Vec<MeshInstanceDashboard> =
+            serde_json::from_value(json).map_err(|e| DbError::Serialize(e.to_string()))?;
         Ok(Some(
             meshes
                 .into_iter()
@@ -356,15 +359,15 @@ struct SnapshotRow {
 
 impl SnapshotRow {
     fn into_response(self) -> Result<DashboardResponse, DbError> {
-        let summary: StatusCounts = serde_json::from_value(self.summary)
-            .map_err(|e| DbError::Serialize(e.to_string()))?;
-        let mesh_instances: Vec<MeshInstanceDashboard> = serde_json::from_value(self.mesh_instances)
-            .map_err(|e| DbError::Serialize(e.to_string()))?;
+        let summary: StatusCounts =
+            serde_json::from_value(self.summary).map_err(|e| DbError::Serialize(e.to_string()))?;
+        let mesh_instances: Vec<MeshInstanceDashboard> =
+            serde_json::from_value(self.mesh_instances)
+                .map_err(|e| DbError::Serialize(e.to_string()))?;
         let mesh_instance_count = mesh_instances.len();
         let ambient_mesh_count = mesh_instances.iter().filter(|m| m.ambient).count();
-        let migration_savings = Some(ambientor_dashboard::compute_migration_savings_from_dashboard(
-            &mesh_instances,
-        ));
+        let migration_savings =
+            Some(ambientor_dashboard::compute_migration_savings_from_dashboard(&mesh_instances));
 
         Ok(DashboardResponse {
             cluster_ref: self.cluster_ref,
@@ -388,20 +391,20 @@ impl SnapshotRow {
     }
 }
 
-fn connection_parts_from_response(response: &DashboardResponse) -> (Option<String>, Option<String>) {
-    if let (Some(ns), Some(name)) = (
-        &response.connection_namespace,
-        &response.connection_name,
-    ) {
+fn connection_parts_from_response(
+    response: &DashboardResponse,
+) -> (Option<String>, Option<String>) {
+    if let (Some(ns), Some(name)) = (&response.connection_namespace, &response.connection_name) {
         return (Some(ns.clone()), Some(name.clone()));
     }
     if response.cluster_ref == "in-cluster" || !response.cluster_ref.contains('/') {
         return (None, None);
     }
-    if let Some((ns, name)) = response.cluster_ref.split_once('/') {
-        if !ns.is_empty() && !name.is_empty() {
-            return (Some(ns.into()), Some(name.into()));
-        }
+    if let Some((ns, name)) = response.cluster_ref.split_once('/')
+        && !ns.is_empty()
+        && !name.is_empty()
+    {
+        return (Some(ns.into()), Some(name.into()));
     }
     (None, None)
 }
@@ -609,7 +612,8 @@ impl AppAssessmentRow {
         let namespace_labels: std::collections::BTreeMap<String, String> =
             serde_json::from_value(self.namespace_labels)
                 .map_err(|e| DbError::Serialize(e.to_string()))?;
-        let dataplane_mode = if self.dataplane_mode == "ambient" || self.dataplane_mode == "sidecar" {
+        let dataplane_mode = if self.dataplane_mode == "ambient" || self.dataplane_mode == "sidecar"
+        {
             self.dataplane_mode
         } else {
             let derived = derive_dataplane_mode_from_stored(
@@ -624,8 +628,7 @@ impl AppAssessmentRow {
             }
         };
         let workload_components: Vec<String> =
-            serde_json::from_value(self.workload_components)
-                .unwrap_or_default();
+            serde_json::from_value(self.workload_components).unwrap_or_default();
         let application_name = if self.application_name.is_empty() {
             self.namespace.clone()
         } else {
@@ -640,8 +643,8 @@ impl AppAssessmentRow {
                 self.discovery_label.as_deref(),
             ),
         };
-        let migration_candidate = self.migration_candidate
-            && dp_mode != ambientor_dashboard::DataplaneMode::Ambient;
+        let migration_candidate =
+            self.migration_candidate && dp_mode != ambientor_dashboard::DataplaneMode::Ambient;
 
         Ok(ApplicationAssessmentRecord {
             namespace: self.namespace,

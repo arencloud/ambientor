@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use ambientor_dashboard::{
-    apply_cluster_ref_metadata, AssessmentFindingsOverrides, ClusterDashboard, DashboardResponse,
-    FleetClusterDashboard, FleetDashboardResponse, StatusCounts, build_dashboard,
+    AssessmentFindingsOverrides, ClusterDashboard, DashboardResponse, FleetClusterDashboard,
+    FleetDashboardResponse, StatusCounts, apply_cluster_ref_metadata, build_dashboard,
     list_rollout_ns_status, overlay_fleet_rollout_status, overlay_rollout_status,
 };
 use ambientor_db::{cluster_ref_from_env, load_assessment_findings_overrides};
@@ -51,13 +51,13 @@ pub async fn get_dashboard(
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             "DATABASE_URL not configured".into(),
         ))?;
-        if query.rebuild_assess {
-            if let Ok(Some(rebuilt)) = store.rebuild_from_latest_assessment(&cluster_ref).await {
-                if let Err(e) = store.sync_snapshot(&rebuilt).await {
-                    tracing::warn!(error = %e, "failed to sync rebuilt dashboard snapshot");
-                } else {
-                    return Ok(Json(rebuilt));
-                }
+        if query.rebuild_assess
+            && let Ok(Some(rebuilt)) = store.rebuild_from_latest_assessment(&cluster_ref).await
+        {
+            if let Err(e) = store.sync_snapshot(&rebuilt).await {
+                tracing::warn!(error = %e, "failed to sync rebuilt dashboard snapshot");
+            } else {
+                return Ok(Json(rebuilt));
             }
         }
         if let Ok(Some(cached)) = store.load_by_cluster_ref(&cluster_ref).await {
@@ -71,41 +71,32 @@ pub async fn get_dashboard(
 
     if let Some(store) = state.dashboard_store() {
         if let Ok(Some(mut cached)) = store.load_by_cluster_ref(&cluster_ref).await {
-            if let Ok(hub) = k8s_client().await {
-                if let Ok(rollouts) =
-                    list_rollout_ns_status(&hub.client, &cluster_ref).await
-                {
-                    overlay_rollout_status(&mut cached, &rollouts);
-                }
+            if let Ok(hub) = k8s_client().await
+                && let Ok(rollouts) = list_rollout_ns_status(&hub.client, &cluster_ref).await
+            {
+                overlay_rollout_status(&mut cached, &rollouts);
             }
             if query.fresh {
                 spawn_background_cluster_refresh(state.clone(), cluster_ref.clone());
                 return Ok(Json(cached));
             }
-            if !store
-                .is_snapshot_stale(&cluster_ref)
-                .await
-                .unwrap_or(true)
-            {
+            if !store.is_snapshot_stale(&cluster_ref).await.unwrap_or(true) {
                 return Ok(Json(cached));
             }
         }
 
-        if !query.fresh {
-            if let Ok(Some(mut rebuilt)) = store.rebuild_from_latest_assessment(&cluster_ref).await
+        if !query.fresh
+            && let Ok(Some(mut rebuilt)) = store.rebuild_from_latest_assessment(&cluster_ref).await
+        {
+            if let Ok(hub) = k8s_client().await
+                && let Ok(rollouts) = list_rollout_ns_status(&hub.client, &cluster_ref).await
             {
-                if let Ok(hub) = k8s_client().await {
-                    if let Ok(rollouts) =
-                        list_rollout_ns_status(&hub.client, &cluster_ref).await
-                    {
-                        overlay_rollout_status(&mut rebuilt, &rollouts);
-                    }
-                }
-                if let Err(e) = store.sync_snapshot(&rebuilt).await {
-                    tracing::warn!(error = %e, "failed to refresh dashboard snapshot from assessment");
-                } else {
-                    return Ok(Json(rebuilt));
-                }
+                overlay_rollout_status(&mut rebuilt, &rollouts);
+            }
+            if let Err(e) = store.sync_snapshot(&rebuilt).await {
+                tracing::warn!(error = %e, "failed to refresh dashboard snapshot from assessment");
+            } else {
+                return Ok(Json(rebuilt));
             }
         }
     }
@@ -179,10 +170,10 @@ pub async fn get_fleet_dashboard(
 
     let mut rollouts_by_cluster = std::collections::HashMap::new();
     for cluster in &fleet.clusters {
-        if let Ok(rollouts) = list_rollout_ns_status(&hub.client, &cluster.cluster_ref).await {
-            if !rollouts.is_empty() {
-                rollouts_by_cluster.insert(cluster.cluster_ref.clone(), rollouts);
-            }
+        if let Ok(rollouts) = list_rollout_ns_status(&hub.client, &cluster.cluster_ref).await
+            && !rollouts.is_empty()
+        {
+            rollouts_by_cluster.insert(cluster.cluster_ref.clone(), rollouts);
         }
     }
     overlay_fleet_rollout_status(&mut fleet, &rollouts_by_cluster);
@@ -232,10 +223,7 @@ async fn refresh_fleet_live(state: &AppState) -> Result<(), String> {
             let Some(name) = conn.metadata.name else {
                 continue;
             };
-            let ns = conn
-                .metadata
-                .namespace
-                .unwrap_or_else(|| "default".into());
+            let ns = conn.metadata.namespace.unwrap_or_else(|| "default".into());
             let cluster_ref = connection_cluster_ref(&ns, &name);
             if let Err((_, msg)) = compute_and_persist_live(state, &cluster_ref).await {
                 tracing::warn!(cluster_ref = %cluster_ref, error = %msg, "spoke dashboard refresh failed");
@@ -249,10 +237,11 @@ fn spawn_background_fleet_refresh(state: Arc<AppState>) {
     tokio::spawn(async move {
         match refresh_fleet_live(&state).await {
             Ok(()) => {
-                state.sse.write().await.publish(
-                    "dashboard",
-                    &serde_json::json!({ "scope": "fleet" }),
-                );
+                state
+                    .sse
+                    .write()
+                    .await
+                    .publish("dashboard", &serde_json::json!({ "scope": "fleet" }));
             }
             Err(e) => {
                 tracing::warn!(error = %e, "background fleet dashboard refresh failed");
@@ -277,14 +266,9 @@ async fn compute_and_persist_live(
         .map_err(internal)?;
 
     let overrides = load_findings_overrides(state, &client, cluster_ref).await;
-    let mut response = build_dashboard(
-        &client,
-        cluster_ref,
-        overrides.as_ref(),
-        Some(&hub.client),
-    )
-    .await
-    .map_err(internal)?;
+    let mut response = build_dashboard(&client, cluster_ref, overrides.as_ref(), Some(&hub.client))
+        .await
+        .map_err(internal)?;
     response.cluster.name =
         resolve_cluster_display_name(Some(&hub.client), cluster_ref, &response.cluster.name).await;
     apply_cluster_ref_metadata(cluster_ref, &mut response);
@@ -299,10 +283,10 @@ async fn compute_and_persist_live(
         response.reachable = Some(true);
     }
 
-    if let Some(store) = state.dashboard_store() {
-        if let Err(e) = store.sync_snapshot(&response).await {
-            tracing::warn!(error = %e, cluster_ref = %cluster_ref, "dashboard sync to database failed");
-        }
+    if let Some(store) = state.dashboard_store()
+        && let Err(e) = store.sync_snapshot(&response).await
+    {
+        tracing::warn!(error = %e, cluster_ref = %cluster_ref, "dashboard sync to database failed");
     }
 
     Ok(response)
@@ -381,10 +365,7 @@ async fn empty_findings_assessment_names(
         .into_iter()
         .filter_map(|a| {
             let name = a.metadata.name?;
-            let empty = a
-                .status
-                .as_ref()
-                .is_some_and(|s| s.findings.is_empty());
+            let empty = a.status.as_ref().is_some_and(|s| s.findings.is_empty());
             empty.then_some(name)
         })
         .collect())
@@ -409,10 +390,7 @@ async fn merge_fleet_with_connections(
         let Some(name) = conn.metadata.name else {
             continue;
         };
-        let ns = conn
-            .metadata
-            .namespace
-            .unwrap_or_else(|| "default".into());
+        let ns = conn.metadata.namespace.unwrap_or_else(|| "default".into());
         let cluster_ref = if conn.spec.hub {
             hub_ref.clone()
         } else {
@@ -439,10 +417,7 @@ async fn merge_fleet_with_connections(
     fleet
 }
 
-async fn enrich_fleet_display_names(
-    fleet: &mut FleetDashboardResponse,
-    hub: &kube::Client,
-) {
+async fn enrich_fleet_display_names(fleet: &mut FleetDashboardResponse, hub: &kube::Client) {
     let hub_ref = cluster_ref_from_env();
     let Ok(names) = connection_display_names(hub, &hub_ref).await else {
         return;

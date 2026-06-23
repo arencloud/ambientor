@@ -48,9 +48,7 @@ pub fn dashboard_from_assessment_run(
     }
 }
 
-pub fn compute_migration_savings(
-    apps: &[ApplicationAssessmentRecord],
-) -> MigrationSavingsSummary {
+pub fn compute_migration_savings(apps: &[ApplicationAssessmentRecord]) -> MigrationSavingsSummary {
     let migrated_workloads: u32 = apps
         .iter()
         .filter(|a| resolve_dataplane_mode(a) == DataplaneMode::Ambient)
@@ -65,7 +63,9 @@ pub fn compute_migration_savings(
     }
 }
 
-fn mesh_groups_from_applications(apps: &[ApplicationAssessmentRecord]) -> Vec<MeshInstanceDashboard> {
+fn mesh_groups_from_applications(
+    apps: &[ApplicationAssessmentRecord],
+) -> Vec<MeshInstanceDashboard> {
     let mut groups: BTreeMap<(String, String, String), MeshInstanceDashboard> = BTreeMap::new();
 
     for app in apps {

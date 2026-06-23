@@ -207,8 +207,13 @@ async fn build_dashboard_response(
     rollout_client: &Client,
 ) -> anyhow::Result<DashboardResponse> {
     let overrides = load_findings_overrides(client, scan_repo, cluster_ref).await;
-    let mut response =
-        build_dashboard(client, cluster_ref, overrides.as_ref(), Some(rollout_client)).await?;
+    let mut response = build_dashboard(
+        client,
+        cluster_ref,
+        overrides.as_ref(),
+        Some(rollout_client),
+    )
+    .await?;
     if response.connection_namespace.is_none()
         && let Some((ns, name)) = parse_connection_cluster_ref(cluster_ref)
     {
@@ -223,9 +228,7 @@ async fn load_findings_overrides(
     scan_repo: Option<&dyn ScanStore>,
     cluster_ref: &str,
 ) -> Option<AssessmentFindingsOverrides> {
-    let Some(scan_repo) = scan_repo else {
-        return None;
-    };
+    let scan_repo = scan_repo?;
     let names = empty_findings_assessment_names(client).await.ok()?;
     if names.is_empty() {
         return None;
@@ -244,10 +247,7 @@ async fn empty_findings_assessment_names(client: &Client) -> anyhow::Result<Vec<
         .into_iter()
         .filter_map(|a| {
             let name = a.metadata.name?;
-            let empty = a
-                .status
-                .as_ref()
-                .is_some_and(|s| s.findings.is_empty());
+            let empty = a.status.as_ref().is_some_and(|s| s.findings.is_empty());
             empty.then_some(name)
         })
         .collect())

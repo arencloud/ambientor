@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use ambientor_db::{ApplicationListQuery, cluster_ref_from_env};
-use ambientor_k8s::client_for_cluster_ref;
 use ambientor_k8s::K8sClient;
+use ambientor_k8s::client_for_cluster_ref;
 use ambientor_mesh::mesh_instances::{discover_mesh_instances, resolve_mesh_target};
 use ambientor_plan::{build_export_yaml, build_plan_from_selection, plan_to_rollout};
 use ambientor_types::{MigrationPlan, PolicyTranslation};
@@ -15,18 +15,18 @@ use axum::{
 use chrono::Utc;
 use kube::{
     Api,
-    api::{Patch, PatchParams, ListParams},
+    api::{ListParams, Patch, PatchParams},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::state::AppState;
 
+use super::dashboard::refresh_and_notify;
 use super::rollouts::{
     approve_rollout_stage, ensure_rollout_for_plan, fetch_rollout, rollout_name_for_plan,
     rollout_to_list_item,
 };
-use super::dashboard::refresh_and_notify;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -236,7 +236,12 @@ pub async fn create_plan(
     let k8s = k8s_client().await?;
     let exec_client = client_for_cluster_ref(&k8s.client, cluster_ref.as_deref())
         .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("target cluster client: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("target cluster client: {e}"),
+            )
+        })?;
     let instances = discover_mesh_instances(&exec_client)
         .await
         .map_err(internal)?;
@@ -273,7 +278,11 @@ pub async fn create_plan(
             .map(|s| s.chars().take(12).collect::<String>())
             .collect::<Vec<_>>()
             .join("-");
-        format!("migrate-{}-{}", slug, chrono::Utc::now().format("%Y%m%d%H%M%S"))
+        format!(
+            "migrate-{}-{}",
+            slug,
+            chrono::Utc::now().format("%Y%m%d%H%M%S")
+        )
     });
 
     let cr = MigrationPlan::new(&plan_name, spec);
@@ -388,7 +397,8 @@ pub async fn approve_plan(
         }
     }
     let updated = fetch_plan(&k8s, &namespace, &name).await?;
-    plan_to_list_item(&updated).ok_or((StatusCode::NOT_FOUND, "plan has no status".into()))
+    plan_to_list_item(&updated)
+        .ok_or((StatusCode::NOT_FOUND, "plan has no status".into()))
         .map(Json)
 }
 
@@ -401,21 +411,14 @@ pub async fn execute_plan(
 ) -> Result<Json<ExecutePlanResponse>, (StatusCode, String)> {
     let jwt_actor = if state.auth.is_some() {
         let rollout_name = rollout_name_for_plan(&name);
-        let claims = crate::authz::require_rollout_approve(
-            &state,
-            &headers,
-            &namespace,
-            &rollout_name,
-        )
-        .await?;
+        let claims =
+            crate::authz::require_rollout_approve(&state, &headers, &namespace, &rollout_name)
+                .await?;
         Some(claims.username)
     } else {
         None
     };
-    let actor = body
-        .actor
-        .or(jwt_actor)
-        .unwrap_or_else(|| "portal".into());
+    let actor = body.actor.or(jwt_actor).unwrap_or_else(|| "portal".into());
 
     let k8s = k8s_client().await?;
     let plan = fetch_plan(&k8s, &namespace, &name).await?;
@@ -593,15 +596,19 @@ async fn build_plan_sync(
     let rollout = fetch_rollout(k8s, namespace, &rollout_name).await.ok();
     let rollout_item = rollout.as_ref().and_then(rollout_to_list_item);
     let rollout_phase = rollout_item.as_ref().map(|r| r.phase.clone());
-    let rollout_awaiting = rollout_item
-        .as_ref()
-        .is_some_and(|r| r.awaiting_approval);
+    let rollout_awaiting = rollout_item.as_ref().is_some_and(|r| r.awaiting_approval);
 
     let next_action = if plan.phase != "Ready" {
         "wait_plan".into()
-    } else if rollout_item.as_ref().is_some_and(|r| r.phase == "RolledBack") {
+    } else if rollout_item
+        .as_ref()
+        .is_some_and(|r| r.phase == "RolledBack")
+    {
         "failed".into()
-    } else if rollout_item.as_ref().is_some_and(|r| r.phase == "Completed") {
+    } else if rollout_item
+        .as_ref()
+        .is_some_and(|r| r.phase == "Completed")
+    {
         "completed".into()
     } else if rollout_item.as_ref().is_some_and(|r| r.phase == "Failed") {
         "failed".into()
@@ -613,8 +620,6 @@ async fn build_plan_sync(
         "running".into()
     } else if rollout_awaiting {
         "approve_rollout".into()
-    } else if !plan.approved {
-        "execute".into()
     } else {
         "execute".into()
     };

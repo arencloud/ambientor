@@ -102,10 +102,7 @@ pub fn build_plan_from_selection(
 }
 
 /// Namespaces in `selected` that have blocker findings in `assessment`.
-pub fn namespaces_with_blockers(
-    selected: &[String],
-    assessment: &AssessmentResult,
-) -> Vec<String> {
+pub fn namespaces_with_blockers(selected: &[String], assessment: &AssessmentResult) -> Vec<String> {
     let blocker_ns: std::collections::HashSet<_> = assessment
         .findings
         .iter()
@@ -202,11 +199,7 @@ fn policy_tasks_for_namespaces(
         .findings
         .iter()
         .filter(|f| f.id.starts_with("traffic."))
-        .filter(|f| {
-            f.namespace
-                .as_ref()
-                .is_some_and(|ns| ns_set.contains(ns))
-        })
+        .filter(|f| f.namespace.as_ref().is_some_and(|ns| ns_set.contains(ns)))
         .map(|f| PolicyTask {
             kind: "review".into(),
             name: f.id.clone(),
@@ -218,7 +211,6 @@ fn policy_tasks_for_namespaces(
         })
         .collect()
 }
-
 
 pub fn plan_to_rollout(plan: &MigrationPlanSpec) -> RolloutSpec {
     let mut stages = vec![RolloutStage {

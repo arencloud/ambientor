@@ -2,10 +2,8 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use ambientor_mesh::dynamic::{api_resource, list_cr_in_namespace};
-use ambientor_mesh::ingress_collect::{
-    build_ingress_context, gateway_for_route,
-};
 use ambientor_mesh::enroll_namespace_on_mesh;
+use ambientor_mesh::ingress_collect::{build_ingress_context, gateway_for_route};
 use ambientor_types::{AmbientIngressGateway, MeshInstance};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Service;
@@ -17,11 +15,11 @@ use tracing::info;
 
 use crate::apply::apply_namespaced_manifest;
 use crate::engine::RolloutError;
-use crate::openshift_route::{restore_openshift_route_snapshot, upsert_openshift_route};
 use crate::labels::{
     clear_namespace_revision_label, ensure_mesh_enrollment_labels, label_namespace_ambient,
     remove_namespace_injection, snapshot_namespace_pre_migration,
 };
+use crate::openshift_route::{restore_openshift_route_snapshot, upsert_openshift_route};
 use crate::verify::{gateway_accepted, gateway_ready, verify_namespace_labels};
 
 pub const PER_NAMESPACE_INGRESS_NAME: &str = "ambient-ingress";
@@ -63,10 +61,10 @@ pub async fn migrate_ambient_ingress(
     verify_namespace_labels(client, namespace, mesh).await?;
 
     let ingress_namespace = ambient_ingress_namespace(namespace, shared);
-    if let Some(shared) = shared {
-        if shared.namespace != namespace {
-            ensure_dedicated_ambient_ingress_namespace(client, &shared.namespace, mesh).await?;
-        }
+    if let Some(shared) = shared
+        && shared.namespace != namespace
+    {
+        ensure_dedicated_ambient_ingress_namespace(client, &shared.namespace, mesh).await?;
     }
     ensure_mesh_enrollment_labels(client, &ingress_namespace, mesh).await?;
 
@@ -131,10 +129,9 @@ pub async fn migrate_ambient_ingress(
 
     if !route_errors.is_empty() {
         let _ = revert_ambient_ingress(client, namespace, Some(mesh), shared).await;
-        return Err(route_errors
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| RolloutError::ExecutionFailed("HTTPRoute migration failed".into())));
+        return Err(route_errors.into_iter().next().unwrap_or_else(|| {
+            RolloutError::ExecutionFailed("HTTPRoute migration failed".into())
+        }));
     }
 
     // migrate re-applies istio.io/rev for gateway programming; workloads must not keep it.
@@ -159,9 +156,12 @@ pub async fn revert_ambient_ingress(
     if restored > 0 {
         notes.push(format!("restored parentRefs on {restored} HTTPRoute(s)"));
     }
-    let routes_reverted =
-        revert_openshift_routes(client, namespace, &openshift_route_hostnames(client, namespace).await?)
-            .await?;
+    let routes_reverted = revert_openshift_routes(
+        client,
+        namespace,
+        &openshift_route_hostnames(client, namespace).await?,
+    )
+    .await?;
     if routes_reverted > 0 {
         notes.push(format!("reverted {routes_reverted} OpenShift Route(s)"));
     }
@@ -196,7 +196,9 @@ pub async fn cleanup_ingress_for_app(
     if let Some(shared) = shared {
         let _ = cleanup_ingress_gateway(client, &shared.namespace, &shared.name).await?;
     } else {
-        for (ns, name) in ingress_cleanup_targets_for_app(client, app_namespace, Some(mesh), shared).await? {
+        for (ns, name) in
+            ingress_cleanup_targets_for_app(client, app_namespace, Some(mesh), shared).await?
+        {
             let _ = cleanup_ingress_gateway(client, &ns, &name).await?;
         }
     }
@@ -217,7 +219,10 @@ fn infer_wildcard_hostname(routes: &[&ambientor_core::rules::ExternalRouteInfo])
 
 /// Per-app ingress lives in the application namespace; never relabel a legacy shared gateway ns.
 /// Use rollout `ambientIngressGateway` only for an explicit dedicated ambient ingress namespace.
-fn ambient_ingress_namespace(app_namespace: &str, shared: Option<&AmbientIngressGateway>) -> String {
+fn ambient_ingress_namespace(
+    app_namespace: &str,
+    shared: Option<&AmbientIngressGateway>,
+) -> String {
     shared
         .map(|g| g.namespace.clone())
         .unwrap_or_else(|| app_namespace.to_string())
@@ -253,12 +258,7 @@ async fn ingress_cleanup_targets_for_app(
     let gateway_name = shared
         .map(|g| g.name.as_str())
         .unwrap_or(PER_NAMESPACE_INGRESS_NAME);
-    let mut targets = ingress_cleanup_targets(
-        app_namespace,
-        mesh,
-        dedicated,
-        gateway_name,
-    );
+    let mut targets = ingress_cleanup_targets(app_namespace, mesh, dedicated, gateway_name);
     for ns in legacy_shared_gateway_namespaces(app_namespace, &routes, dedicated) {
         targets.push((ns, PER_NAMESPACE_INGRESS_NAME.into()));
     }
@@ -295,10 +295,10 @@ fn ingress_cleanup_targets(
     gateway_name: &str,
 ) -> Vec<(String, String)> {
     let mut targets = vec![(app_namespace.to_string(), gateway_name.into())];
-    if let Some(ns) = dedicated_namespace {
-        if ns != app_namespace {
-            targets.push((ns.to_string(), gateway_name.into()));
-        }
+    if let Some(ns) = dedicated_namespace
+        && ns != app_namespace
+    {
+        targets.push((ns.to_string(), gateway_name.into()));
     }
     // Remove gateways mistakenly placed in the control-plane namespace by older builds.
     if let Some(mesh) = mesh {
@@ -456,7 +456,9 @@ async fn wait_ambient_ingress_ready(
     while started.elapsed() < deadline {
         let gw_ok = match gw_api.get(gateway_name).await {
             Ok(gw) if gateway_ready(&gw.data) => true,
-            Ok(gw) => gateway_accepted(&gw.data) && deployment_ready(&dep_api, &deploy_name).await?,
+            Ok(gw) => {
+                gateway_accepted(&gw.data) && deployment_ready(&dep_api, &deploy_name).await?
+            }
             Err(kube::Error::Api(e)) if e.code == 404 => false,
             Err(e) => return Err(RolloutError::Kube(e)),
         };
@@ -479,11 +481,7 @@ async fn deployment_ready(dep_api: &Api<Deployment>, name: &str) -> Result<bool,
                 .as_ref()
                 .and_then(|s| s.ready_replicas)
                 .unwrap_or(0);
-            let desired = dep
-                .status
-                .as_ref()
-                .and_then(|s| s.replicas)
-                .unwrap_or(1);
+            let desired = dep.status.as_ref().and_then(|s| s.replicas).unwrap_or(1);
             Ok(ready >= 1 && ready >= desired)
         }
         Err(kube::Error::Api(e)) if e.code == 404 => Ok(false),
@@ -625,8 +623,7 @@ async fn collect_namespace_routes(
         .await
         .unwrap_or_default();
     let gateways = cluster_ingress_gateways(client).await?;
-    let (_, external_routes) =
-        build_ingress_context(&gateways, &[], &routes, &virtual_services);
+    let (_, external_routes) = build_ingress_context(&gateways, &[], &routes, &virtual_services);
     let ingress_gateways: Vec<_> = build_ingress_context(&gateways, &[], &[], &[])
         .0
         .into_iter()
@@ -638,10 +635,7 @@ async fn collect_namespace_routes(
 async fn cluster_ingress_gateways(client: &Client) -> Result<Vec<DynamicObject>, RolloutError> {
     let gw_ar = api_resource("gateway.networking.k8s.io", "v1", "Gateway", "gateways");
     let api = Api::<DynamicObject>::all_with(client.clone(), &gw_ar);
-    Ok(api
-        .list(&kube::api::ListParams::default())
-        .await?
-        .items)
+    Ok(api.list(&kube::api::ListParams::default()).await?.items)
 }
 
 async fn get_gateway(
@@ -766,19 +760,17 @@ async fn delete_managed_gateway(
         Err(kube::Error::Api(e)) if e.code == 404 => return Ok(false),
         Err(e) => return Err(RolloutError::Kube(e)),
     };
-    let managed = gw
-        .metadata
-        .labels
-        .as_ref()
-        .is_some_and(|l| {
-            l.get(MANAGED_BY_LABEL).map(String::as_str) == Some(MANAGED_BY_VALUE)
-                || l.get("ambientor.io/ingress-created").map(String::as_str) == Some("true")
-        });
+    let managed = gw.metadata.labels.as_ref().is_some_and(|l| {
+        l.get(MANAGED_BY_LABEL).map(String::as_str) == Some(MANAGED_BY_VALUE)
+            || l.get("ambientor.io/ingress-created").map(String::as_str) == Some("true")
+    });
     if !managed {
         return Ok(false);
     }
-    let mut params = DeleteParams::default();
-    params.propagation_policy = Some(PropagationPolicy::Foreground);
+    let params = DeleteParams {
+        propagation_policy: Some(PropagationPolicy::Foreground),
+        ..Default::default()
+    };
     api.delete(name, &params).await?;
     Ok(true)
 }
@@ -804,7 +796,10 @@ fn is_ambientor_ingress_workload(labels: Option<&BTreeMap<String, String>>) -> b
         return false;
     };
     labels.get(MANAGED_BY_LABEL).map(String::as_str) == Some(MANAGED_BY_VALUE)
-        || labels.get("ambientor.io/ingress-created").map(String::as_str) == Some("true")
+        || labels
+            .get("ambientor.io/ingress-created")
+            .map(String::as_str)
+            == Some("true")
         || labels
             .get("gateway.networking.k8s.io/gateway-name")
             .map(String::as_str)
@@ -907,7 +902,8 @@ async fn migrate_openshift_routes(
         if route_ns != app_namespace && !legacy.is_empty() && !legacy.contains(to_name) {
             continue;
         }
-        if route_ns != app_namespace && legacy.is_empty() && !is_shared_gateway_namespace(&route_ns) {
+        if route_ns != app_namespace && legacy.is_empty() && !is_shared_gateway_namespace(&route_ns)
+        {
             continue;
         }
 
@@ -937,11 +933,8 @@ async fn migrate_openshift_routes(
         }
 
         let snapshot = openshift_route_snapshot(route);
-        let route_api =
-            Api::<DynamicObject>::namespaced_with(client.clone(), &route_ns, &route_ar);
-        route_api
-            .delete(&name, &DeleteParams::default())
-            .await?;
+        let route_api = Api::<DynamicObject>::namespaced_with(client.clone(), &route_ns, &route_ar);
+        route_api.delete(&name, &DeleteParams::default()).await?;
 
         let mut spec = route.data.get("spec").cloned().unwrap_or(json!({}));
         if let Some(spec_obj) = spec.as_object_mut() {
@@ -987,12 +980,8 @@ async fn migrate_openshift_routes(
             continue;
         }
         let name = openshift_route_name_for_host(host);
-        let manifest = default_openshift_route_manifest(
-            &name,
-            app_namespace,
-            host,
-            target_service_name,
-        );
+        let manifest =
+            default_openshift_route_manifest(&name, app_namespace, host, target_service_name);
         upsert_openshift_route(client, app_namespace, &manifest).await?;
         updated += 1;
         info!(
@@ -1016,15 +1005,8 @@ fn openshift_route_serves_host(
 ) -> bool {
     routes.iter().any(|route| {
         route.metadata.namespace.as_deref() == Some(app_namespace)
-            && route
-                .data
-                .pointer("/spec/host")
-                .and_then(|v| v.as_str())
-                == Some(host)
-            && route
-                .data
-                .pointer("/spec/to/name")
-                .and_then(|v| v.as_str())
+            && route.data.pointer("/spec/host").and_then(|v| v.as_str()) == Some(host)
+            && route.data.pointer("/spec/to/name").and_then(|v| v.as_str())
                 == Some(target_service_name)
     })
 }
@@ -1068,12 +1050,12 @@ fn default_openshift_route_manifest(
     })
 }
 
-async fn openshift_route_hostnames(client: &Client, namespace: &str) -> Result<Vec<String>, RolloutError> {
+async fn openshift_route_hostnames(
+    client: &Client,
+    namespace: &str,
+) -> Result<Vec<String>, RolloutError> {
     let (routes, _) = collect_namespace_routes(client, namespace).await?;
-    let hosts: Vec<String> = routes
-        .into_iter()
-        .flat_map(|r| r.hostnames)
-        .collect();
+    let hosts: Vec<String> = routes.into_iter().flat_map(|r| r.hostnames).collect();
     Ok(hosts)
 }
 
@@ -1129,8 +1111,7 @@ async fn revert_openshift_routes(
         let Some(name) = route.metadata.name.clone() else {
             continue;
         };
-        let route_api =
-            Api::<DynamicObject>::namespaced_with(client.clone(), &route_ns, &route_ar);
+        let route_api = Api::<DynamicObject>::namespaced_with(client.clone(), &route_ns, &route_ar);
 
         if let Some(snapshot_raw) = route
             .metadata
@@ -1149,9 +1130,7 @@ async fn revert_openshift_routes(
                 .and_then(|v| v.as_str())
                 .unwrap_or(name.as_str());
 
-            route_api
-                .delete(&name, &DeleteParams::default())
-                .await?;
+            route_api.delete(&name, &DeleteParams::default()).await?;
 
             if original_ns != route_ns || original_name != name {
                 let mut restore = snapshot.clone();
