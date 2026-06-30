@@ -332,15 +332,23 @@ if ! command -v istioctl >/dev/null 2>&1; then
   die "istioctl not found; install Istio ${ISTIO_VERSION} CLI"
 fi
 
-log "installing Istio ${ISTIO_VERSION} ambient profile"
-istioctl install --set profile=ambient -y --context "${CTX}"
+log "installing Istio ${ISTIO_VERSION} ambient profile (revision=ambient)"
+# Named revision so istiod is discoverable (deployment istiod-ambient + istio.io/rev label).
+# Plain `profile=ambient` installs deployment/istiod without a revision label; mesh discovery
+# then finds zero control planes and rollouts fail with "no ambient Istio control plane found".
+istioctl install --set profile=ambient --set revision=ambient -y --context "${CTX}"
+
+log "waiting for Istio control plane"
+wait_for_pod_ready "istiod" "istio-system" "app=istiod"
+wait_for_pod_ready "ztunnel" "istio-system" "app=ztunnel"
 
 log "installing Gateway API CRDs ${GATEWAY_API_VERSION}"
 kubectl_ctx apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
 
-log "deploying minimal bookinfo (ratings only; sidecar mode)"
+log "deploying minimal bookinfo (ratings only; sidecar mode on ambient revision)"
 kubectl_ctx create namespace "${BOOKINFO_NS}" --dry-run=client -o yaml | kubectl_ctx apply -f -
-kubectl_ctx label namespace "${BOOKINFO_NS}" istio-injection=enabled --overwrite
+kubectl_ctx label namespace "${BOOKINFO_NS}" istio.io/rev=ambient --overwrite
+kubectl_ctx label namespace "${BOOKINFO_NS}" istio-injection- 2>/dev/null || true
 kubectl_ctx apply -n "${BOOKINFO_NS}" -f docs/lab/bookinfo-e2e.yaml
 wait_for_pod_ready "bookinfo ratings" "${BOOKINFO_NS}" "app=ratings"
 
