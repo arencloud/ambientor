@@ -227,13 +227,19 @@ assert_rollout_rollback_state() {
 
 sabotage_verify_stage() {
   local rollout="${1:-${ROLLOUT}}"
-  local verify_idx patch
+  local trap_ns="e2e-verify-trap"
+  local enroll_idx verify_idx patch
+  kubectl_ctx create namespace "${trap_ns}" --dry-run=client -o yaml | kubectl_ctx apply -f -
+  enroll_idx="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o json 2>/dev/null | \
+    jq '[.spec.stages | to_entries[] | select(.value.type == "EnrollNamespace") | .key] | first')"
   verify_idx="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o json 2>/dev/null | \
     jq '[.spec.stages | to_entries[] | select(.value.name | endswith("-verify")) | .key] | first')"
+  [[ -n "${enroll_idx}" && "${enroll_idx}" != "null" ]] || die "rollback e2e: no EnrollNamespace stage on rollout ${rollout}"
   [[ -n "${verify_idx}" && "${verify_idx}" != "null" ]] || die "rollback e2e: no *-verify stage on rollout ${rollout}"
-  log "rollback e2e: point verify stage ${verify_idx} at kube-system (guaranteed verify failure)"
-  patch="$(jq -n --argjson idx "${verify_idx}" \
-    '[{"op":"replace","path":("/spec/stages/" + ($idx|tostring) + "/namespaces"),"value":["kube-system"]}]')"
+  log "rollback e2e: enroll ${trap_ns} but verify only ${trap_ns} (no waypoint → verify fails)"
+  patch="$(jq -n --argjson enroll_idx "${enroll_idx}" --argjson verify_idx "${verify_idx}" --arg trap "${trap_ns}" \
+    '[{"op":"add","path":("/spec/stages/" + ($enroll_idx|tostring) + "/namespaces/-"),"value":$trap},
+      {"op":"replace","path":("/spec/stages/" + ($verify_idx|tostring) + "/namespaces"),"value":[$trap]}]')"
   kubectl_ctx patch rollout "${rollout}" -n "${NS_SYSTEM}" --type=json -p "${patch}"
 }
 
