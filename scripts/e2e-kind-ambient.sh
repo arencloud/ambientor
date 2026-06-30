@@ -213,12 +213,6 @@ wait_until_rollout_stage_suffix() {
   done
 }
 
-inject_verify_failure() {
-  log "removing ambient labels to force VerifyTraffic failure"
-  kubectl_ctx label namespace "${BOOKINFO_NS}" \
-    istio.io/dataplane-mode- istio.io/use-waypoint- --overwrite 2>/dev/null || true
-}
-
 assert_rollout_rollback_state() {
   local dp wp
   dp="$(kubectl_ctx get namespace "${BOOKINFO_NS}" -o jsonpath='{.metadata.labels.istio\.io/dataplane-mode}' 2>/dev/null || true)"
@@ -231,16 +225,27 @@ assert_rollout_rollback_state() {
   log "rollback state OK (ambient labels and waypoint reverted)"
 }
 
+sabotage_verify_stage() {
+  local rollout="${1:-${ROLLOUT}}"
+  local verify_idx patch
+  verify_idx="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o json 2>/dev/null | \
+    jq '[.spec.stages | to_entries[] | select(.value.name | endswith("-verify")) | .key] | first')"
+  [[ -n "${verify_idx}" && "${verify_idx}" != "null" ]] || die "rollback e2e: no *-verify stage on rollout ${rollout}"
+  log "rollback e2e: point verify stage ${verify_idx} at kube-system (guaranteed verify failure)"
+  patch="$(jq -n --argjson idx "${verify_idx}" \
+    '[{"op":"replace","path":("/spec/stages/" + ($idx|tostring) + "/namespaces"),"value":["kube-system"]}]')"
+  kubectl_ctx patch rollout "${rollout}" -n "${NS_SYSTEM}" --type=json -p "${patch}"
+}
+
 run_rollback_failure_e2e() {
   if [[ "${SKIP_ROLLBACK_E2E}" == "1" ]]; then
     log "SKIP rollback failure e2e (SKIP_ROLLBACK_E2E=1)"
     return 0
   fi
-  log "rollback e2e: create rollout and inject verify failure"
+  log "rollback e2e: create rollout and force verify failure"
   api_curl POST "/api/v1/plans/${NS_SYSTEM}/${PLAN}/rollout" '{}' >/dev/null
+  sabotage_verify_stage "${ROLLOUT}"
   approve_rollout_if_needed "${ROLLOUT}"
-  wait_until_rollout_stage_suffix "-verify" "${ROLLOUT}"
-  inject_verify_failure
   wait_rollout_rolled_back "${ROLLOUT}"
   assert_rollout_rollback_state
   log "deleting rolled-back rollout before happy-path retry"
