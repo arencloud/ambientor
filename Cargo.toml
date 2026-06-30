@@ -42,7 +42,7 @@ ambientor-scan = { path = "crates/ambientor-scan" }
 ambientor-types = { path = "crates/ambientor-types" }
 ambientor-web = { path = "crates/ambientor-web" }
 
-anyhow = "1"
+anyhow = "1.0.103"
 argon2 = "0.5"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros", "ws"] }
