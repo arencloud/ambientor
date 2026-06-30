@@ -330,7 +330,16 @@ if [[ "${SKIP_CLUSTER_CREATE}" != "1" ]]; then
     log "reusing existing kind cluster ${CLUSTER}"
   else
     log "creating kind cluster ${CLUSTER}"
-    kind create cluster --name "${CLUSTER}" --config docs/lab/kind-config-e2e.yaml
+    for attempt in 1 2 3; do
+      if kind create cluster --name "${CLUSTER}" --config docs/lab/kind-config-e2e.yaml; then
+        break
+      fi
+      if [[ "${attempt}" -eq 3 ]]; then
+        die "kind create failed after 3 attempts"
+      fi
+      log "kind create failed (attempt ${attempt}); retrying in 15s"
+      sleep 15
+    done
   fi
 fi
 
