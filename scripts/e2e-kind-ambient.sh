@@ -152,24 +152,27 @@ wait_for_deployment() {
 
 approve_rollout_if_needed() {
   local rollout="${1:-${ROLLOUT}}"
-  local phase current approved stage_name
+  local phase current approved stage_name stage_count pipeline_last
   phase="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
   [[ "${phase}" == "AwaitingApproval" ]] || return 0
   current="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.currentStage}')"
-  approved="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.approvedStage}' 2>/dev/null || echo 0)"
+  approved="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath='{.status.approvedStage}' 2>/dev/null || echo -1)"
+  stage_count="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o json 2>/dev/null | jq '.spec.stages | length' 2>/dev/null || echo 0)"
+  pipeline_last=$((stage_count > 0 ? stage_count - 1 : 0))
   stage_name="$(kubectl_ctx get rollout -n "${NS_SYSTEM}" "${rollout}" -o jsonpath="{.spec.stages[${current}].name}" 2>/dev/null || echo "?")"
-  if [[ "${approved}" -ge "${current}" ]]; then
-    log "rollout stage ${current} (${stage_name}) already approved (approvedStage=${approved}); waiting for operator"
+  # Stage 0 is a one-time gate: approvedStage must reach the last stage index (matches API approve).
+  if [[ "${approved}" -ge "${pipeline_last}" ]]; then
+    log "rollout pipeline already approved (approvedStage=${approved}, last=${pipeline_last}); waiting for operator"
     return 0
   fi
-  log "approving rollout stage ${current} (${stage_name})"
+  log "approving rollout pipeline at stage ${current} (${stage_name})"
   if api_curl POST "/api/v1/rollouts/${NS_SYSTEM}/${rollout}/approve" \
     "{\"stage\":${current},\"actor\":\"e2e\"}" >/dev/null 2>&1; then
     return 0
   fi
-  log "API approve unavailable; patching rollout status"
+  log "API approve unavailable; patching rollout status (approvedStage=${pipeline_last})"
   kubectl_ctx patch rollout "${rollout}" -n "${NS_SYSTEM}" --subresource=status --type=merge -p \
-    "{\"status\":{\"approvedStage\":${current}}}"
+    "{\"status\":{\"approvedStage\":${pipeline_last},\"phase\":\"Pending\"}}"
 }
 
 wait_rollout_rolled_back() {
